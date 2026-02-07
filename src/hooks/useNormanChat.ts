@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useProfile } from "@/hooks/useProfile";
 
 type Message = { role: "user" | "assistant"; content: string };
 type Mode = "general" | "reason" | "automate" | "analyze";
@@ -8,6 +9,7 @@ const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/norman-chat`
 export function useNormanChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const { profile } = useProfile();
 
   const send = useCallback(
     async (input: string, mode: Mode = "general") => {
@@ -38,7 +40,7 @@ export function useNormanChat() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
           },
-          body: JSON.stringify({ messages: newMessages, mode }),
+          body: JSON.stringify({ messages: newMessages, mode, userProfile: profile ?? undefined }),
         });
 
         if (!resp.ok) {

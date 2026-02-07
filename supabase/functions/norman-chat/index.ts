@@ -35,7 +35,7 @@ serve(async (req) => {
   }
 
   try {
-    const { messages, mode } = await req.json();
+    const { messages, mode, userProfile } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
     if (!LOVABLE_API_KEY) {
@@ -44,6 +44,20 @@ serve(async (req) => {
 
     // Adjust system prompt based on mode
     let systemContent = SYSTEM_PROMPT;
+
+    // Inject user profile context if available
+    if (userProfile) {
+      const parts: string[] = [];
+      if (userProfile.display_name) parts.push(`Name: ${userProfile.display_name}`);
+      if (userProfile.role_title) parts.push(`Role: ${userProfile.role_title}`);
+      if (userProfile.department) parts.push(`Department: ${userProfile.department}`);
+      if (userProfile.bio) parts.push(`About: ${userProfile.bio}`);
+      if (userProfile.norman_context) parts.push(`Additional context: ${userProfile.norman_context}`);
+      if (parts.length > 0) {
+        systemContent += `\n\nYou are speaking with a team member. Here is their profile:\n${parts.join("\n")}\n\nUse this information to personalise your responses. Address them by name when appropriate.`;
+      }
+    }
+
     if (mode === "reason") {
       systemContent += "\n\nYou are in REASONING mode. Think deeply and step-by-step. Show your reasoning chain explicitly using numbered steps. Consider multiple angles before concluding.";
     } else if (mode === "automate") {

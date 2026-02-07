@@ -1,0 +1,154 @@
+import { useState, useEffect } from "react";
+import { motion } from "framer-motion";
+import { User, Briefcase, Building2, Brain, Save, Loader2 } from "lucide-react";
+import Sidebar from "@/components/Sidebar";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { useProfile, ProfileData } from "@/hooks/useProfile";
+import { useAuth } from "@/hooks/useAuth";
+
+const Profile = () => {
+  const { user } = useAuth();
+  const { profile, isLoading, updateProfile, isSaving } = useProfile();
+
+  const [form, setForm] = useState<Partial<ProfileData>>({
+    display_name: "",
+    role_title: "",
+    department: "",
+    bio: "",
+    norman_context: "",
+  });
+
+  useEffect(() => {
+    if (profile) {
+      setForm({
+        display_name: profile.display_name ?? "",
+        role_title: profile.role_title ?? "",
+        department: profile.department ?? "",
+        bio: profile.bio ?? "",
+        norman_context: profile.norman_context ?? "",
+      });
+    }
+  }, [profile]);
+
+  const handleSave = () => updateProfile(form);
+
+  const set = (key: keyof ProfileData, value: string) =>
+    setForm((prev) => ({ ...prev, [key]: value }));
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen bg-background">
+        <Sidebar />
+        <main className="ml-64 flex-1 flex items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </main>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-screen bg-background">
+      <Sidebar />
+      <main className="ml-64 flex-1">
+        <div className="pointer-events-none fixed top-0 left-64 right-0 h-72 gradient-radial z-0" />
+
+        <div className="relative z-10 px-8 py-8 max-w-2xl">
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+            <h2 className="text-2xl font-bold text-foreground tracking-tight mb-1">Your Profile</h2>
+            <p className="text-sm text-muted-foreground mb-8">
+              Help Norman understand who you are so it can personalise responses.
+            </p>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="space-y-6 rounded-xl border border-border bg-card p-6"
+          >
+            {/* Name */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-foreground">
+                <User className="h-4 w-4 text-primary" /> Display Name
+              </Label>
+              <Input
+                value={form.display_name ?? ""}
+                onChange={(e) => set("display_name", e.target.value)}
+                placeholder="e.g. Nimesh Patel"
+              />
+            </div>
+
+            {/* Role */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-foreground">
+                <Briefcase className="h-4 w-4 text-primary" /> Role / Title
+              </Label>
+              <Input
+                value={form.role_title ?? ""}
+                onChange={(e) => set("role_title", e.target.value)}
+                placeholder="e.g. Head of Operations"
+              />
+            </div>
+
+            {/* Department */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-foreground">
+                <Building2 className="h-4 w-4 text-primary" /> Department
+              </Label>
+              <Input
+                value={form.department ?? ""}
+                onChange={(e) => set("department", e.target.value)}
+                placeholder="e.g. Operations"
+              />
+            </div>
+
+            {/* Bio */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-foreground">
+                <User className="h-4 w-4 text-primary" /> About You
+              </Label>
+              <Textarea
+                value={form.bio ?? ""}
+                onChange={(e) => set("bio", e.target.value)}
+                placeholder="A brief description of what you do, your responsibilities, and what matters to you at work…"
+                className="min-h-[100px]"
+              />
+            </div>
+
+            {/* Norman context */}
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2 text-foreground">
+                <Brain className="h-4 w-4 text-primary" /> Norman Personalisation
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Anything else Norman should know — communication style, priorities, projects you're focused on.
+              </p>
+              <Textarea
+                value={form.norman_context ?? ""}
+                onChange={(e) => set("norman_context", e.target.value)}
+                placeholder="e.g. I prefer concise bullet-point answers. I'm currently focused on Q1 hiring plan and the product launch in March."
+                className="min-h-[120px]"
+              />
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <Button onClick={handleSave} disabled={isSaving} className="gap-2">
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Save Profile
+              </Button>
+            </div>
+          </motion.div>
+
+          <p className="text-xs text-muted-foreground mt-4">
+            Signed in as <span className="font-mono text-foreground">{user?.email}</span>
+          </p>
+        </div>
+      </main>
+    </div>
+  );
+};
+
+export default Profile;
