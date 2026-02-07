@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.connect-integration]
 verify_jwt = false
+
+[functions.manage-company-integration]
+verify_jwt = false
