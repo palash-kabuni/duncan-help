@@ -55,7 +55,7 @@ const Sidebar = () => {
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">KabuniOS</p>
+          <p className="text-[10px] font-mono tracking-widest text-muted-foreground">KabuniOS</p>
         </div>
       </div>
 
