@@ -1,6 +1,7 @@
 import { Brain, LayoutDashboard, Plug, Database, Terminal, Settings, Activity, LogOut, UserCircle } from "lucide-react";
 import { NavLink as RouterNavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 const navItems = [{
   icon: LayoutDashboard,
@@ -44,7 +45,16 @@ const Sidebar = () => {
           <div className="absolute inset-0 rounded-lg border border-primary/20" />
         </div>
         <div>
-          <h1 className="text-lg font-bold tracking-tight text-foreground">Norman</h1>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <h1 className="text-lg font-bold tracking-tight text-foreground cursor-default">Norman</h1>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-[200px]">
+                <p className="text-xs">Named after Jo's dad Norman — our COO's inspiration behind the system.</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">KabuniOS</p>
         </div>
       </div>
