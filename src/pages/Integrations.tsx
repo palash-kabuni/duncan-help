@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Mail, FileText, MessageSquare, Calendar, FolderOpen,
   CheckCircle2, AlertCircle, ArrowRight, X, Plug, Shield,
-  Clock, Database, Zap, Loader2
+  Clock, Database, Zap, Loader2, Lock
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import { Input } from "@/components/ui/input";
@@ -15,8 +15,15 @@ import {
   useDisconnectIntegration,
   type UserIntegration,
 } from "@/hooks/useUserIntegrations";
+import {
+  useCompanyIntegrations,
+  useUpdateCompanyIntegration,
+  type CompanyIntegration,
+} from "@/hooks/useCompanyIntegrations";
+import { useIsAdmin } from "@/hooks/useUserRoles";
 
 type IntegrationStatus = "connected" | "pending" | "disconnected";
+type IntegrationType = "user" | "company";
 
 interface Integration {
   id: string;
@@ -26,6 +33,7 @@ interface Integration {
   category: string;
   services: string[];
   setupSteps: string[];
+  type: IntegrationType; // "user" = per-user, "company" = shared company-wide
 }
 
 const integrations: Integration[] = [
@@ -36,6 +44,7 @@ const integrations: Integration[] = [
     icon: Mail,
     category: "Productivity",
     services: ["Gmail", "Google Drive", "Google Calendar", "Google Docs"],
+    type: "user",
     setupSteps: [
       "Create a Google Cloud project and enable the required APIs (Gmail, Drive, Calendar, Docs)",
       "Configure OAuth consent screen with your domain",
@@ -46,15 +55,16 @@ const integrations: Integration[] = [
   {
     id: "notion",
     name: "Notion",
-    description: "Sync databases, pages, and wikis. Norman will index and reason over your Notion workspace.",
+    description: "Company-wide Notion workspace. Norman indexes and reasons over shared databases, pages, and wikis.",
     icon: FileText,
     category: "Knowledge",
     services: ["Databases", "Pages", "Wikis", "Comments"],
+    type: "company",
     setupSteps: [
       "Go to notion.so/my-integrations and create a new integration",
       "Copy the Internal Integration Token",
       "Share the Notion pages/databases you want Norman to access with the integration",
-      "Add the token to Norman's settings",
+      "An admin adds the token to Norman's settings",
     ],
   },
   {
@@ -64,6 +74,7 @@ const integrations: Integration[] = [
     icon: MessageSquare,
     category: "Communication",
     services: ["Channels", "Direct Messages", "Threads", "Reactions"],
+    type: "user",
     setupSteps: [
       "Create a Slack App at api.slack.com/apps",
       "Add Bot Token Scopes (channels:read, chat:write, etc.)",
@@ -78,6 +89,7 @@ const integrations: Integration[] = [
     icon: Zap,
     category: "Project Management",
     services: ["Issues", "Projects", "Cycles", "Teams"],
+    type: "user",
     setupSteps: [
       "Go to Linear Settings → API → Personal API Keys",
       "Create a new API key with the required scopes",
@@ -91,6 +103,7 @@ const integrations: Integration[] = [
     icon: Calendar,
     category: "Productivity",
     services: ["Events", "Calendars", "Reminders"],
+    type: "user",
     setupSteps: [
       "Uses your Google Workspace credentials",
       "Enable the Calendar API in your Google Cloud project",
@@ -104,6 +117,7 @@ const integrations: Integration[] = [
     icon: FolderOpen,
     category: "Knowledge",
     services: ["Documents", "Spreadsheets", "Presentations", "Folders"],
+    type: "user",
     setupSteps: [
       "Uses your Google Workspace credentials",
       "Enable the Drive API in your Google Cloud project",
@@ -118,27 +132,48 @@ const statusConfig = {
   disconnected: { label: "Not connected", color: "text-muted-foreground", dot: "bg-muted-foreground", bg: "bg-muted/50 border-border" },
 };
 
-function getStatus(integrationId: string, userIntegrations: UserIntegration[]): IntegrationStatus {
-  const ui = userIntegrations.find((u) => u.integration_id === integrationId);
+function getStatus(
+  integration: Integration,
+  userIntegrations: UserIntegration[],
+  companyIntegrations: CompanyIntegration[]
+): IntegrationStatus {
+  if (integration.type === "company") {
+    const ci = companyIntegrations.find((c) => c.integration_id === integration.id);
+    if (!ci) return "disconnected";
+    return ci.status as IntegrationStatus;
+  }
+  const ui = userIntegrations.find((u) => u.integration_id === integration.id);
   if (!ui) return "disconnected";
   return ui.status as IntegrationStatus;
 }
 
-function getUserIntegration(integrationId: string, userIntegrations: UserIntegration[]) {
-  return userIntegrations.find((u) => u.integration_id === integrationId);
+function getIntegrationData(
+  integration: Integration,
+  userIntegrations: UserIntegration[],
+  companyIntegrations: CompanyIntegration[]
+) {
+  if (integration.type === "company") {
+    return companyIntegrations.find((c) => c.integration_id === integration.id);
+  }
+  return userIntegrations.find((u) => u.integration_id === integration.id);
 }
 
 const Integrations = () => {
   const [selectedIntegration, setSelectedIntegration] = useState<Integration | null>(null);
   const [filter, setFilter] = useState<string>("all");
-  const { data: userIntegrations = [], isLoading } = useUserIntegrations();
+  const { data: userIntegrations = [], isLoading: userLoading } = useUserIntegrations();
+  const { data: companyIntegrations = [], isLoading: companyLoading } = useCompanyIntegrations();
+  const { isAdmin } = useIsAdmin();
+
+  const isLoading = userLoading || companyLoading;
 
   const categories = ["all", ...Array.from(new Set(integrations.map((i) => i.category)))];
   const filtered = filter === "all" ? integrations : integrations.filter((i) => i.category === filter);
 
-  const connectedCount = integrations.filter((i) => getStatus(i.id, userIntegrations) === "connected").length;
-  const totalDocs = userIntegrations.reduce((sum, u) => sum + (u.documents_ingested ?? 0), 0);
-
+  const connectedCount = integrations.filter((i) => getStatus(i, userIntegrations, companyIntegrations) === "connected").length;
+  const userDocs = userIntegrations.reduce((sum, u) => sum + (u.documents_ingested ?? 0), 0);
+  const companyDocs = companyIntegrations.reduce((sum, c) => sum + (c.documents_ingested ?? 0), 0);
+  const totalDocs = userDocs + companyDocs;
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar />
@@ -206,9 +241,10 @@ const Integrations = () => {
             /* Integration Grid */
             <div className="grid grid-cols-2 gap-4">
               {filtered.map((integration, i) => {
-                const status = getStatus(integration.id, userIntegrations);
+                const status = getStatus(integration, userIntegrations, companyIntegrations);
                 const s = statusConfig[status];
-                const ui = getUserIntegration(integration.id, userIntegrations);
+                const integrationData = getIntegrationData(integration, userIntegrations, companyIntegrations);
+                const isCompany = integration.type === "company";
                 return (
                   <motion.div
                     key={integration.id}
@@ -224,7 +260,15 @@ const Integrations = () => {
                           <integration.icon className="h-5 w-5 text-secondary-foreground" />
                         </div>
                         <div>
-                          <h3 className="text-sm font-semibold text-foreground">{integration.name}</h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-semibold text-foreground">{integration.name}</h3>
+                            {isCompany && (
+                              <span className="flex items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">
+                                <Lock className="h-2.5 w-2.5" />
+                                Company
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">{integration.category}</span>
                         </div>
                       </div>
@@ -245,16 +289,16 @@ const Integrations = () => {
                     </div>
 
                     <div className="flex items-center justify-between">
-                      {ui?.last_sync ? (
+                      {integrationData?.last_sync ? (
                         <div className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground/50">
                           <Clock className="h-3 w-3" />
-                          Last sync: {new Date(ui.last_sync).toLocaleDateString()}
+                          Last sync: {new Date(integrationData.last_sync).toLocaleDateString()}
                         </div>
                       ) : (
                         <span className="text-[10px] font-mono text-muted-foreground/30">Not synced yet</span>
                       )}
                       <div className="flex items-center gap-1 text-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity">
-                        Configure <ArrowRight className="h-3 w-3" />
+                        {isCompany && !isAdmin ? "View" : "Configure"} <ArrowRight className="h-3 w-3" />
                       </div>
                     </div>
                   </motion.div>
@@ -270,6 +314,8 @@ const Integrations = () => {
             <IntegrationDetail
               integration={selectedIntegration}
               userIntegrations={userIntegrations}
+              companyIntegrations={companyIntegrations}
+              isAdmin={isAdmin}
               onClose={() => setSelectedIntegration(null)}
             />
           )}
@@ -282,18 +328,28 @@ const Integrations = () => {
 const IntegrationDetail = ({
   integration,
   userIntegrations,
+  companyIntegrations,
+  isAdmin,
   onClose,
 }: {
   integration: Integration;
   userIntegrations: UserIntegration[];
+  companyIntegrations: CompanyIntegration[];
+  isAdmin: boolean;
   onClose: () => void;
 }) => {
-  const status = getStatus(integration.id, userIntegrations);
-  const ui = getUserIntegration(integration.id, userIntegrations);
+  const status = getStatus(integration, userIntegrations, companyIntegrations);
+  const integrationData = getIntegrationData(integration, userIntegrations, companyIntegrations);
   const s = statusConfig[status];
   const [apiKey, setApiKey] = useState("");
+  const isCompany = integration.type === "company";
+  
+  // User integration mutations
   const connectMutation = useConnectIntegration();
   const disconnectMutation = useDisconnectIntegration();
+  
+  // Company integration mutation
+  const companyMutation = useUpdateCompanyIntegration();
 
   const handleConnect = async () => {
     if (!apiKey.trim()) {
@@ -301,7 +357,11 @@ const IntegrationDetail = ({
       return;
     }
     try {
-      await connectMutation.mutateAsync({ integrationId: integration.id, apiKey });
+      if (isCompany) {
+        await companyMutation.mutateAsync({ integrationId: integration.id, apiKey });
+      } else {
+        await connectMutation.mutateAsync({ integrationId: integration.id, apiKey });
+      }
       toast.success(`${integration.name} connected successfully!`);
       onClose();
     } catch (err: any) {
@@ -311,13 +371,20 @@ const IntegrationDetail = ({
 
   const handleDisconnect = async () => {
     try {
-      await disconnectMutation.mutateAsync(integration.id);
+      if (isCompany) {
+        await companyMutation.mutateAsync({ integrationId: integration.id, action: "disconnect" });
+      } else {
+        await disconnectMutation.mutateAsync(integration.id);
+      }
       toast.success(`${integration.name} disconnected`);
       onClose();
     } catch (err: any) {
       toast.error(err.message || "Failed to disconnect");
     }
   };
+
+  const isPending = isCompany ? companyMutation.isPending : (connectMutation.isPending || disconnectMutation.isPending);
+  const canEdit = !isCompany || isAdmin;
 
   return (
     <>
@@ -343,7 +410,15 @@ const IntegrationDetail = ({
                 <integration.icon className="h-6 w-6 text-secondary-foreground" />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-foreground">{integration.name}</h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-bold text-foreground">{integration.name}</h2>
+                  {isCompany && (
+                    <span className="flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                      <Lock className="h-3 w-3" />
+                      Company
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <div className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
                   <span className={`text-xs font-medium ${s.color}`}>{s.label}</span>
@@ -404,40 +479,55 @@ const IntegrationDetail = ({
             </div>
           </div>
 
+          {/* Admin notice for company integrations */}
+          {isCompany && !isAdmin && (
+            <div className="mb-6 flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+              <Lock className="h-4 w-4 text-primary" />
+              <span className="text-sm text-primary">Only admins can configure company integrations</span>
+            </div>
+          )}
+
           {/* Action */}
           {status === "disconnected" ? (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="api-key" className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
-                  API Key / Token
-                </Label>
-                <Input
-                  id="api-key"
-                  type="password"
-                  placeholder={`Enter your ${integration.name} API key...`}
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  className="bg-secondary/30 border-border"
-                />
+            canEdit ? (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="api-key" className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+                    {isCompany ? "Company API Key / Token" : "API Key / Token"}
+                  </Label>
+                  <Input
+                    id="api-key"
+                    type="password"
+                    placeholder={`Enter your ${integration.name} API key...`}
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    className="bg-secondary/30 border-border"
+                  />
+                </div>
+                <button
+                  onClick={handleConnect}
+                  disabled={isPending}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-3 text-sm font-medium hover:bg-primary/90 transition-all disabled:opacity-50"
+                >
+                  {isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Connecting...
+                    </>
+                  ) : (
+                    <>
+                      <Plug className="h-4 w-4" />
+                      Connect {integration.name}
+                    </>
+                  )}
+                </button>
               </div>
-              <button
-                onClick={handleConnect}
-                disabled={connectMutation.isPending}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-3 text-sm font-medium hover:bg-primary/90 transition-all disabled:opacity-50"
-              >
-                {connectMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Connecting...
-                  </>
-                ) : (
-                  <>
-                    <Plug className="h-4 w-4" />
-                    Connect {integration.name}
-                  </>
-                )}
-              </button>
-            </div>
+            ) : (
+              <div className="flex items-center gap-2 rounded-xl border border-muted bg-muted/30 px-4 py-3">
+                <AlertCircle className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Contact an admin to connect this integration</span>
+              </div>
+            )
           ) : status === "connected" ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between rounded-xl border border-norman-success/20 bg-norman-success/5 px-4 py-3">
@@ -445,17 +535,19 @@ const IntegrationDetail = ({
                   <CheckCircle2 className="h-4 w-4 text-norman-success" />
                   <span className="text-sm font-medium text-norman-success">Connected & syncing</span>
                 </div>
-                {ui?.last_sync && (
-                  <span className="text-[10px] font-mono text-muted-foreground">{new Date(ui.last_sync).toLocaleDateString()}</span>
+                {integrationData?.last_sync && (
+                  <span className="text-[10px] font-mono text-muted-foreground">{new Date(integrationData.last_sync).toLocaleDateString()}</span>
                 )}
               </div>
-              <button
-                onClick={handleDisconnect}
-                disabled={disconnectMutation.isPending}
-                className="w-full rounded-xl border border-destructive/20 text-destructive py-2.5 text-sm font-medium hover:bg-destructive/5 transition-all disabled:opacity-50"
-              >
-                {disconnectMutation.isPending ? "Disconnecting..." : "Disconnect"}
-              </button>
+              {canEdit && (
+                <button
+                  onClick={handleDisconnect}
+                  disabled={isPending}
+                  className="w-full rounded-xl border border-destructive/20 text-destructive py-2.5 text-sm font-medium hover:bg-destructive/5 transition-all disabled:opacity-50"
+                >
+                  {isPending ? "Disconnecting..." : "Disconnect"}
+                </button>
+              )}
             </div>
           ) : (
             <div className="flex items-center gap-2 rounded-xl border border-norman-warning/20 bg-norman-warning/5 px-4 py-3">
