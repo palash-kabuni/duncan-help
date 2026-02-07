@@ -3,10 +3,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Mail, FileText, MessageSquare, Calendar, FolderOpen, Users,
   CheckCircle2, AlertCircle, ArrowRight, X, ExternalLink, Plug, Shield,
-  Clock, Database, Zap
+  Clock, Database, Zap, Loader2
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
-
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 type IntegrationStatus = "connected" | "pending" | "disconnected";
 
 interface Integration {
@@ -269,6 +271,22 @@ const IntegrationDetail = ({
   onClose: () => void;
 }) => {
   const s = statusConfig[integration.status];
+  const [apiKey, setApiKey] = useState("");
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  const handleConnect = async () => {
+    if (!apiKey.trim()) {
+      toast.error("Please enter an API key");
+      return;
+    }
+    
+    setIsConnecting(true);
+    // Simulate connection - in production this would call an edge function
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    setIsConnecting(false);
+    toast.success(`${integration.name} connected successfully!`);
+    onClose();
+  };
 
   return (
     <>
@@ -357,11 +375,38 @@ const IntegrationDetail = ({
 
           {/* Action */}
           {integration.status === "disconnected" ? (
-            <button className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-3 text-sm font-medium hover:bg-primary/90 transition-all">
-              <Plug className="h-4 w-4" />
-              Connect {integration.name}
-              <ExternalLink className="h-3.5 w-3.5 ml-1" />
-            </button>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="api-key" className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+                  API Key / Token
+                </Label>
+                <Input
+                  id="api-key"
+                  type="password"
+                  placeholder={`Enter your ${integration.name} API key...`}
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  className="bg-secondary/30 border-border"
+                />
+              </div>
+              <button 
+                onClick={handleConnect}
+                disabled={isConnecting}
+                className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-3 text-sm font-medium hover:bg-primary/90 transition-all disabled:opacity-50"
+              >
+                {isConnecting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <Plug className="h-4 w-4" />
+                    Connect {integration.name}
+                  </>
+                )}
+              </button>
+            </div>
           ) : integration.status === "connected" ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between rounded-xl border border-norman-success/20 bg-norman-success/5 px-4 py-3">
