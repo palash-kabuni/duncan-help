@@ -1,6 +1,7 @@
-import { Brain, LayoutDashboard, Plug, Database, Terminal, Settings, Activity } from "lucide-react";
+import { Brain, LayoutDashboard, Plug, Database, Terminal, Settings, Activity, LogOut } from "lucide-react";
 import { NavLink as RouterNavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", to: "/" },
@@ -12,6 +13,8 @@ const navItems = [
 ];
 
 const Sidebar = () => {
+  const { user, signOut } = useAuth();
+
   return (
     <aside className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r border-border bg-sidebar">
       {/* Brand */}
@@ -47,13 +50,27 @@ const Sidebar = () => {
         ))}
       </nav>
 
-      {/* Status */}
-      <div className="border-t border-border px-4 py-4">
+      {/* User & Status */}
+      <div className="border-t border-border px-4 py-4 space-y-3">
+        {user && (
+          <div className="flex items-center justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-foreground truncate">{user.email}</p>
+            </div>
+            <button
+              onClick={signOut}
+              className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors"
+              title="Sign out"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <div className="h-2 w-2 rounded-full bg-norman-success animate-pulse-glow" />
           <span className="text-xs font-mono text-muted-foreground">System Online</span>
         </div>
-        <p className="mt-1 text-[10px] font-mono text-muted-foreground/50">v0.1.0 · Last sync 2m ago</p>
+        <p className="text-[10px] font-mono text-muted-foreground/50">v0.1.0 · Last sync 2m ago</p>
       </div>
     </aside>
   );
