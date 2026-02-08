@@ -1,14 +1,16 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Mail, FileText, MessageSquare, Calendar, FolderOpen,
   CheckCircle2, AlertCircle, ArrowRight, X, Plug, Shield,
-  Clock, Database, Zap, Loader2, Lock
+  Clock, Database, Zap, Loader2, Lock, ExternalLink
 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { useGoogleCalendar } from "@/hooks/useGoogleCalendar";
 import {
   useUserIntegrations,
   useConnectIntegration,
@@ -161,9 +163,40 @@ function getIntegrationData(
 const Integrations = () => {
   const [selectedIntegration, setSelectedIntegration] = useState<Integration | null>(null);
   const [filter, setFilter] = useState<string>("all");
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: userIntegrations = [], isLoading: userLoading } = useUserIntegrations();
   const { data: companyIntegrations = [], isLoading: companyLoading } = useCompanyIntegrations();
   const { isAdmin } = useIsAdmin();
+  const { isConnected: isCalendarConnected, checkConnection } = useGoogleCalendar();
+
+  // Handle OAuth callback
+  useEffect(() => {
+    const success = searchParams.get("success");
+    const error = searchParams.get("error");
+    
+    if (success === "google_calendar") {
+      toast.success("Google Calendar connected successfully!");
+      checkConnection();
+      setSearchParams({});
+    } else if (error) {
+      const errorMessages: Record<string, string> = {
+        missing_params: "OAuth flow was incomplete",
+        config_error: "Calendar credentials not configured",
+        invalid_state: "Invalid OAuth state",
+        unauthorized: "Authentication failed",
+        token_exchange_failed: "Failed to exchange authorization code",
+        storage_failed: "Failed to save credentials",
+        unexpected: "An unexpected error occurred",
+      };
+      toast.error(errorMessages[error] || `Connection failed: ${error}`);
+      setSearchParams({});
+    }
+  }, [searchParams, setSearchParams, checkConnection]);
+
+  // Check calendar connection on mount
+  useEffect(() => {
+    checkConnection();
+  }, [checkConnection]);
 
   const isLoading = userLoading || companyLoading;
 
@@ -316,6 +349,7 @@ const Integrations = () => {
               userIntegrations={userIntegrations}
               companyIntegrations={companyIntegrations}
               isAdmin={isAdmin}
+              isCalendarConnected={isCalendarConnected}
               onClose={() => setSelectedIntegration(null)}
             />
           )}
@@ -330,15 +364,19 @@ const IntegrationDetail = ({
   userIntegrations,
   companyIntegrations,
   isAdmin,
+  isCalendarConnected,
   onClose,
 }: {
   integration: Integration;
   userIntegrations: UserIntegration[];
   companyIntegrations: CompanyIntegration[];
   isAdmin: boolean;
+  isCalendarConnected: boolean | null;
   onClose: () => void;
 }) => {
-  const status = getStatus(integration, userIntegrations, companyIntegrations);
+  const isGoogleCalendar = integration.id === "google-calendar";
+  const calendarStatus: IntegrationStatus = isCalendarConnected ? "connected" : "disconnected";
+  const status = isGoogleCalendar ? calendarStatus : getStatus(integration, userIntegrations, companyIntegrations);
   const integrationData = getIntegrationData(integration, userIntegrations, companyIntegrations);
   const s = statusConfig[status];
   const [apiKey, setApiKey] = useState("");
@@ -350,6 +388,9 @@ const IntegrationDetail = ({
   
   // Company integration mutation
   const companyMutation = useUpdateCompanyIntegration();
+  
+  // Google Calendar hook
+  const { initiateOAuth, disconnect: disconnectCalendar, isLoading: calendarLoading } = useGoogleCalendar();
 
   const handleConnect = async () => {
     if (!apiKey.trim()) {
@@ -371,6 +412,12 @@ const IntegrationDetail = ({
 
   const handleDisconnect = async () => {
     try {
+      if (isGoogleCalendar) {
+        await disconnectCalendar();
+        toast.success("Google Calendar disconnected");
+        onClose();
+        return;
+      }
       if (isCompany) {
         await companyMutation.mutateAsync({ integrationId: integration.id, action: "disconnect" });
       } else {
@@ -383,7 +430,15 @@ const IntegrationDetail = ({
     }
   };
 
-  const isPending = isCompany ? companyMutation.isPending : (connectMutation.isPending || disconnectMutation.isPending);
+  const handleGoogleCalendarConnect = async () => {
+    try {
+      await initiateOAuth();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to start OAuth flow");
+    }
+  };
+
+  const isPending = isGoogleCalendar ? calendarLoading : (isCompany ? companyMutation.isPending : (connectMutation.isPending || disconnectMutation.isPending));
   const canEdit = !isCompany || isAdmin;
 
   return (
@@ -490,38 +545,70 @@ const IntegrationDetail = ({
           {/* Action */}
           {status === "disconnected" ? (
             canEdit ? (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="api-key" className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
-                    {isCompany ? "Company API Key / Token" : "API Key / Token"}
-                  </Label>
-                  <Input
-                    id="api-key"
-                    type="password"
-                    placeholder={`Enter your ${integration.name} API key...`}
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    className="bg-secondary/30 border-border"
-                  />
+              isGoogleCalendar ? (
+                // Google Calendar OAuth flow
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-border bg-secondary/20 p-4 space-y-2">
+                    <p className="text-sm text-foreground">
+                      Click below to sign in with Google and grant Norman access to your calendar.
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Norman will be able to read your events and create/update/delete events on your behalf.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleGoogleCalendarConnect}
+                    disabled={isPending}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-3 text-sm font-medium hover:bg-primary/90 transition-all disabled:opacity-50"
+                  >
+                    {isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <ExternalLink className="h-4 w-4" />
+                        Sign in with Google
+                      </>
+                    )}
+                  </button>
                 </div>
-                <button
-                  onClick={handleConnect}
-                  disabled={isPending}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-3 text-sm font-medium hover:bg-primary/90 transition-all disabled:opacity-50"
-                >
-                  {isPending ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Connecting...
-                    </>
-                  ) : (
-                    <>
-                      <Plug className="h-4 w-4" />
-                      Connect {integration.name}
-                    </>
-                  )}
-                </button>
-              </div>
+              ) : (
+                // Standard API key flow
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="api-key" className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+                      {isCompany ? "Company API Key / Token" : "API Key / Token"}
+                    </Label>
+                    <Input
+                      id="api-key"
+                      type="password"
+                      placeholder={`Enter your ${integration.name} API key...`}
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      className="bg-secondary/30 border-border"
+                    />
+                  </div>
+                  <button
+                    onClick={handleConnect}
+                    disabled={isPending}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-3 text-sm font-medium hover:bg-primary/90 transition-all disabled:opacity-50"
+                  >
+                    {isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <Plug className="h-4 w-4" />
+                        Connect {integration.name}
+                      </>
+                    )}
+                  </button>
+                </div>
+              )
             ) : (
               <div className="flex items-center gap-2 rounded-xl border border-muted bg-muted/30 px-4 py-3">
                 <AlertCircle className="h-4 w-4 text-muted-foreground" />
