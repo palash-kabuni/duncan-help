@@ -80,6 +80,36 @@ export type Database = {
         }
         Relationships: []
       }
+      google_drive_tokens: {
+        Row: {
+          access_token: string
+          connected_by: string
+          created_at: string
+          id: string
+          refresh_token: string
+          token_expiry: string
+          updated_at: string
+        }
+        Insert: {
+          access_token: string
+          connected_by: string
+          created_at?: string
+          id?: string
+          refresh_token: string
+          token_expiry: string
+          updated_at?: string
+        }
+        Update: {
+          access_token?: string
+          connected_by?: string
+          created_at?: string
+          id?: string
+          refresh_token?: string
+          token_expiry?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
