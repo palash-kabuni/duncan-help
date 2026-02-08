@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.google-drive-api]
 verify_jwt = false
+
+[functions.notion-api]
+verify_jwt = false
