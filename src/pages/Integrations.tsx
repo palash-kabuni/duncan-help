@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useGoogleCalendar } from "@/hooks/useGoogleCalendar";
+import { useGoogleDrive } from "@/hooks/useGoogleDrive";
 import {
   useUserIntegrations,
   useConnectIntegration,
@@ -115,15 +116,16 @@ const integrations: Integration[] = [
   {
     id: "google-drive",
     name: "Google Drive",
-    description: "Deep document indexing across all your Drive files for comprehensive search and reasoning.",
+    description: "Company-wide document access. Norman can search and read files across your shared Drive to answer questions based on your docs.",
     icon: FolderOpen,
     category: "Knowledge",
     services: ["Documents", "Spreadsheets", "Presentations", "Folders"],
-    type: "user",
+    type: "company",
     setupSteps: [
-      "Uses your Google Workspace credentials",
+      "Admin connects using the same Google Cloud project as Calendar",
       "Enable the Drive API in your Google Cloud project",
-      "Select which folders Norman should index",
+      "Add the Drive callback URL to your OAuth client",
+      "Norman can then search and read all accessible files",
     ],
   },
 ];
@@ -167,7 +169,8 @@ const Integrations = () => {
   const { data: userIntegrations = [], isLoading: userLoading } = useUserIntegrations();
   const { data: companyIntegrations = [], isLoading: companyLoading } = useCompanyIntegrations();
   const { isAdmin } = useIsAdmin();
-  const { isConnected: isCalendarConnected, checkConnection } = useGoogleCalendar();
+  const { isConnected: isCalendarConnected, checkConnection: checkCalendarConnection } = useGoogleCalendar();
+  const { isConnected: isDriveConnected, checkConnection: checkDriveConnection } = useGoogleDrive();
 
   // Handle OAuth callback
   useEffect(() => {
@@ -176,14 +179,19 @@ const Integrations = () => {
     
     if (success === "google_calendar") {
       toast.success("Google Calendar connected successfully!");
-      checkConnection();
+      checkCalendarConnection();
+      setSearchParams({});
+    } else if (success === "google_drive") {
+      toast.success("Google Drive connected successfully!");
+      checkDriveConnection();
       setSearchParams({});
     } else if (error) {
       const errorMessages: Record<string, string> = {
         missing_params: "OAuth flow was incomplete",
-        config_error: "Calendar credentials not configured",
+        config_error: "Google credentials not configured",
         invalid_state: "Invalid OAuth state",
         unauthorized: "Authentication failed",
+        admin_required: "Admin access required to connect this integration",
         token_exchange_failed: "Failed to exchange authorization code",
         storage_failed: "Failed to save credentials",
         unexpected: "An unexpected error occurred",
@@ -191,12 +199,13 @@ const Integrations = () => {
       toast.error(errorMessages[error] || `Connection failed: ${error}`);
       setSearchParams({});
     }
-  }, [searchParams, setSearchParams, checkConnection]);
+  }, [searchParams, setSearchParams, checkCalendarConnection, checkDriveConnection]);
 
-  // Check calendar connection on mount
+  // Check OAuth connections on mount
   useEffect(() => {
-    checkConnection();
-  }, [checkConnection]);
+    checkCalendarConnection();
+    checkDriveConnection();
+  }, [checkCalendarConnection, checkDriveConnection]);
 
   const isLoading = userLoading || companyLoading;
 
@@ -350,6 +359,7 @@ const Integrations = () => {
               companyIntegrations={companyIntegrations}
               isAdmin={isAdmin}
               isCalendarConnected={isCalendarConnected}
+              isDriveConnected={isDriveConnected}
               onClose={() => setSelectedIntegration(null)}
             />
           )}
@@ -365,6 +375,7 @@ const IntegrationDetail = ({
   companyIntegrations,
   isAdmin,
   isCalendarConnected,
+  isDriveConnected,
   onClose,
 }: {
   integration: Integration;
@@ -372,11 +383,23 @@ const IntegrationDetail = ({
   companyIntegrations: CompanyIntegration[];
   isAdmin: boolean;
   isCalendarConnected: boolean | null;
+  isDriveConnected: boolean | null;
   onClose: () => void;
 }) => {
   const isGoogleCalendar = integration.id === "google-calendar";
-  const calendarStatus: IntegrationStatus = isCalendarConnected ? "connected" : "disconnected";
-  const status = isGoogleCalendar ? calendarStatus : getStatus(integration, userIntegrations, companyIntegrations);
+  const isGoogleDrive = integration.id === "google-drive";
+  const isGoogleOAuth = isGoogleCalendar || isGoogleDrive;
+  
+  // Determine status based on integration type
+  let status: IntegrationStatus;
+  if (isGoogleCalendar) {
+    status = isCalendarConnected ? "connected" : "disconnected";
+  } else if (isGoogleDrive) {
+    status = isDriveConnected ? "connected" : "disconnected";
+  } else {
+    status = getStatus(integration, userIntegrations, companyIntegrations);
+  }
+  
   const integrationData = getIntegrationData(integration, userIntegrations, companyIntegrations);
   const s = statusConfig[status];
   const [apiKey, setApiKey] = useState("");
@@ -389,8 +412,9 @@ const IntegrationDetail = ({
   // Company integration mutation
   const companyMutation = useUpdateCompanyIntegration();
   
-  // Google Calendar hook
-  const { initiateOAuth, disconnect: disconnectCalendar, isLoading: calendarLoading } = useGoogleCalendar();
+  // Google OAuth hooks
+  const { initiateOAuth: initiateCalendarOAuth, disconnect: disconnectCalendar, isLoading: calendarLoading } = useGoogleCalendar();
+  const { initiateOAuth: initiateDriveOAuth, disconnect: disconnectDrive, isLoading: driveLoading } = useGoogleDrive();
 
   const handleConnect = async () => {
     if (!apiKey.trim()) {
@@ -418,6 +442,12 @@ const IntegrationDetail = ({
         onClose();
         return;
       }
+      if (isGoogleDrive) {
+        await disconnectDrive();
+        toast.success("Google Drive disconnected");
+        onClose();
+        return;
+      }
       if (isCompany) {
         await companyMutation.mutateAsync({ integrationId: integration.id, action: "disconnect" });
       } else {
@@ -430,15 +460,20 @@ const IntegrationDetail = ({
     }
   };
 
-  const handleGoogleCalendarConnect = async () => {
+  const handleGoogleOAuthConnect = async () => {
     try {
-      await initiateOAuth();
+      if (isGoogleCalendar) {
+        await initiateCalendarOAuth();
+      } else if (isGoogleDrive) {
+        await initiateDriveOAuth();
+      }
     } catch (err: any) {
       toast.error(err.message || "Failed to start OAuth flow");
     }
   };
 
-  const isPending = isGoogleCalendar ? calendarLoading : (isCompany ? companyMutation.isPending : (connectMutation.isPending || disconnectMutation.isPending));
+  const googleOAuthLoading = isGoogleCalendar ? calendarLoading : driveLoading;
+  const isPending = isGoogleOAuth ? googleOAuthLoading : (isCompany ? companyMutation.isPending : (connectMutation.isPending || disconnectMutation.isPending));
   const canEdit = !isCompany || isAdmin;
 
   return (
@@ -545,19 +580,29 @@ const IntegrationDetail = ({
           {/* Action */}
           {status === "disconnected" ? (
             canEdit ? (
-              isGoogleCalendar ? (
-                // Google Calendar OAuth flow
+              isGoogleOAuth ? (
+                // Google OAuth flow (Calendar or Drive)
                 <div className="space-y-4">
                   <div className="rounded-lg border border-border bg-secondary/20 p-4 space-y-2">
                     <p className="text-sm text-foreground">
-                      Click below to sign in with Google and grant Norman access to your calendar.
+                      Click below to sign in with Google and grant Norman access to your {isGoogleCalendar ? "calendar" : "Drive files"}.
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Norman will be able to read your events and create/update/delete events on your behalf.
+                      {isGoogleCalendar 
+                        ? "Norman will be able to read your events and create/update/delete events on your behalf."
+                        : "Norman will be able to search and read documents across your shared Drive."}
                     </p>
+                    {isGoogleDrive && (
+                      <p className="text-xs text-primary mt-2">
+                        Note: Add this redirect URI to your Google Cloud Console:<br/>
+                        <code className="text-[10px] bg-secondary px-1 py-0.5 rounded">
+                          {import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-drive-callback
+                        </code>
+                      </p>
+                    )}
                   </div>
                   <button
-                    onClick={handleGoogleCalendarConnect}
+                    onClick={handleGoogleOAuthConnect}
                     disabled={isPending}
                     className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-3 text-sm font-medium hover:bg-primary/90 transition-all disabled:opacity-50"
                   >

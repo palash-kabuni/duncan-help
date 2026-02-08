@@ -9,6 +9,7 @@ const corsHeaders = {
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_CALENDAR_API = "https://www.googleapis.com/calendar/v3";
+const GOOGLE_DRIVE_API = "https://www.googleapis.com/drive/v3";
 
 const SYSTEM_PROMPT = `You are Norman, an advanced reasoning and agentic operating system for internal company operations.
 
@@ -18,6 +19,7 @@ Your capabilities:
 - **Data Synthesis**: Cross-reference information from multiple sources (emails, documents, databases, project management tools) to provide comprehensive answers.
 - **Task Orchestration**: Break down complex requests into actionable steps and describe how they'd be executed across integrated systems.
 - **Calendar Management**: You have access to the user's Google Calendar. You can list events, create new events, update existing events, and delete events.
+- **Document Search**: You have access to the company's Google Drive. You can search for documents, read their content, and answer questions based on them.
 
 Your personality:
 - Direct, precise, and efficient. No fluff.
@@ -37,6 +39,12 @@ When working with calendar:
 - Always confirm destructive actions before executing
 - Format dates and times clearly for the user
 - If creating events, ask for confirmation of the details before creating
+
+When working with documents/Drive:
+- Use the search_drive tool to find relevant documents based on the user's query
+- Use the read_document tool to get the content of specific files
+- Summarize key findings from documents and cite which document the information came from
+- If the user asks about something that might be in company docs, search for it first
 
 Always be aware that you are the central intelligence layer coordinating across all company tools and data.`;
 
@@ -159,6 +167,232 @@ const CALENDAR_TOOLS = [
     },
   },
 ];
+
+const DRIVE_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "search_drive",
+      description: "Search for documents in Google Drive. Use this when the user asks about company documents, policies, guides, or any information that might be stored in Drive.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Search query to find relevant documents. Be specific and include key terms.",
+          },
+          limit: {
+            type: "number",
+            description: "Maximum number of results to return. Default 10.",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_document",
+      description: "Read the content of a specific document from Google Drive. Use this after finding a document with search_drive to get its full content.",
+      parameters: {
+        type: "object",
+        properties: {
+          fileId: {
+            type: "string",
+            description: "The ID of the file to read (from search_drive results).",
+          },
+          fileName: {
+            type: "string",
+            description: "The name of the file (for context in responses).",
+          },
+        },
+        required: ["fileId"],
+      },
+    },
+  },
+];
+
+async function getDriveAccessToken(supabaseAdmin: any): Promise<string | null> {
+  const clientId = Deno.env.get("GOOGLE_CALENDAR_CLIENT_ID");
+  const clientSecret = Deno.env.get("GOOGLE_CALENDAR_CLIENT_SECRET");
+
+  if (!clientId || !clientSecret) {
+    console.log("Google credentials not configured");
+    return null;
+  }
+
+  const { data: tokenData, error } = await supabaseAdmin
+    .from("google_drive_tokens")
+    .select("*")
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !tokenData) {
+    console.log("No Drive tokens found");
+    return null;
+  }
+
+  // Check if token needs refresh
+  const tokenExpiry = new Date(tokenData.token_expiry);
+  if (tokenExpiry <= new Date()) {
+    console.log("Drive token expired, refreshing...");
+    
+    const refreshResponse = await fetch(GOOGLE_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: tokenData.refresh_token,
+        grant_type: "refresh_token",
+      }),
+    });
+
+    if (!refreshResponse.ok) {
+      console.error("Failed to refresh Drive token");
+      return null;
+    }
+
+    const newTokens = await refreshResponse.json();
+    const newExpiry = new Date(Date.now() + (newTokens.expires_in * 1000));
+    
+    await supabaseAdmin
+      .from("google_drive_tokens")
+      .update({
+        access_token: newTokens.access_token,
+        token_expiry: newExpiry.toISOString(),
+      })
+      .eq("id", tokenData.id);
+
+    return newTokens.access_token;
+  }
+
+  return tokenData.access_token;
+}
+
+async function executeDriveTool(
+  toolName: string,
+  args: any,
+  accessToken: string
+): Promise<any> {
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+  };
+
+  switch (toolName) {
+    case "search_drive": {
+      const query = args.query || "";
+      const limit = args.limit || 10;
+      
+      let q = `fullText contains '${query.replace(/'/g, "\\'")}'`;
+      q += " and trashed=false";
+
+      const url = new URL(`${GOOGLE_DRIVE_API}/files`);
+      url.searchParams.set("q", q);
+      url.searchParams.set("fields", "files(id,name,mimeType,modifiedTime,webViewLink,owners)");
+      url.searchParams.set("pageSize", String(limit));
+      url.searchParams.set("orderBy", "modifiedTime desc");
+
+      const response = await fetch(url.toString(), { headers });
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Search failed: ${error}`);
+      }
+      const data = await response.json();
+      
+      // Format results for the AI
+      const files = (data.files || []).map((f: any) => ({
+        id: f.id,
+        name: f.name,
+        type: f.mimeType,
+        modified: f.modifiedTime,
+        link: f.webViewLink,
+        owner: f.owners?.[0]?.displayName,
+      }));
+      
+      return { 
+        found: files.length,
+        files,
+        message: files.length === 0 ? "No documents found matching your query." : `Found ${files.length} document(s).`
+      };
+    }
+
+    case "read_document": {
+      const fileId = args.fileId;
+      if (!fileId) {
+        throw new Error("fileId is required");
+      }
+
+      // Get file metadata
+      const metaResponse = await fetch(
+        `${GOOGLE_DRIVE_API}/files/${fileId}?fields=id,name,mimeType,webViewLink`,
+        { headers }
+      );
+      if (!metaResponse.ok) {
+        throw new Error(`Failed to get file: ${await metaResponse.text()}`);
+      }
+      const meta = await metaResponse.json();
+
+      let content: string;
+      
+      if (meta.mimeType === "application/vnd.google-apps.document") {
+        const exportResponse = await fetch(
+          `${GOOGLE_DRIVE_API}/files/${fileId}/export?mimeType=text/plain`,
+          { headers }
+        );
+        if (!exportResponse.ok) {
+          throw new Error(`Export failed: ${await exportResponse.text()}`);
+        }
+        content = await exportResponse.text();
+      } else if (meta.mimeType === "application/vnd.google-apps.spreadsheet") {
+        const exportResponse = await fetch(
+          `${GOOGLE_DRIVE_API}/files/${fileId}/export?mimeType=text/csv`,
+          { headers }
+        );
+        if (!exportResponse.ok) {
+          throw new Error(`Export failed: ${await exportResponse.text()}`);
+        }
+        content = await exportResponse.text();
+      } else if (meta.mimeType === "application/vnd.google-apps.presentation") {
+        const exportResponse = await fetch(
+          `${GOOGLE_DRIVE_API}/files/${fileId}/export?mimeType=text/plain`,
+          { headers }
+        );
+        if (!exportResponse.ok) {
+          throw new Error(`Export failed: ${await exportResponse.text()}`);
+        }
+        content = await exportResponse.text();
+      } else if (meta.mimeType === "application/pdf") {
+        content = "[PDF file - text extraction not available directly. Please view the document using the link provided.]";
+      } else if (meta.mimeType.startsWith("text/") || meta.mimeType === "application/json") {
+        const downloadResponse = await fetch(
+          `${GOOGLE_DRIVE_API}/files/${fileId}?alt=media`,
+          { headers }
+        );
+        if (!downloadResponse.ok) {
+          throw new Error(`Download failed: ${await downloadResponse.text()}`);
+        }
+        content = await downloadResponse.text();
+      } else if (meta.mimeType.startsWith("image/")) {
+        content = "[Image file - cannot read text content]";
+      } else {
+        content = `[File type ${meta.mimeType} - content extraction not supported]`;
+      }
+
+      return {
+        name: meta.name,
+        type: meta.mimeType,
+        link: meta.webViewLink,
+        content: content.slice(0, 40000), // Limit content size for context window
+      };
+    }
+
+    default:
+      throw new Error(`Unknown Drive tool: ${toolName}`);
+  }
+}
 
 async function getCalendarAccessToken(userId: string, supabaseAdmin: any): Promise<string | null> {
   const clientId = Deno.env.get("GOOGLE_CALENDAR_CLIENT_ID");
@@ -335,6 +569,9 @@ serve(async (req) => {
     const authHeader = req.headers.get("Authorization");
     let userId: string | null = null;
     let calendarAccessToken: string | null = null;
+    let driveAccessToken: string | null = null;
+
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
     if (authHeader) {
       const supabaseUser = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
@@ -343,16 +580,22 @@ serve(async (req) => {
       const { data: { user } } = await supabaseUser.auth.getUser();
       if (user) {
         userId = user.id;
-        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
         calendarAccessToken = await getCalendarAccessToken(userId, supabaseAdmin);
       }
     }
 
-    // Adjust system prompt based on mode and calendar availability
+    // Get Drive access token (company-wide, not per-user)
+    driveAccessToken = await getDriveAccessToken(supabaseAdmin);
+
+    // Adjust system prompt based on mode and integration availability
     let systemContent = SYSTEM_PROMPT;
 
     if (!calendarAccessToken) {
-      systemContent += "\n\nNote: Google Calendar is not connected. If the user asks about calendar operations, let them know they need to connect their Google Calendar first via the Integrations page.";
+      systemContent += "\n\nNote: Google Calendar is not connected for you. If the user asks about calendar operations, let them know they need to connect their Google Calendar first via the Integrations page.";
+    }
+
+    if (!driveAccessToken) {
+      systemContent += "\n\nNote: Google Drive is not connected for the company. If the user asks about documents or company files, let them know an admin needs to connect Google Drive first via the Integrations page.";
     }
 
     // Inject user profile context if available
@@ -386,9 +629,16 @@ serve(async (req) => {
       stream: true,
     };
 
-    // Only include calendar tools if calendar is connected
+    // Include tools based on what's connected
+    const tools: any[] = [];
     if (calendarAccessToken) {
-      requestBody.tools = CALENDAR_TOOLS;
+      tools.push(...CALENDAR_TOOLS);
+    }
+    if (driveAccessToken) {
+      tools.push(...DRIVE_TOOLS);
+    }
+    if (tools.length > 0) {
+      requestBody.tools = tools;
     }
 
     const response = await fetch(
@@ -481,14 +731,34 @@ serve(async (req) => {
     }
 
     // If there are tool calls, execute them and make a follow-up request
-    if (toolCalls.length > 0 && calendarAccessToken) {
+    if (toolCalls.length > 0) {
       console.log("Executing tool calls:", toolCalls.map(tc => tc.function.name));
+      
+      const calendarToolNames = ["list_calendar_events", "create_calendar_event", "update_calendar_event", "delete_calendar_event"];
+      const driveToolNames = ["search_drive", "read_document"];
       
       const toolResults: any[] = [];
       for (const tc of toolCalls) {
         try {
           const args = JSON.parse(tc.function.arguments);
-          const result = await executeCalendarTool(tc.function.name, args, calendarAccessToken);
+          let result: any;
+          
+          if (calendarToolNames.includes(tc.function.name)) {
+            if (!calendarAccessToken) {
+              result = { error: "Google Calendar is not connected. Please connect it via the Integrations page." };
+            } else {
+              result = await executeCalendarTool(tc.function.name, args, calendarAccessToken);
+            }
+          } else if (driveToolNames.includes(tc.function.name)) {
+            if (!driveAccessToken) {
+              result = { error: "Google Drive is not connected. An admin needs to connect it via the Integrations page." };
+            } else {
+              result = await executeDriveTool(tc.function.name, args, driveAccessToken);
+            }
+          } else {
+            result = { error: `Unknown tool: ${tc.function.name}` };
+          }
+          
           toolResults.push({
             tool_call_id: tc.id,
             role: "tool",
@@ -531,7 +801,7 @@ serve(async (req) => {
         const text = await followUpResponse.text();
         console.error("Follow-up AI error:", text);
         return new Response(
-          JSON.stringify({ error: "Failed to process calendar results" }),
+          JSON.stringify({ error: "Failed to process tool results" }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
