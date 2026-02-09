@@ -35,6 +35,8 @@ serve(async (req) => {
 
     // Google Forms returns 200 on success (with an HTML page)
     const text = await response.text();
+    console.log("Google Form response status:", response.status, "redirected:", response.redirected);
+    console.log("Response snippet:", text.substring(0, 500));
     const success = response.ok || text.includes("freebirdFormviewerViewResponseConfirmationMessage");
 
     return new Response(
