@@ -23,6 +23,7 @@ Your capabilities:
 - **Calendar Management**: You have access to the user's Google Calendar. You can list events, create new events, update existing events, and delete events.
 - **Document Search**: You have access to the company's Google Drive. You can search for documents, read their content, and answer questions based on them.
 - **Notion Access**: You have access to the company's Notion workspace. You can search for pages, query databases, and read page content. Use these tools when users ask about information stored in Notion.
+- **Google Forms**: You can fill and submit pre-configured Google Forms on behalf of the user. When a user asks to fill a form, first list available forms, then ask each required field ONE AT A TIME as a conversational question. Wait for the user to answer each question before asking the next. After collecting all answers, confirm the details and submit.
 
 Your personality:
 - Direct, precise, and efficient. No fluff.
@@ -36,6 +37,14 @@ When a user asks you to do something:
 2. Reason through the best approach
 3. Present your plan clearly
 4. Execute or describe execution steps
+
+When filling Google Forms:
+- First call list_google_forms to show available forms
+- Present the form name and description to the user
+- Ask each required field ONE AT A TIME in a friendly conversational way
+- For fields with options (dropdowns, radio buttons), present the options clearly
+- After collecting all answers, show a summary and ask for confirmation before submitting
+- Only call submit_google_form after the user confirms
 
 When working with calendar:
 - Use the calendar tools to fetch, create, update, or delete events
@@ -269,6 +278,81 @@ const NOTION_TOOLS = [
     },
   },
 ];
+
+const GOOGLE_FORMS_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "list_google_forms",
+      description: "List all pre-configured Google Forms available for filling. Use this when the user wants to fill a form or asks what forms are available.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "submit_google_form",
+      description: "Submit a completed Google Form with all field values collected from the user. Only call this after you have gathered ALL required field values from the user through conversation.",
+      parameters: {
+        type: "object",
+        properties: {
+          form_id: { type: "string", description: "The UUID of the pre-configured form from list_google_forms" },
+          entries: {
+            type: "object",
+            description: "Key-value pairs where keys are entry IDs (e.g. 'entry.123456') and values are the user's answers",
+          },
+        },
+        required: ["form_id", "entries"],
+      },
+    },
+  },
+];
+
+async function executeGoogleFormsTool(toolName: string, args: any, supabaseAdmin: any): Promise<any> {
+  switch (toolName) {
+    case "list_google_forms": {
+      const { data, error } = await supabaseAdmin
+        .from("google_forms")
+        .select("id, name, description, fields");
+      if (error) throw new Error(`Failed to list forms: ${error.message}`);
+      return (data || []).map((f: any) => ({
+        id: f.id,
+        name: f.name,
+        description: f.description,
+        fields: f.fields,
+      }));
+    }
+    case "submit_google_form": {
+      const { data: form, error } = await supabaseAdmin
+        .from("google_forms")
+        .select("form_action_url, fields")
+        .eq("id", args.form_id)
+        .single();
+      if (error || !form) throw new Error("Form not found");
+
+      // Validate required fields
+      const requiredFields = (form.fields || []).filter((f: any) => f.required);
+      for (const field of requiredFields) {
+        if (!args.entries[field.entry_id]) {
+          throw new Error(`Missing required field: ${field.label}`);
+        }
+      }
+
+      // Submit via the submit-google-form edge function
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/submit-google-form`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ formActionUrl: form.form_action_url, entries: args.entries }),
+      });
+      const result = await res.json();
+      if (!result.success) throw new Error("Form submission failed");
+      return { success: true, message: "Form submitted successfully!" };
+    }
+    default:
+      throw new Error(`Unknown Google Forms tool: ${toolName}`);
+  }
+}
 
 async function getNotionToken(supabaseAdmin: any): Promise<string | null> {
   const { data: integration } = await supabaseAdmin
@@ -806,7 +890,7 @@ serve(async (req) => {
     };
 
     // Include tools based on what's connected
-    const tools: any[] = [];
+    const tools: any[] = [...GOOGLE_FORMS_TOOLS]; // Always available
     if (calendarAccessToken) {
       tools.push(...CALENDAR_TOOLS);
     }
@@ -916,6 +1000,7 @@ serve(async (req) => {
       const calendarToolNames = ["list_calendar_events", "create_calendar_event", "update_calendar_event", "delete_calendar_event"];
       const driveToolNames = ["search_drive", "read_document"];
       const notionToolNames = ["search_notion", "query_notion_database", "get_notion_page_content"];
+      const googleFormsToolNames = ["list_google_forms", "submit_google_form"];
       const toolResults: any[] = [];
 
       for (const tc of toolCalls) {
@@ -941,8 +1026,9 @@ serve(async (req) => {
             } else {
               result = await executeNotionTool(tc.function.name, args, notionToken);
             }
+          } else if (googleFormsToolNames.includes(tc.function.name)) {
+            result = await executeGoogleFormsTool(tc.function.name, args, supabaseAdmin);
           } else {
-            result = { error: `Unknown tool: ${tc.function.name}` };
           }
           
           toolResults.push({
@@ -1008,7 +1094,7 @@ serve(async (req) => {
             model: "google/gemini-3-flash-preview",
             messages: conversationMessages,
             stream: true,
-            ...(isLastRound ? {} : { tools: [...CALENDAR_TOOLS, ...DRIVE_TOOLS, ...NOTION_TOOLS] }),
+            ...(isLastRound ? {} : { tools: [...GOOGLE_FORMS_TOOLS, ...CALENDAR_TOOLS, ...DRIVE_TOOLS, ...NOTION_TOOLS] }),
           }),
         }
       );
