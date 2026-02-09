@@ -10,6 +10,8 @@ const corsHeaders = {
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_CALENDAR_API = "https://www.googleapis.com/calendar/v3";
 const GOOGLE_DRIVE_API = "https://www.googleapis.com/drive/v3";
+const NOTION_API_URL = "https://api.notion.com/v1";
+const NOTION_VERSION = "2022-06-28";
 
 const SYSTEM_PROMPT = `You are Norman, an advanced reasoning and agentic operating system for internal company operations.
 
@@ -20,6 +22,7 @@ Your capabilities:
 - **Task Orchestration**: Break down complex requests into actionable steps and describe how they'd be executed across integrated systems.
 - **Calendar Management**: You have access to the user's Google Calendar. You can list events, create new events, update existing events, and delete events.
 - **Document Search**: You have access to the company's Google Drive. You can search for documents, read their content, and answer questions based on them.
+- **Notion Access**: You have access to the company's Notion workspace. You can search for pages, query databases, and read page content. Use these tools when users ask about information stored in Notion.
 
 Your personality:
 - Direct, precise, and efficient. No fluff.
@@ -45,6 +48,13 @@ When working with documents/Drive:
 - Use the read_document tool to get the content of specific files
 - Summarize key findings from documents and cite which document the information came from
 - If the user asks about something that might be in company docs, search for it first
+
+When working with Notion:
+- Use search_notion to find pages and databases by keyword
+- Use query_notion_database to query a specific database with optional filters
+- Use get_notion_page_content to read the block content of a specific page
+- Present Notion data clearly, referencing page titles and properties
+- If a user asks about contracts, agreements, or anything that might be in Notion, search there
 
 Always be aware that you are the central intelligence layer coordinating across all company tools and data.`;
 
@@ -212,6 +222,165 @@ const DRIVE_TOOLS = [
     },
   },
 ];
+
+const NOTION_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "search_notion",
+      description: "Search across all Notion pages and databases. Use when the user asks about information that might be in Notion.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query text" },
+          page_size: { type: "number", description: "Max results (default 10)" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_notion_database",
+      description: "Query a specific Notion database to list its entries. Use when you know the database ID or after finding one via search.",
+      parameters: {
+        type: "object",
+        properties: {
+          database_id: { type: "string", description: "The Notion database ID to query" },
+          page_size: { type: "number", description: "Max results (default 20)" },
+        },
+        required: ["database_id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_notion_page_content",
+      description: "Get the block content of a specific Notion page. Use after finding a page via search or database query to read its details.",
+      parameters: {
+        type: "object",
+        properties: {
+          page_id: { type: "string", description: "The Notion page ID" },
+        },
+        required: ["page_id"],
+      },
+    },
+  },
+];
+
+async function getNotionToken(supabaseAdmin: any): Promise<string | null> {
+  const { data: integration } = await supabaseAdmin
+    .from("company_integrations")
+    .select("encrypted_api_key, status")
+    .eq("integration_id", "notion")
+    .single();
+
+  if (!integration || integration.status !== "connected" || !integration.encrypted_api_key) {
+    return null;
+  }
+  return atob(integration.encrypted_api_key);
+}
+
+function extractNotionText(richText: any[]): string {
+  return (richText || []).map((t: any) => t.plain_text || "").join("");
+}
+
+function summarizeNotionProperties(properties: any): Record<string, string> {
+  const summary: Record<string, string> = {};
+  for (const [key, val] of Object.entries(properties || {})) {
+    const v = val as any;
+    switch (v.type) {
+      case "title": summary[key] = extractNotionText(v.title); break;
+      case "rich_text": summary[key] = extractNotionText(v.rich_text); break;
+      case "number": summary[key] = v.number != null ? String(v.number) : ""; break;
+      case "select": summary[key] = v.select?.name || ""; break;
+      case "multi_select": summary[key] = (v.multi_select || []).map((s: any) => s.name).join(", "); break;
+      case "date": summary[key] = v.date?.start || ""; break;
+      case "checkbox": summary[key] = v.checkbox ? "Yes" : "No"; break;
+      case "url": summary[key] = v.url || ""; break;
+      case "email": summary[key] = v.email || ""; break;
+      case "phone_number": summary[key] = v.phone_number || ""; break;
+      case "status": summary[key] = v.status?.name || ""; break;
+      default: break;
+    }
+  }
+  return summary;
+}
+
+function summarizeNotionBlock(block: any): string {
+  const type = block.type;
+  const data = block[type];
+  if (!data) return "";
+  if (data.rich_text) return extractNotionText(data.rich_text);
+  if (type === "image") return `[Image: ${data.external?.url || data.file?.url || ""}]`;
+  if (type === "divider") return "---";
+  return "";
+}
+
+async function executeNotionTool(toolName: string, args: any, token: string): Promise<any> {
+  const headers = {
+    "Authorization": `Bearer ${token}`,
+    "Notion-Version": NOTION_VERSION,
+    "Content-Type": "application/json",
+  };
+
+  switch (toolName) {
+    case "search_notion": {
+      const res = await fetch(`${NOTION_API_URL}/search`, {
+        method: "POST", headers,
+        body: JSON.stringify({ query: args.query || "", page_size: args.page_size || 10 }),
+      });
+      if (!res.ok) throw new Error(`Notion search failed: ${await res.text()}`);
+      const data = await res.json();
+      return (data.results || []).map((r: any) => ({
+        id: r.id,
+        type: r.object,
+        title: r.object === "page"
+          ? extractNotionText(Object.values(r.properties || {}).find((p: any) => p.type === "title")?.title || [])
+          : r.title?.[0]?.plain_text || "Untitled",
+        url: r.url,
+        ...(r.object === "page" ? { properties: summarizeNotionProperties(r.properties) } : {}),
+      }));
+    }
+
+    case "query_notion_database": {
+      const res = await fetch(`${NOTION_API_URL}/databases/${args.database_id}/query`, {
+        method: "POST", headers,
+        body: JSON.stringify({ page_size: args.page_size || 20 }),
+      });
+      if (!res.ok) throw new Error(`Notion query failed: ${await res.text()}`);
+      const data = await res.json();
+      return {
+        total: data.results?.length || 0,
+        has_more: data.has_more,
+        entries: (data.results || []).map((r: any) => ({
+          id: r.id,
+          url: r.url,
+          properties: summarizeNotionProperties(r.properties),
+        })),
+      };
+    }
+
+    case "get_notion_page_content": {
+      const res = await fetch(`${NOTION_API_URL}/blocks/${args.page_id}/children?page_size=100`, {
+        method: "GET",
+        headers: { "Authorization": `Bearer ${token}`, "Notion-Version": NOTION_VERSION },
+      });
+      if (!res.ok) throw new Error(`Notion page read failed: ${await res.text()}`);
+      const data = await res.json();
+      const blocks = (data.results || []).map((b: any) => ({
+        type: b.type,
+        content: summarizeNotionBlock(b),
+      })).filter((b: any) => b.content);
+      return { block_count: blocks.length, content: blocks };
+    }
+
+    default:
+      throw new Error(`Unknown Notion tool: ${toolName}`);
+  }
+}
 
 async function getDriveAccessToken(supabaseAdmin: any): Promise<string | null> {
   const clientId = Deno.env.get("GOOGLE_CALENDAR_CLIENT_ID");
@@ -570,6 +739,7 @@ serve(async (req) => {
     let userId: string | null = null;
     let calendarAccessToken: string | null = null;
     let driveAccessToken: string | null = null;
+    let notionToken: string | null = null;
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -587,6 +757,8 @@ serve(async (req) => {
     // Get Drive access token (company-wide, not per-user)
     driveAccessToken = await getDriveAccessToken(supabaseAdmin);
 
+    // Get Notion token (company-wide)
+    notionToken = await getNotionToken(supabaseAdmin);
     // Adjust system prompt based on mode and integration availability
     let systemContent = SYSTEM_PROMPT;
 
@@ -596,6 +768,10 @@ serve(async (req) => {
 
     if (!driveAccessToken) {
       systemContent += "\n\nNote: Google Drive is not connected for the company. If the user asks about documents or company files, let them know an admin needs to connect Google Drive first via the Integrations page.";
+    }
+
+    if (!notionToken) {
+      systemContent += "\n\nNote: Notion is not connected. If the user asks about Notion data, let them know an admin needs to connect Notion first via the Integrations page.";
     }
 
     // Inject user profile context if available
@@ -636,6 +812,9 @@ serve(async (req) => {
     }
     if (driveAccessToken) {
       tools.push(...DRIVE_TOOLS);
+    }
+    if (notionToken) {
+      tools.push(...NOTION_TOOLS);
     }
     if (tools.length > 0) {
       requestBody.tools = tools;
@@ -730,13 +909,15 @@ serve(async (req) => {
       }
     }
 
+    console.log("Stream parsed - content length:", fullContent.length, "tool calls:", toolCalls.length, toolCalls.map(tc => tc?.function?.name));
+
     // If there are tool calls, execute them and make a follow-up request
     if (toolCalls.length > 0) {
       console.log("Executing tool calls:", toolCalls.map(tc => tc.function.name));
       
       const calendarToolNames = ["list_calendar_events", "create_calendar_event", "update_calendar_event", "delete_calendar_event"];
       const driveToolNames = ["search_drive", "read_document"];
-      
+      const notionToolNames = ["search_notion", "query_notion_database", "get_notion_page_content"];
       const toolResults: any[] = [];
       for (const tc of toolCalls) {
         try {
@@ -754,6 +935,12 @@ serve(async (req) => {
               result = { error: "Google Drive is not connected. An admin needs to connect it via the Integrations page." };
             } else {
               result = await executeDriveTool(tc.function.name, args, driveAccessToken);
+            }
+          } else if (notionToolNames.includes(tc.function.name)) {
+            if (!notionToken) {
+              result = { error: "Notion is not connected. An admin needs to connect it via the Integrations page." };
+            } else {
+              result = await executeNotionTool(tc.function.name, args, notionToken);
             }
           } else {
             result = { error: `Unknown tool: ${tc.function.name}` };
