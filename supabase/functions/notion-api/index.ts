@@ -65,6 +65,7 @@ serve(async (req) => {
 
     // Decode the base64 encoded token
     const notionToken = atob(integration.encrypted_api_key);
+    console.log("Token prefix:", notionToken.substring(0, 8), "length:", notionToken.length);
     
     // Parse request body
     const { action, params } = await req.json();
