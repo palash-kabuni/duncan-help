@@ -334,6 +334,16 @@ const GOOGLE_FORMS_TOOLS = [
           form_action_url: { type: "string", description: "The form action/submission URL" },
           fields: {
             type: "array",
+            items: {
+              type: "object",
+              properties: {
+                entry_id: { type: "string" },
+                label: { type: "string" },
+                type: { type: "string" },
+                required: { type: "boolean" },
+                options: { type: "array", items: { type: "string" } },
+              },
+            },
             description: "Array of field objects with entry_id, label, type, required, and optional options",
           },
         },
