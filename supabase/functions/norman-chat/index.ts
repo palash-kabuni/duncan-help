@@ -23,7 +23,7 @@ Your capabilities:
 - **Calendar Management**: You have access to the user's Google Calendar. You can list events, create new events, update existing events, and delete events.
 - **Document Search**: You have access to the company's Google Drive. You can search for documents, read their content, and answer questions based on them.
 - **Notion Access**: You have access to the company's Notion workspace. You can search for pages, query databases, and read page content. Use these tools when users ask about information stored in Notion.
-- **Google Forms**: You can fill and submit pre-configured Google Forms on behalf of the user. When a user asks to fill a form, first list available forms, then ask each required field ONE AT A TIME as a conversational question. Wait for the user to answer each question before asking the next. After collecting all answers, confirm the details and submit.
+- **Google Forms**: You can fill and submit pre-configured Google Forms on behalf of the user. You can also parse a Google Form URL to automatically extract its fields and save it as a new pre-configured form. When a user asks to fill a form, first list available forms, then ask each required field ONE AT A TIME as a conversational question. Wait for the user to answer each question before asking the next. After collecting all answers, confirm the details and submit. When a user provides a Google Form URL, use parse_google_form to extract the fields, show the parsed result to the user for confirmation, then save it with save_parsed_google_form.
 
 Your personality:
 - Direct, precise, and efficient. No fluff.
@@ -306,6 +306,41 @@ const GOOGLE_FORMS_TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "parse_google_form",
+      description: "Parse a Google Form URL to automatically extract its fields, entry IDs, and form action URL. Use this when a user provides a Google Form URL and wants to add it as a pre-configured form, or when an admin wants to set up a new form. After parsing, save the form to the database using save_parsed_google_form.",
+      parameters: {
+        type: "object",
+        properties: {
+          form_url: { type: "string", description: "The Google Form URL to parse (viewform URL)" },
+        },
+        required: ["form_url"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "save_parsed_google_form",
+      description: "Save a parsed Google Form to the database so it becomes available for filling. Use this after parse_google_form returns the form structure and the user confirms it looks correct.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Form title" },
+          description: { type: "string", description: "Form description (optional)" },
+          form_url: { type: "string", description: "The original form URL" },
+          form_action_url: { type: "string", description: "The form action/submission URL" },
+          fields: {
+            type: "array",
+            description: "Array of field objects with entry_id, label, type, required, and optional options",
+          },
+        },
+        required: ["title", "form_url", "form_action_url", "fields"],
+      },
+    },
+  },
 ];
 
 async function executeGoogleFormsTool(toolName: string, args: any, supabaseAdmin: any): Promise<any> {
@@ -330,7 +365,6 @@ async function executeGoogleFormsTool(toolName: string, args: any, supabaseAdmin
         .single();
       if (error || !form) throw new Error("Form not found");
 
-      // Validate required fields
       const requiredFields = (form.fields || []).filter((f: any) => f.required);
       for (const field of requiredFields) {
         if (!args.entries[field.entry_id]) {
@@ -338,7 +372,6 @@ async function executeGoogleFormsTool(toolName: string, args: any, supabaseAdmin
         }
       }
 
-      // Submit via the submit-google-form edge function
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const res = await fetch(`${supabaseUrl}/functions/v1/submit-google-form`, {
         method: "POST",
@@ -348,6 +381,34 @@ async function executeGoogleFormsTool(toolName: string, args: any, supabaseAdmin
       const result = await res.json();
       if (!result.success) throw new Error("Form submission failed");
       return { success: true, message: "Form submitted successfully!" };
+    }
+    case "parse_google_form": {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const res = await fetch(`${supabaseUrl}/functions/v1/parse-google-form`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ formUrl: args.form_url }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Failed to parse form (${res.status})`);
+      }
+      return await res.json();
+    }
+    case "save_parsed_google_form": {
+      const { data, error } = await supabaseAdmin
+        .from("google_forms")
+        .insert({
+          name: args.title,
+          description: args.description || null,
+          form_url: args.form_url,
+          form_action_url: args.form_action_url,
+          fields: args.fields,
+        })
+        .select("id, name")
+        .single();
+      if (error) throw new Error(`Failed to save form: ${error.message}`);
+      return { success: true, id: data.id, name: data.name, message: `Form "${data.name}" saved and ready for use!` };
     }
     default:
       throw new Error(`Unknown Google Forms tool: ${toolName}`);
