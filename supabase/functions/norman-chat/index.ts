@@ -853,72 +853,71 @@ serve(async (req) => {
       );
     }
 
-    // For streaming with tool calls, we need to collect the full response first
-    // to check for tool calls, then either stream the response or execute tools
-    const reader = response.body!.getReader();
-    const decoder = new TextDecoder();
-    let fullContent = "";
-    let toolCalls: any[] = [];
-    let buffer = "";
+    // Helper to parse an SSE stream and extract content + tool calls
+    async function parseSSEStream(streamResponse: Response): Promise<{ fullContent: string; toolCalls: any[] }> {
+      const reader = streamResponse.body!.getReader();
+      const decoder = new TextDecoder();
+      let fullContent = "";
+      let toolCalls: any[] = [];
+      let buffer = "";
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      
-      buffer += decoder.decode(value, { stream: true });
-      
-      let newlineIndex: number;
-      while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
-        let line = buffer.slice(0, newlineIndex);
-        buffer = buffer.slice(newlineIndex + 1);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        
+        let newlineIndex: number;
+        while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+          let line = buffer.slice(0, newlineIndex);
+          buffer = buffer.slice(newlineIndex + 1);
 
-        if (line.endsWith("\r")) line = line.slice(0, -1);
-        if (line.startsWith(":") || line.trim() === "") continue;
-        if (!line.startsWith("data: ")) continue;
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (line.startsWith(":") || line.trim() === "") continue;
+          if (!line.startsWith("data: ")) continue;
 
-        const jsonStr = line.slice(6).trim();
-        if (jsonStr === "[DONE]") continue;
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === "[DONE]") continue;
 
-        try {
-          const parsed = JSON.parse(jsonStr);
-          const delta = parsed.choices?.[0]?.delta;
-          
-          if (delta?.content) {
-            fullContent += delta.content;
-          }
-          
-          if (delta?.tool_calls) {
-            for (const tc of delta.tool_calls) {
-              const index = tc.index;
-              if (!toolCalls[index]) {
-                toolCalls[index] = { id: tc.id, function: { name: "", arguments: "" } };
-              }
-              if (tc.function?.name) {
-                toolCalls[index].function.name = tc.function.name;
-              }
-              if (tc.function?.arguments) {
-                toolCalls[index].function.arguments += tc.function.arguments;
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const delta = parsed.choices?.[0]?.delta;
+            
+            if (delta?.content) {
+              fullContent += delta.content;
+            }
+            
+            if (delta?.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                const index = tc.index;
+                if (!toolCalls[index]) {
+                  toolCalls[index] = { id: tc.id, type: "function", function: { name: "", arguments: "" } };
+                }
+                if (tc.function?.name) {
+                  toolCalls[index].function.name = tc.function.name;
+                }
+                if (tc.function?.arguments) {
+                  toolCalls[index].function.arguments += tc.function.arguments;
+                }
               }
             }
+          } catch {
+            buffer = line + "\n" + buffer;
+            break;
           }
-        } catch {
-          // Incomplete JSON, put back in buffer
-          buffer = line + "\n" + buffer;
-          break;
         }
       }
+
+      return { fullContent, toolCalls };
     }
 
-    console.log("Stream parsed - content length:", fullContent.length, "tool calls:", toolCalls.length, toolCalls.map(tc => tc?.function?.name));
-
-    // If there are tool calls, execute them and make a follow-up request
-    if (toolCalls.length > 0) {
-      console.log("Executing tool calls:", toolCalls.map(tc => tc.function.name));
-      
+    // Helper to execute tool calls and return results
+    async function executeToolCalls(toolCalls: any[]): Promise<any[]> {
       const calendarToolNames = ["list_calendar_events", "create_calendar_event", "update_calendar_event", "delete_calendar_event"];
       const driveToolNames = ["search_drive", "read_document"];
       const notionToolNames = ["search_notion", "query_notion_database", "get_notion_page_content"];
       const toolResults: any[] = [];
+
       for (const tc of toolCalls) {
         try {
           const args = JSON.parse(tc.function.arguments);
@@ -960,14 +959,43 @@ serve(async (req) => {
         }
       }
 
-      // Make follow-up request with tool results
-      const followUpMessages = [
-        { role: "system", content: systemContent },
-        ...messages,
-        { role: "assistant", content: fullContent || "", tool_calls: toolCalls },
-        ...toolResults,
-      ];
+      return toolResults;
+    }
 
+    // Parse the initial response
+    let { fullContent, toolCalls } = await parseSSEStream(response);
+    console.log("Stream parsed - content length:", fullContent.length, "tool calls:", toolCalls.length, toolCalls.map(tc => tc?.function?.name));
+
+    // Conversation history for multi-round tool calls
+    const conversationMessages = [
+      { role: "system", content: systemContent },
+      ...messages,
+    ];
+
+    // Loop: execute tool calls up to 5 rounds
+    const MAX_TOOL_ROUNDS = 5;
+    let round = 0;
+
+    while (toolCalls.length > 0 && round < MAX_TOOL_ROUNDS) {
+      round++;
+      console.log(`Tool call round ${round}:`, toolCalls.map(tc => tc.function.name));
+
+      // Execute tool calls
+      const toolResults = await executeToolCalls(toolCalls);
+
+      // Build assistant message for this round
+      const assistantMsg: any = { role: "assistant", tool_calls: toolCalls };
+      if (fullContent) {
+        assistantMsg.content = fullContent;
+      }
+
+      // Add to conversation
+      conversationMessages.push(assistantMsg, ...toolResults);
+
+      // Check if this is the last allowed round - if so, stream the response
+      const isLastRound = round >= MAX_TOOL_ROUNDS;
+
+      // Make follow-up request
       const followUpResponse = await fetch(
         "https://ai.gateway.lovable.dev/v1/chat/completions",
         {
@@ -978,31 +1006,39 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             model: "google/gemini-3-flash-preview",
-            messages: followUpMessages,
+            messages: conversationMessages,
             stream: true,
+            ...(isLastRound ? {} : { tools: [...CALENDAR_TOOLS, ...DRIVE_TOOLS, ...NOTION_TOOLS] }),
           }),
         }
       );
 
       if (!followUpResponse.ok) {
         const text = await followUpResponse.text();
-        console.error("Follow-up AI error:", text);
+        console.error(`Follow-up AI error (round ${round}):`, text);
         return new Response(
           JSON.stringify({ error: "Failed to process tool results" }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      return new Response(followUpResponse.body, {
-        headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
-      });
+      // Parse the follow-up to check for more tool calls
+      const followUp = await parseSSEStream(followUpResponse);
+      fullContent = followUp.fullContent;
+      toolCalls = followUp.toolCalls;
+
+      console.log(`Round ${round} result - content length: ${fullContent.length}, tool calls: ${toolCalls.length}`);
+
+      // If no more tool calls, we have the final content - break
+      if (toolCalls.length === 0) {
+        break;
+      }
     }
 
-    // No tool calls, stream the collected content as SSE
+    // Stream the final content as SSE to the client
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       start(controller) {
-        // Send the content we already collected
         if (fullContent) {
           const chunk = {
             choices: [{ delta: { content: fullContent } }],
