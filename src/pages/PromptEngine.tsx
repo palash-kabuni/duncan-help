@@ -76,7 +76,7 @@ const PromptEngine = () => {
           {messages.length === 0 ? (
             <EmptyState mode={mode} onSend={(s) => send(s, mode)} />
           ) : (
-            <div className="mx-auto max-w-3xl space-y-6">
+            <div className="mx-auto max-w-3xl space-y-8">
               <AnimatePresence initial={false}>
                 {messages.map((msg, i) => (
                   <motion.div
@@ -92,14 +92,14 @@ const PromptEngine = () => {
                       </div>
                     )}
                     <div
-                      className={`max-w-[85%] rounded-xl px-4 py-3 text-sm leading-relaxed ${
+                      className={`max-w-[85%] rounded-xl px-5 py-4 text-sm ${
                         msg.role === "user"
                           ? "bg-primary text-primary-foreground"
                           : "bg-card border border-border text-foreground"
                       }`}
                     >
                       {msg.role === "assistant" ? (
-                        <div className="prose prose-sm prose-invert max-w-none prose-headings:text-foreground prose-p:text-foreground/90 prose-strong:text-foreground prose-code:text-primary prose-code:bg-secondary prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-secondary prose-pre:border prose-pre:border-border prose-li:text-foreground/90">
+                        <div className="prose prose-sm prose-invert max-w-none leading-7 prose-headings:text-foreground prose-headings:mt-6 prose-headings:mb-3 prose-p:text-foreground/90 prose-p:mb-4 prose-p:leading-7 prose-strong:text-foreground prose-code:text-primary prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-xs prose-pre:bg-secondary prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-pre:my-4 prose-pre:p-4 prose-li:text-foreground/90 prose-li:mb-2 prose-li:leading-7 prose-ul:my-4 prose-ol:my-4 prose-hr:my-6 prose-hr:border-border prose-blockquote:border-primary/30 prose-blockquote:pl-4 prose-blockquote:my-4">
                           <ReactMarkdown>{msg.content}</ReactMarkdown>
                         </div>
                       ) : (
