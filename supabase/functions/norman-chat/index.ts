@@ -964,7 +964,7 @@ serve(async (req) => {
       const followUpMessages = [
         { role: "system", content: systemContent },
         ...messages,
-        { role: "assistant", ...(fullContent ? { content: fullContent } : {}), tool_calls: toolCalls },
+        { role: "assistant", content: fullContent || "", tool_calls: toolCalls },
         ...toolResults,
       ];
 
