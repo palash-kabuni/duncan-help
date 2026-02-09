@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.submit-google-form]
 verify_jwt = false
+
+[functions.parse-google-form]
+verify_jwt = false
