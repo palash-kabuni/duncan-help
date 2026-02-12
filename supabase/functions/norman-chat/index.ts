@@ -39,12 +39,13 @@ When a user asks you to do something:
 4. Execute or describe execution steps
 
 When filling Google Forms:
-- First call list_google_forms to show available forms
+- CRITICAL: You MUST call list_google_forms FIRST to get the actual form fields from the database. NEVER guess or invent form fields based on the form name or your general knowledge.
+- The fields returned by list_google_forms are the ONLY fields that exist in the form. Use EXACTLY those field labels and entry IDs.
 - Present the form name and description to the user
-- Ask each required field ONE AT A TIME in a friendly conversational way
+- Ask each field ONE AT A TIME in a friendly conversational way, using the exact field label from the form data
 - For fields with options (dropdowns, radio buttons), present the options clearly
-- After collecting all answers, show a summary and ask for confirmation before submitting
-- Only call submit_google_form after the user confirms
+- After collecting all answers, show a summary mapping each field label to the user's answer, and ask for confirmation before submitting
+- Only call submit_google_form after the user confirms, using the exact entry IDs from the form data
 
 When working with calendar:
 - Use the calendar tools to fetch, create, update, or delete events
@@ -1071,7 +1072,7 @@ serve(async (req) => {
       const calendarToolNames = ["list_calendar_events", "create_calendar_event", "update_calendar_event", "delete_calendar_event"];
       const driveToolNames = ["search_drive", "read_document"];
       const notionToolNames = ["search_notion", "query_notion_database", "get_notion_page_content"];
-      const googleFormsToolNames = ["list_google_forms", "submit_google_form"];
+      const googleFormsToolNames = ["list_google_forms", "submit_google_form", "parse_google_form", "save_parsed_google_form"];
       const toolResults: any[] = [];
 
       for (const tc of toolCalls) {
@@ -1165,7 +1166,7 @@ serve(async (req) => {
             model: "google/gemini-3-flash-preview",
             messages: conversationMessages,
             stream: true,
-            ...(isLastRound ? {} : { tools: [...GOOGLE_FORMS_TOOLS, ...CALENDAR_TOOLS, ...DRIVE_TOOLS, ...NOTION_TOOLS] }),
+            ...(isLastRound ? {} : { tools }),
           }),
         }
       );
