@@ -924,8 +924,30 @@ serve(async (req) => {
 
     // Get Notion token (company-wide)
     notionToken = await getNotionToken(supabaseAdmin);
+    // Get available Google Forms and inject into system prompt
+    const { data: googleForms } = await supabaseAdmin
+      .from("google_forms")
+      .select("id, name, description, fields");
+
     // Adjust system prompt based on mode and integration availability
     let systemContent = SYSTEM_PROMPT;
+
+    // Always inject available forms into the system prompt so the model has field data across all turns
+    if (googleForms && googleForms.length > 0) {
+      let formsContext = "\n\n## AVAILABLE GOOGLE FORMS (PRE-LOADED — DO NOT CALL list_google_forms)\nThe following forms are available. Use ONLY these exact fields when asking questions:\n";
+      for (const form of googleForms) {
+        formsContext += `\n### Form: "${form.name}" (ID: ${form.id})\n`;
+        if (form.description) formsContext += `Description: ${form.description}\n`;
+        formsContext += `Fields (ask ONLY these, in this order):\n`;
+        const fields = form.fields as any[];
+        for (let i = 0; i < fields.length; i++) {
+          const f = fields[i];
+          formsContext += `  ${i + 1}. Label: "${f.label}" | entry_id: ${f.entry_id} | type: ${f.type} | required: ${f.required}${f.options ? ` | options: ${f.options.join(", ")}` : ""}\n`;
+        }
+        formsContext += `Total fields: ${fields.length}. Ask exactly ${fields.length} questions — no more, no less.\n`;
+      }
+      systemContent += formsContext;
+    }
 
     if (!calendarAccessToken) {
       systemContent += "\n\nNote: Google Calendar is not connected for you. If the user asks about calendar operations, let them know they need to connect their Google Calendar first via the Integrations page.";
