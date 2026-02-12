@@ -59,7 +59,7 @@ const Index = () => {
               {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
             </p>
             <h2 className="text-2xl font-bold text-foreground tracking-tight">
-              Good morning. Norman is <span className="text-primary glow-text">operational</span>.
+              Good morning. Duncan is <span className="text-primary glow-text">operational</span>.
             </h2>
           </motion.div>
 

@@ -20,7 +20,7 @@ const CommandBar = () => {
       <Sparkles className="h-4 w-4 text-primary shrink-0" />
       <input
         type="text"
-        placeholder="Ask Norman anything… or type a command"
+        placeholder="Ask Duncan anything… or type a command"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onFocus={() => setIsFocused(true)}

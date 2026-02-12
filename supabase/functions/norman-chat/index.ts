@@ -13,7 +13,7 @@ const GOOGLE_DRIVE_API = "https://www.googleapis.com/drive/v3";
 const NOTION_API_URL = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 
-const SYSTEM_PROMPT = `You are Norman, an advanced reasoning and agentic operating system for internal company operations.
+const SYSTEM_PROMPT = `You are Duncan, an advanced reasoning and agentic operating system for internal company operations.
 
 Your capabilities:
 - **Reasoning**: Analyze data, identify patterns, draw conclusions, and make recommendations across all ingested company data.

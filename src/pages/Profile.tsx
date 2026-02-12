@@ -59,7 +59,7 @@ const Profile = () => {
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
             <h2 className="text-2xl font-bold text-foreground tracking-tight mb-1">Your Profile</h2>
             <p className="text-sm text-muted-foreground mb-8">
-              Help Norman understand who you are so it can personalise responses.
+              Help Duncan understand who you are so it can personalise responses.
             </p>
           </motion.div>
 
@@ -121,10 +121,10 @@ const Profile = () => {
             {/* Norman context */}
             <div className="space-y-2">
               <Label className="flex items-center gap-2 text-foreground">
-                <Brain className="h-4 w-4 text-primary" /> Norman Personalisation
+                <Brain className="h-4 w-4 text-primary" /> Duncan Personalisation
               </Label>
               <p className="text-xs text-muted-foreground">
-                Anything else Norman should know — communication style, priorities, projects you're focused on.
+                Anything else Duncan should know — communication style, priorities, projects you're focused on.
               </p>
               <Textarea
                 value={form.norman_context ?? ""}

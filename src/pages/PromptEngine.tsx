@@ -41,7 +41,7 @@ const PromptEngine = () => {
         <div className="relative z-10 flex items-center justify-between border-b border-border px-8 py-4">
           <div>
             <h2 className="text-lg font-bold text-foreground tracking-tight">Prompt Engine</h2>
-            <p className="text-xs text-muted-foreground font-mono">Norman reasoning & automation interface</p>
+            <p className="text-xs text-muted-foreground font-mono">Duncan reasoning & automation interface</p>
           </div>
           <div className="flex items-center gap-2">
             {/* Mode selector */}
@@ -116,7 +116,7 @@ const PromptEngine = () => {
                   </div>
                   <div className="flex items-center gap-2 text-muted-foreground text-sm">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Norman is thinking…
+                    Duncan is thinking…
                   </div>
                 </motion.div>
               )}
@@ -130,7 +130,7 @@ const PromptEngine = () => {
             <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 focus-within:border-primary/40 focus-within:glow-primary-sm transition-all duration-300">
               <input
                 type="text"
-                placeholder={`Ask Norman to ${mode === "reason" ? "reason through a problem" : mode === "automate" ? "create an automation workflow" : mode === "analyze" ? "analyze data patterns" : "do anything"}…`}
+                placeholder={`Ask Duncan to ${mode === "reason" ? "reason through a problem" : mode === "automate" ? "create an automation workflow" : mode === "analyze" ? "analyze data patterns" : "do anything"}…`}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 disabled={isLoading}
@@ -145,7 +145,7 @@ const PromptEngine = () => {
               </button>
             </div>
             <p className="mt-2 text-center text-[10px] font-mono text-muted-foreground/40">
-              Mode: {mode.toUpperCase()} · Powered by Norman AI Engine
+              Mode: {mode.toUpperCase()} · Powered by Duncan AI Engine
             </p>
           </form>
         </div>
@@ -193,7 +193,7 @@ const EmptyState = ({ mode, onSend }: { mode: Mode; onSend: (s: string) => void 
         transition={{ delay: 0.1 }}
         className="text-xl font-bold text-foreground mb-2"
       >
-        Norman Prompt Engine
+        Duncan Prompt Engine
       </motion.h3>
       <motion.p
         initial={{ opacity: 0, y: 10 }}
@@ -201,7 +201,7 @@ const EmptyState = ({ mode, onSend }: { mode: Mode; onSend: (s: string) => void 
         transition={{ delay: 0.15 }}
         className="text-sm text-muted-foreground mb-8 text-center max-w-md"
       >
-        Ask Norman to reason, automate, and analyze across your connected tools and data.
+        Ask Duncan to reason, automate, and analyze across your connected tools and data.
       </motion.p>
       <motion.div
         initial={{ opacity: 0, y: 10 }}
