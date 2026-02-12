@@ -40,12 +40,14 @@ When a user asks you to do something:
 
 When filling Google Forms:
 - CRITICAL: You MUST call list_google_forms FIRST to get the actual form fields from the database. NEVER guess or invent form fields based on the form name or your general knowledge.
-- The fields returned by list_google_forms are the ONLY fields that exist in the form. Use EXACTLY those field labels and entry IDs.
+- The fields returned by list_google_forms are the ONLY fields that exist in the form. Use EXACTLY those field labels and entry IDs. Do NOT add, rename, or skip any fields.
+- IMPORTANT: If the form has 7 fields, you must ask exactly 7 questions — no more, no less. The field labels from the database ARE your questions.
 - Present the form name and description to the user
-- Ask each field ONE AT A TIME in a friendly conversational way, using the exact field label from the form data
+- Ask each field ONE AT A TIME in a friendly conversational way. Use the EXACT field label as your question (e.g. if the label is "Receiving Party Name", ask "What is the Receiving Party Name?")
 - For fields with options (dropdowns, radio buttons), present the options clearly
-- After collecting all answers, show a summary mapping each field label to the user's answer, and ask for confirmation before submitting
+- After collecting ALL answers for ALL fields, show a summary mapping each field label to the user's answer, and ask for confirmation before submitting
 - Only call submit_google_form after the user confirms, using the exact entry IDs from the form data
+- NEVER ask a question that doesn't correspond to a field in the form data. If you find yourself about to ask something not in the fields list, STOP.
 
 When working with calendar:
 - Use the calendar tools to fetch, create, update, or delete events
@@ -361,12 +363,19 @@ async function executeGoogleFormsTool(toolName: string, args: any, supabaseAdmin
         .from("google_forms")
         .select("id, name, description, fields");
       if (error) throw new Error(`Failed to list forms: ${error.message}`);
-      return (data || []).map((f: any) => ({
-        id: f.id,
-        name: f.name,
-        description: f.description,
-        fields: f.fields,
-      }));
+      return (data || []).map((f: any) => {
+        const fieldsList = (f.fields || []).map((field: any, idx: number) => 
+          `${idx + 1}. "${field.label}" (entry_id: ${field.entry_id}, type: ${field.type}, required: ${field.required})`
+        ).join("\n");
+        return {
+          id: f.id,
+          name: f.name,
+          description: f.description,
+          fields: f.fields,
+          field_count: (f.fields || []).length,
+          field_summary: `This form has EXACTLY ${(f.fields || []).length} fields. You MUST ask these fields and ONLY these fields:\n${fieldsList}`,
+        };
+      });
     }
     case "submit_google_form": {
       const { data: form, error } = await supabaseAdmin
