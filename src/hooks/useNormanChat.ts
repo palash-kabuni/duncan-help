@@ -105,7 +105,7 @@ export function useNormanChat() {
           }
         }
       } catch (e) {
-        console.error("Norman chat error:", e);
+        console.error("Duncan chat error:", e);
         upsertAssistant(
           `\n\n⚠️ Error: ${e instanceof Error ? e.message : "Something went wrong. Please try again."}`
         );

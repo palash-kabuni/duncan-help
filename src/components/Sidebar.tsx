@@ -48,10 +48,10 @@ const Sidebar = () => {
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <h1 className="text-lg font-bold tracking-tight text-foreground cursor-default">Norman</h1>
+                <h1 className="text-lg font-bold tracking-tight text-foreground cursor-default">Duncan</h1>
               </TooltipTrigger>
               <TooltipContent side="right" className="max-w-[200px]">
-                <p className="text-xs">Named after Jo's dad Norman — our COO's inspiration behind the system.</p>
+                <p className="text-xs">Named after Jo's dad Duncan — our COO's inspiration behind the system.</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
