@@ -146,6 +146,72 @@ export type Database = {
         }
         Relationships: []
       }
+      nda_submissions: {
+        Row: {
+          created_at: string
+          date_of_agreement: string
+          docusign_envelope_id: string | null
+          google_doc_id: string | null
+          google_doc_url: string | null
+          id: string
+          last_error: string | null
+          notion_page_id: string | null
+          notion_page_url: string | null
+          purpose: string
+          receiving_party_entity: string
+          receiving_party_name: string
+          recipient_email: string
+          recipient_name: string
+          registered_address: string
+          status: string
+          submitter_email: string | null
+          submitter_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          date_of_agreement: string
+          docusign_envelope_id?: string | null
+          google_doc_id?: string | null
+          google_doc_url?: string | null
+          id?: string
+          last_error?: string | null
+          notion_page_id?: string | null
+          notion_page_url?: string | null
+          purpose: string
+          receiving_party_entity: string
+          receiving_party_name: string
+          recipient_email: string
+          recipient_name: string
+          registered_address: string
+          status?: string
+          submitter_email?: string | null
+          submitter_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          date_of_agreement?: string
+          docusign_envelope_id?: string | null
+          google_doc_id?: string | null
+          google_doc_url?: string | null
+          id?: string
+          last_error?: string | null
+          notion_page_id?: string | null
+          notion_page_url?: string | null
+          purpose?: string
+          receiving_party_entity?: string
+          receiving_party_name?: string
+          recipient_email?: string
+          recipient_name?: string
+          registered_address?: string
+          status?: string
+          submitter_email?: string | null
+          submitter_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null

@@ -68,6 +68,23 @@ When working with Notion:
 - Present Notion data clearly, referencing page titles and properties
 - If a user asks about contracts, agreements, or anything that might be in Notion, search there
 
+When generating NDAs:
+- Use the generate_nda tool when a user asks to create/generate an NDA.
+- You MUST collect ALL 7 fields before calling generate_nda. Ask each field ONE AT A TIME:
+  1. Receiving Party Name (the company/person name — also used as folder name)
+  2. Receiving Party Legal Entity Name (the formal legal entity)
+  3. Date of Agreement (in YYYY-MM-DD format)
+  4. Registered Address of the Receiving Party Legal Entity
+  5. Purpose of the NDA
+  6. Recipient Name for Signature (who will sign on the receiving side)
+  7. Recipient Email for Signature (their email for DocuSign)
+- After collecting all 7 fields, show a summary and ask for confirmation before calling generate_nda.
+- The tool will: copy a Google Docs template, replace placeholders, export PDF, and create a Notion log entry.
+- After generation, share the Google Doc URL and Notion page URL with the user.
+- To view existing NDA submissions or check status, use list_nda_submissions.
+- To send an NDA for e-signature (admin only), use send_nda_for_signature with the submission_id. This sends via DocuSign to Kabuni's signer first, then the recipient.
+- Use send_nda_for_signature with dry_run=true to validate without actually sending.
+
 Always be aware that you are the central intelligence layer coordinating across all company tools and data.`;
 
 const CALENDAR_TOOLS = [
@@ -282,6 +299,59 @@ const NOTION_TOOLS = [
   },
 ];
 
+const NDA_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "generate_nda",
+      description: "Generate an NDA document. Copies a Google Docs template, replaces placeholders, creates a Notion log entry, and returns document + Notion links. Use when a user asks to create/generate an NDA.",
+      parameters: {
+        type: "object",
+        properties: {
+          receiving_party_name: { type: "string", description: "The receiving party name (used as folder name and doc title)" },
+          receiving_party_entity: { type: "string", description: "Legal entity name of the receiving party" },
+          date_of_agreement: { type: "string", description: "Date in YYYY-MM-DD format" },
+          registered_address: { type: "string", description: "Registered address of the receiving party legal entity" },
+          purpose: { type: "string", description: "Purpose of the NDA" },
+          recipient_name: { type: "string", description: "Name of the person who will sign on behalf of the receiving party" },
+          recipient_email: { type: "string", description: "Email of the recipient signer" },
+        },
+        required: ["receiving_party_name", "receiving_party_entity", "date_of_agreement", "registered_address", "purpose", "recipient_name", "recipient_email"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_nda_submissions",
+      description: "List NDA submissions with optional status filter. Use to check status of NDAs or find ones pending signature.",
+      parameters: {
+        type: "object",
+        properties: {
+          status: { type: "string", description: "Filter by status: draft, generated, sent, completed, failed, declined" },
+          limit: { type: "number", description: "Max results (default 20)" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_nda_for_signature",
+      description: "Send a generated NDA for e-signature via DocuSign. Requires admin role. Sends to Kabuni signer first, then recipient.",
+      parameters: {
+        type: "object",
+        properties: {
+          submission_id: { type: "string", description: "The NDA submission UUID to send for signing" },
+          dry_run: { type: "boolean", description: "If true, validates everything but doesn't actually send the envelope" },
+        },
+        required: ["submission_id"],
+      },
+    },
+  },
+];
+
 const GOOGLE_FORMS_TOOLS = [
   {
     type: "function",
@@ -432,6 +502,75 @@ async function executeGoogleFormsTool(toolName: string, args: any, supabaseAdmin
     }
     default:
       throw new Error(`Unknown Google Forms tool: ${toolName}`);
+  }
+}
+
+async function executeNdaTool(
+  toolName: string,
+  args: any,
+  supabaseAdmin: any,
+  userId: string,
+  userEmail: string,
+  authHeader: string
+): Promise<any> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+
+  switch (toolName) {
+    case "generate_nda": {
+      const res = await fetch(`${supabaseUrl}/functions/v1/nda-generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({
+          submitter_email: userEmail,
+          ...args,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "NDA generation failed");
+      return result;
+    }
+
+    case "list_nda_submissions": {
+      let query = supabaseAdmin
+        .from("nda_submissions")
+        .select("id, receiving_party_name, receiving_party_entity, date_of_agreement, recipient_name, recipient_email, status, google_doc_url, notion_page_url, docusign_envelope_id, last_error, created_at")
+        .order("created_at", { ascending: false })
+        .limit(args.limit || 20);
+
+      if (args.status) {
+        query = query.eq("status", args.status);
+      }
+
+      const { data, error } = await query;
+      if (error) throw new Error(`Failed to list submissions: ${error.message}`);
+      return {
+        count: (data || []).length,
+        submissions: data || [],
+      };
+    }
+
+    case "send_nda_for_signature": {
+      const res = await fetch(`${supabaseUrl}/functions/v1/nda-send-signature`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({
+          submission_id: args.submission_id,
+          dry_run: args.dry_run || false,
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "Failed to send for signature");
+      return result;
+    }
+
+    default:
+      throw new Error(`Unknown NDA tool: ${toolName}`);
   }
 }
 
@@ -902,6 +1041,7 @@ serve(async (req) => {
     // Get user from auth header
     const authHeader = req.headers.get("Authorization");
     let userId: string | null = null;
+    let userEmail: string = "";
     let calendarAccessToken: string | null = null;
     let driveAccessToken: string | null = null;
     let notionToken: string | null = null;
@@ -915,6 +1055,7 @@ serve(async (req) => {
       const { data: { user } } = await supabaseUser.auth.getUser();
       if (user) {
         userId = user.id;
+        userEmail = user.email || "";
         calendarAccessToken = await getCalendarAccessToken(userId, supabaseAdmin);
       }
     }
@@ -993,7 +1134,7 @@ serve(async (req) => {
     };
 
     // Include tools based on what's connected
-    const tools: any[] = [...GOOGLE_FORMS_TOOLS]; // Always available
+    const tools: any[] = [...GOOGLE_FORMS_TOOLS, ...NDA_TOOLS]; // Always available
     if (calendarAccessToken) {
       tools.push(...CALENDAR_TOOLS);
     }
@@ -1104,6 +1245,7 @@ serve(async (req) => {
       const driveToolNames = ["search_drive", "read_document"];
       const notionToolNames = ["search_notion", "query_notion_database", "get_notion_page_content"];
       const googleFormsToolNames = ["list_google_forms", "submit_google_form", "parse_google_form", "save_parsed_google_form"];
+      const ndaToolNames = ["generate_nda", "list_nda_submissions", "send_nda_for_signature"];
       const toolResults: any[] = [];
 
       for (const tc of toolCalls) {
@@ -1131,6 +1273,8 @@ serve(async (req) => {
             }
           } else if (googleFormsToolNames.includes(tc.function.name)) {
             result = await executeGoogleFormsTool(tc.function.name, args, supabaseAdmin);
+          } else if (ndaToolNames.includes(tc.function.name)) {
+            result = await executeNdaTool(tc.function.name, args, supabaseAdmin, userId || "", userEmail, authHeader || "");
           } else {
           }
           
