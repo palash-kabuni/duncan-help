@@ -14,7 +14,45 @@ const NOTION_API_URL = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 
 const TEMPLATE_DOC_ID = "1ZOrwhR-MOu27zg9lUCxraXmfC_GHHx76tyqbjVGFzq8";
-const PARENT_FOLDER_ID = "1IbxfqNgsGUw2f-GgfFghWDZVRvpGYBpJ";
+const ROOT_FOLDER_NAME = "Kabuni NDAs";
+
+/**
+ * Find or create the root NDA folder in the user's Drive (at top level).
+ * Since drive.file scope only sees files created/opened by the app,
+ * we manage our own root folder instead of relying on a pre-existing one.
+ */
+async function getOrCreateRootFolder(accessToken: string): Promise<string> {
+  const headers = { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" };
+
+  // Search for existing root folder created by this app
+  const q = `name='${ROOT_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  const searchUrl = new URL(`${GOOGLE_DRIVE_API}/files`);
+  searchUrl.searchParams.set("q", q);
+  searchUrl.searchParams.set("fields", "files(id,name)");
+
+  const searchRes = await fetch(searchUrl.toString(), { headers });
+  if (searchRes.ok) {
+    const data = await searchRes.json();
+    if (data.files && data.files.length > 0) {
+      console.log(`Found existing root NDA folder: ${data.files[0].id}`);
+      return data.files[0].id;
+    }
+  }
+
+  // Create root folder at Drive top level
+  const createRes = await fetch(`${GOOGLE_DRIVE_API}/files`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      name: ROOT_FOLDER_NAME,
+      mimeType: "application/vnd.google-apps.folder",
+    }),
+  });
+  if (!createRes.ok) throw new Error(`Failed to create root NDA folder: ${await createRes.text()}`);
+  const folder = await createRes.json();
+  console.log(`Created root NDA folder: ${folder.id}`);
+  return folder.id;
+}
 
 interface NDARequest {
   submitter_email: string;
@@ -469,8 +507,9 @@ serve(async (req) => {
       // Step 1: Get Drive access token
       const accessToken = await getDriveAccessToken(supabaseAdmin);
 
-      // Step 2: Find or create subfolder
-      const subfolderId = await findOrCreateSubfolder(PARENT_FOLDER_ID, body.receiving_party_name, accessToken);
+      // Step 2: Get or create root NDA folder, then find/create subfolder
+      const rootFolderId = await getOrCreateRootFolder(accessToken);
+      const subfolderId = await findOrCreateSubfolder(rootFolderId, body.receiving_party_name, accessToken);
 
       // Step 3: Copy template
       const docName = `NDA - ${body.receiving_party_name}`;
