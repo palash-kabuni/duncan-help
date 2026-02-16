@@ -11,7 +11,7 @@ serve(async (req) => {
     const error = url.searchParams.get("error");
 
     // Get the origin for redirects - use the referring app URL
-    const appUrl = Deno.env.get("APP_URL") || "https://norman-brain-os.lovable.app";
+    const appUrl = Deno.env.get("APP_URL") || "https://duncan-help.lovable.app";
 
     if (error) {
       console.error("OAuth error from Google:", error);
@@ -105,7 +105,7 @@ serve(async (req) => {
     return Response.redirect(`${appUrl}/integrations?success=google_calendar`);
   } catch (error) {
     console.error("Callback error:", error);
-    const appUrl = Deno.env.get("APP_URL") || "https://norman-brain-os.lovable.app";
+    const appUrl = Deno.env.get("APP_URL") || "https://duncan-help.lovable.app";
     return Response.redirect(`${appUrl}/integrations?error=unexpected`);
   }
 });
