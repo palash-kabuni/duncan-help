@@ -13,7 +13,7 @@ const GOOGLE_DOCS_API = "https://docs.googleapis.com/v1/documents";
 const NOTION_API_URL = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 
-const TEMPLATE_DOC_ID = "1ZOrwhR-MOu27zg9lUCxraXmfC_GHHx76tyqbjVGFzq8";
+const TEMPLATE_DOC_ID = "1n-cZHKUi638q1VlkZdVVRg2z2bVtJqJaMzj7FeSPN9g";
 const ROOT_FOLDER_NAME = "Kabuni NDAs";
 
 /**
