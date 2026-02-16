@@ -52,13 +52,13 @@ const integrations: Integration[] = [
       "Create a Google Cloud project and enable the required APIs (Gmail, Drive, Calendar, Docs)",
       "Configure OAuth consent screen with your domain",
       "Create OAuth 2.0 credentials (Client ID & Secret)",
-      "Add the credentials to Norman's settings",
+      "Add the credentials to Duncan's settings",
     ],
   },
   {
     id: "notion",
     name: "Notion",
-    description: "Company-wide Notion workspace. Norman indexes and reasons over shared databases, pages, and wikis.",
+    description: "Company-wide Notion workspace. Duncan indexes and reasons over shared databases, pages, and wikis.",
     icon: FileText,
     category: "Knowledge",
     services: ["Databases", "Pages", "Wikis", "Comments"],
@@ -66,14 +66,14 @@ const integrations: Integration[] = [
     setupSteps: [
       "Go to notion.so/my-integrations and create a new integration",
       "Copy the Internal Integration Token",
-      "Share the Notion pages/databases you want Norman to access with the integration",
-      "An admin adds the token to Norman's settings",
+      "Share the Notion pages/databases you want Duncan to access with the integration",
+      "An admin adds the token to Duncan's settings",
     ],
   },
   {
     id: "slack",
     name: "Slack",
-    description: "Monitor channels, automate responses, and sync conversations into Norman's knowledge base.",
+    description: "Monitor channels, automate responses, and sync conversations into Duncan's knowledge base.",
     icon: MessageSquare,
     category: "Communication",
     services: ["Channels", "Direct Messages", "Threads", "Reactions"],
@@ -82,13 +82,13 @@ const integrations: Integration[] = [
       "Create a Slack App at api.slack.com/apps",
       "Add Bot Token Scopes (channels:read, chat:write, etc.)",
       "Install the app to your workspace",
-      "Copy the Bot User OAuth Token to Norman's settings",
+      "Copy the Bot User OAuth Token to Duncan's settings",
     ],
   },
   {
     id: "linear",
     name: "Linear",
-    description: "Track issues, projects, and cycles. Norman can auto-triage and update tickets.",
+    description: "Track issues, projects, and cycles. Duncan can auto-triage and update tickets.",
     icon: Zap,
     category: "Project Management",
     services: ["Issues", "Projects", "Cycles", "Teams"],
@@ -96,7 +96,7 @@ const integrations: Integration[] = [
     setupSteps: [
       "Go to Linear Settings → API → Personal API Keys",
       "Create a new API key with the required scopes",
-      "Add the API key to Norman's settings",
+      "Add the API key to Duncan's settings",
     ],
   },
   {
@@ -110,13 +110,13 @@ const integrations: Integration[] = [
     setupSteps: [
       "Uses your Google Workspace credentials",
       "Enable the Calendar API in your Google Cloud project",
-      "Norman will automatically sync upcoming and past events",
+      "Duncan will automatically sync upcoming and past events",
     ],
   },
   {
     id: "google-drive",
     name: "Google Drive",
-    description: "Company-wide document access. Norman can search and read files across your shared Drive to answer questions based on your docs.",
+    description: "Company-wide document access. Duncan can search and read files across your shared Drive to answer questions based on your docs.",
     icon: FolderOpen,
     category: "Knowledge",
     services: ["Documents", "Spreadsheets", "Presentations", "Folders"],
@@ -125,7 +125,7 @@ const integrations: Integration[] = [
       "Admin connects using the same Google Cloud project as Calendar",
       "Enable the Drive API in your Google Cloud project",
       "Add the Drive callback URL to your OAuth client",
-      "Norman can then search and read all accessible files",
+      "Duncan can then search and read all accessible files",
     ],
   },
 ];
@@ -227,7 +227,7 @@ const Integrations = () => {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <h2 className="text-2xl font-bold text-foreground tracking-tight">Integrations</h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Connect your tools so Norman can ingest, reason, and automate across your stack.
+              Connect your tools so Duncan can ingest, reason, and automate across your stack.
             </p>
           </motion.div>
 
@@ -552,7 +552,7 @@ const IntegrationDetail = ({
 
           {/* What Norman Gets */}
           <div className="mb-8">
-            <h3 className="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-3">What Norman Gets</h3>
+            <h3 className="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-3">What Duncan Gets</h3>
             <div className="rounded-lg border border-border bg-secondary/20 p-4 space-y-2">
               <div className="flex items-center gap-2">
                 <Database className="h-3.5 w-3.5 text-primary" />
@@ -585,12 +585,12 @@ const IntegrationDetail = ({
                 <div className="space-y-4">
                   <div className="rounded-lg border border-border bg-secondary/20 p-4 space-y-2">
                     <p className="text-sm text-foreground">
-                      Click below to sign in with Google and grant Norman access to your {isGoogleCalendar ? "calendar" : "Drive files"}.
+                      Click below to sign in with Google and grant Duncan access to your {isGoogleCalendar ? "calendar" : "Drive files"}.
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {isGoogleCalendar 
-                        ? "Norman will be able to read your events and create/update/delete events on your behalf."
-                        : "Norman will be able to search and read documents across your shared Drive."}
+                         ? "Duncan will be able to read your events and create/update/delete events on your behalf."
+                        : "Duncan will be able to search and read documents across your shared Drive."}
                     </p>
                     {isGoogleDrive && (
                       <p className="text-xs text-primary mt-2">

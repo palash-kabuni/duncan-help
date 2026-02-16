@@ -36,7 +36,7 @@ const Auth = () => {
       if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        toast.success("Welcome back to Norman");
+        toast.success("Welcome back to Duncan");
       } else {
         const { error } = await supabase.auth.signUp({
           email,
@@ -93,7 +93,7 @@ const Auth = () => {
             transition={{ delay: 0.1 }}
             className="text-4xl font-bold text-foreground tracking-tight mb-3"
           >
-            Norman
+            Duncan
           </motion.h1>
           <motion.p
             initial={{ opacity: 0, y: 10 }}
@@ -126,11 +126,11 @@ const Auth = () => {
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 glow-primary-sm">
               <Brain className="h-5 w-5 text-primary" />
             </div>
-            <h1 className="text-lg font-bold text-foreground">Norman</h1>
+            <h1 className="text-lg font-bold text-foreground">Duncan</h1>
           </div>
 
           <h2 className="text-2xl font-bold text-foreground tracking-tight mb-1">
-            {isLogin ? "Welcome back" : "Join Norman"}
+            {isLogin ? "Welcome back" : "Join Duncan"}
           </h2>
           <p className="text-sm text-muted-foreground mb-8">
             {isLogin ? "Sign in to your account" : "Create your team account"}
