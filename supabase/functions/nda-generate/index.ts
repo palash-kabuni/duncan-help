@@ -296,6 +296,34 @@ async function replacePlaceholders(
 }
 
 /**
+ * Share a Google Drive file with a user (writer role)
+ */
+async function shareFileWithUser(
+  fileId: string,
+  email: string,
+  accessToken: string
+): Promise<void> {
+  const headers = { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" };
+  const res = await fetch(`${GOOGLE_DRIVE_API}/files/${fileId}/permissions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      type: "user",
+      role: "writer",
+      emailAddress: email,
+      sendNotificationEmail: true,
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error(`Failed to share file with ${email}: ${errText}`);
+    // Non-critical — don't throw, just log
+  } else {
+    console.log(`Shared file ${fileId} with ${email}`);
+  }
+}
+
+/**
  * Export Google Doc as PDF and return base64 content
  */
 async function exportAsPdf(docId: string, accessToken: string): Promise<string> {
@@ -524,6 +552,11 @@ serve(async (req) => {
         "Recipient_Name_for_Signature": body.recipient_name,
       };
       await replacePlaceholders(docId, replacements, ["Receiving_Party_Legal_Entity_Name", "Date_of_Agreement"], accessToken);
+
+      // Step 4b: Share the doc with the submitter so they can access it
+      await shareFileWithUser(docId, submitterEmail, accessToken);
+      // Also share the subfolder so they can browse it
+      await shareFileWithUser(subfolderId, submitterEmail, accessToken);
 
       // Step 5: Export as PDF (store base64 for DocuSign later)
       const pdfBase64 = await exportAsPdf(docId, accessToken);
