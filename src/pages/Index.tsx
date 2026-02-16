@@ -7,6 +7,7 @@ import StatusCard from "@/components/StatusCard";
 import IntegrationCard from "@/components/IntegrationCard";
 import ActivityFeed from "@/components/ActivityFeed";
 import PipelineOverview from "@/components/PipelineOverview";
+import WelcomeModal from "@/components/WelcomeModal";
 import { useUserIntegrations } from "@/hooks/useUserIntegrations";
 
 const integrationMeta: Record<string, { icon: any; name: string; description: string }> = {
@@ -48,6 +49,7 @@ const Index = () => {
 
   return (
     <div className="flex min-h-screen bg-background">
+      <WelcomeModal />
       <Sidebar />
       <main className="ml-64 flex-1">
         <div className="pointer-events-none fixed top-0 left-64 right-0 h-72 gradient-radial z-0" />
