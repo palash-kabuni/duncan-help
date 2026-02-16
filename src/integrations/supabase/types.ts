@@ -154,6 +154,8 @@ export type Database = {
           google_doc_id: string | null
           google_doc_url: string | null
           id: string
+          internal_signer_email: string | null
+          internal_signer_name: string | null
           last_error: string | null
           notion_page_id: string | null
           notion_page_url: string | null
@@ -175,6 +177,8 @@ export type Database = {
           google_doc_id?: string | null
           google_doc_url?: string | null
           id?: string
+          internal_signer_email?: string | null
+          internal_signer_name?: string | null
           last_error?: string | null
           notion_page_id?: string | null
           notion_page_url?: string | null
@@ -196,6 +200,8 @@ export type Database = {
           google_doc_id?: string | null
           google_doc_url?: string | null
           id?: string
+          internal_signer_email?: string | null
+          internal_signer_name?: string | null
           last_error?: string | null
           notion_page_id?: string | null
           notion_page_url?: string | null

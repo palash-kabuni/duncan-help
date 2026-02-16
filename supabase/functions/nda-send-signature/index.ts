@@ -283,7 +283,7 @@ serve(async (req) => {
         return new Response(JSON.stringify({
           success: true,
           dry_run: true,
-          message: `Dry run complete. PDF exported (${pdfBytes.length} bytes). Would send to: signer1=${Deno.env.get("KABUNI_SIGNER_EMAIL") || "palash@kabuni.com"}, signer2=${submission.recipient_email}`,
+          message: `Dry run complete. PDF exported (${pdfBytes.length} bytes). Would send to: signer1=${submission.internal_signer_email || "palash@kabuni.com"}, signer2=${submission.recipient_email}`,
           pdf_size_bytes: pdfBytes.length,
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
@@ -296,8 +296,8 @@ serve(async (req) => {
       if (!accountId) throw new Error("DOCUSIGN_ACCOUNT_ID not configured");
 
       const kabSigner = {
-        email: "palash@kabuni.com",
-        name: "Palash Soundarkar",
+        email: submission.internal_signer_email || "palash@kabuni.com",
+        name: submission.internal_signer_name || "Palash Soundarkar",
         recipientId: "1",
         routingOrder: "1",
         tabs: {

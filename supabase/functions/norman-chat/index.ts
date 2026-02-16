@@ -70,7 +70,7 @@ When working with Notion:
 
 When generating NDAs:
 - Use the generate_nda tool when a user asks to create/generate an NDA.
-- You MUST collect ALL 7 fields before calling generate_nda. Ask each field ONE AT A TIME:
+- You MUST collect ALL 9 fields before calling generate_nda. Ask each field ONE AT A TIME:
   1. Receiving Party Name (the company/person name — also used as folder name)
   2. Receiving Party Legal Entity Name (the formal legal entity)
   3. Date of Agreement (in YYYY-MM-DD format)
@@ -78,11 +78,13 @@ When generating NDAs:
   5. Purpose of the NDA
   6. Recipient Name for Signature (who will sign on the receiving side)
   7. Recipient Email for Signature (their email for DocuSign)
-- After collecting all 7 fields, show a summary and ask for confirmation before calling generate_nda.
+  8. Internal Signer Name (who signs on behalf of Kabuni — defaults to "Palash Soundarkar" if not provided)
+  9. Internal Signer Email (email of the internal signer — defaults to "palash@kabuni.com" if not provided)
+- After collecting all fields, show a summary and ask for confirmation before calling generate_nda.
 - The tool will: copy a Google Docs template, replace placeholders, export PDF, and create a Notion log entry.
 - After generation, share the Google Doc URL and Notion page URL with the user.
 - To view existing NDA submissions or check status, use list_nda_submissions.
-- To send an NDA for e-signature (admin only), use send_nda_for_signature with the submission_id. This sends via DocuSign to Kabuni's signer first, then the recipient.
+- To send an NDA for e-signature (admin only), use send_nda_for_signature with the submission_id. This sends via DocuSign to the internal signer first, then the recipient.
 - Use send_nda_for_signature with dry_run=true to validate without actually sending.
 
 Always be aware that you are the central intelligence layer coordinating across all company tools and data.`;
@@ -315,6 +317,8 @@ const NDA_TOOLS = [
           purpose: { type: "string", description: "Purpose of the NDA" },
           recipient_name: { type: "string", description: "Name of the person who will sign on behalf of the receiving party" },
           recipient_email: { type: "string", description: "Email of the recipient signer" },
+          internal_signer_name: { type: "string", description: "Name of the internal Kabuni signer (defaults to Palash Soundarkar)" },
+          internal_signer_email: { type: "string", description: "Email of the internal Kabuni signer (defaults to palash@kabuni.com)" },
         },
         required: ["receiving_party_name", "receiving_party_entity", "date_of_agreement", "registered_address", "purpose", "recipient_name", "recipient_email"],
       },
