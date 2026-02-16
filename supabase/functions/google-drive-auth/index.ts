@@ -9,9 +9,9 @@ const corsHeaders = {
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 
-// Drive API scopes - readonly access to all files
+// Drive API scopes - less restrictive scopes that don't require app verification
 const SCOPES = [
-  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/drive.file",
   "https://www.googleapis.com/auth/drive.metadata.readonly",
 ].join(" ");
 
