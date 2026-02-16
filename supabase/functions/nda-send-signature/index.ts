@@ -46,6 +46,7 @@ async function getDocuSignAccessToken(): Promise<string> {
 
   // Import RSA private key and sign
   const pemClean = privateKeyPem
+    .replace(/\\n/g, "\n")
     .replace(/-----BEGIN RSA PRIVATE KEY-----/g, "")
     .replace(/-----END RSA PRIVATE KEY-----/g, "")
     .replace(/-----BEGIN PRIVATE KEY-----/g, "")
