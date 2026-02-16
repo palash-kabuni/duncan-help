@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { useProfile } from "@/hooks/useProfile";
+import { supabase } from "@/integrations/supabase/client";
 
 type Message = { role: "user" | "assistant"; content: string };
 type Mode = "general" | "reason" | "automate" | "analyze";
@@ -34,11 +35,14 @@ export function useNormanChat() {
       };
 
       try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
         const resp = await fetch(CHAT_URL, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ messages: newMessages, mode, userProfile: profile ?? undefined }),
         });
