@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, Brain, Zap, BarChart3, Sparkles, Trash2, Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { useLocation } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import { useNormanChat } from "@/hooks/useNormanChat";
 
@@ -19,6 +20,19 @@ const PromptEngine = () => {
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<Mode>("general");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const location = useLocation();
+  const initialSent = useRef(false);
+
+  // Handle initial message from dashboard CommandBar
+  useEffect(() => {
+    const state = location.state as { initialMessage?: string } | null;
+    if (state?.initialMessage && !initialSent.current) {
+      initialSent.current = true;
+      send(state.initialMessage, mode);
+      // Clear the state so refreshing doesn't re-send
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
