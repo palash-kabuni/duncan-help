@@ -121,6 +121,25 @@ serve(async (req) => {
       return Response.redirect(`${appUrl}/integrations?error=storage_failed`);
     }
 
+    // Upsert company_integrations record so the dashboard shows "connected"
+    const { error: ciError } = await supabaseAdmin
+      .from("company_integrations")
+      .upsert(
+        {
+          integration_id: "google-drive",
+          status: "connected",
+          updated_by: user.id,
+          last_sync: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "integration_id" }
+      );
+
+    if (ciError) {
+      console.warn("Failed to upsert company_integrations for google-drive:", ciError);
+      // Non-fatal — tokens are saved, Drive works, just dashboard status won't update
+    }
+
     console.log("Successfully stored Google Drive tokens (connected by admin:", user.id, ")");
     return Response.redirect(`${appUrl}/integrations?success=google_drive`);
   } catch (error) {
