@@ -119,7 +119,7 @@ const Settings = () => {
           </motion.section>
 
           <p className="text-[10px] font-mono text-muted-foreground/40 text-center mt-8">
-            Duncan · KabuniOS v0.1.0
+            Duncan · KabuniOS v0.1
           </p>
         </div>
       </main>
