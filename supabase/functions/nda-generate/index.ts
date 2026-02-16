@@ -63,6 +63,8 @@ interface NDARequest {
   purpose: string;
   recipient_name: string;
   recipient_email: string;
+  internal_signer_name?: string;
+  internal_signer_email?: string;
   submission_id?: string; // For idempotency — if provided, reuse existing record
 }
 
@@ -515,6 +517,8 @@ serve(async (req) => {
           purpose: body.purpose,
           recipient_name: body.recipient_name,
           recipient_email: body.recipient_email,
+          internal_signer_name: body.internal_signer_name || "Palash Soundarkar",
+          internal_signer_email: body.internal_signer_email || "palash@kabuni.com",
           status: "generating",
         })
         .select("id")
