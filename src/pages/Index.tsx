@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Database, Plug, Brain, Zap, Mail, FileText, Calendar, MessageSquare, FolderOpen } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -21,9 +22,42 @@ const integrationMeta: Record<string, { icon: any; name: string; description: st
 
 const allIntegrationIds = ["google-workspace", "notion", "slack", "linear", "google-calendar", "google-drive"];
 
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+};
+
 const Index = () => {
   const { data: userIntegrations = [] } = useUserIntegrations();
   const navigate = useNavigate();
+  const [weather, setWeather] = useState<{ temp: number; description: string } | null>(null);
+
+  useEffect(() => {
+    navigator.geolocation?.getCurrentPosition(
+      async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords;
+          const res = await fetch(
+            `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,weather_code`
+          );
+          const data = await res.json();
+          const code = data.current.weather_code;
+          const desc =
+            code === 0 ? "Clear" :
+            code <= 3 ? "Cloudy" :
+            code <= 48 ? "Foggy" :
+            code <= 67 ? "Rainy" :
+            code <= 77 ? "Snowy" :
+            code <= 82 ? "Showers" :
+            code <= 99 ? "Stormy" : "Clear";
+          setWeather({ temp: Math.round(data.current.temperature_2m), description: desc });
+        } catch { /* silently fail */ }
+      },
+      () => { /* location denied, no weather */ }
+    );
+  }, []);
 
   const connectedCount = userIntegrations.filter(u => u.status === "connected").length;
   const totalDocs = userIntegrations.reduce((sum, u) => sum + (u.documents_ingested ?? 0), 0);
@@ -61,7 +95,12 @@ const Index = () => {
               {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
             </p>
             <h2 className="text-2xl font-bold text-foreground tracking-tight">
-              Good morning. Duncan is <span className="text-primary glow-text">operational</span>.
+              {getGreeting()}. Duncan is <span className="text-primary glow-text">operational</span>.
+              {weather && (
+                <span className="ml-3 text-base font-normal text-muted-foreground">
+                  {weather.temp}°C · {weather.description}
+                </span>
+              )}
             </h2>
           </motion.div>
 
