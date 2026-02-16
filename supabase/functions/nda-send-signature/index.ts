@@ -301,7 +301,10 @@ serve(async (req) => {
         recipientId: "1",
         routingOrder: "1",
         tabs: {
-          signHereTabs: [{ documentId: "1", pageNumber: "1", anchorString: "/sig1/", anchorUnits: "pixels" }],
+          signHereTabs: [{ documentId: "1", anchorString: "/sig1/", anchorUnits: "pixels" }],
+          fullNameTabs: [{ documentId: "1", anchorString: "/name1/", anchorUnits: "pixels" }],
+          titleTabs: [{ documentId: "1", anchorString: "/title1/", anchorUnits: "pixels" }],
+          dateSignedTabs: [{ documentId: "1", anchorString: "/date1/", anchorUnits: "pixels" }],
         },
       };
 
@@ -311,7 +314,10 @@ serve(async (req) => {
         recipientId: "2",
         routingOrder: "2",
         tabs: {
-          signHereTabs: [{ documentId: "1", pageNumber: "1", anchorString: "/sig2/", anchorUnits: "pixels" }],
+          signHereTabs: [{ documentId: "1", anchorString: "/sig2/", anchorUnits: "pixels" }],
+          fullNameTabs: [{ documentId: "1", anchorString: "/name2/", anchorUnits: "pixels" }],
+          titleTabs: [{ documentId: "1", anchorString: "/title2/", anchorUnits: "pixels" }],
+          dateSignedTabs: [{ documentId: "1", anchorString: "/date2/", anchorUnits: "pixels" }],
         },
       };
 
