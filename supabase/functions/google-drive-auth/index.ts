@@ -9,8 +9,11 @@ const corsHeaders = {
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 
-// Drive API scope - non-restricted, doesn't require app verification
-const SCOPES = "https://www.googleapis.com/auth/drive.file";
+// Drive API scopes - drive.file for app-created files, drive.readonly to read existing templates
+const SCOPES = [
+  "https://www.googleapis.com/auth/drive.file",
+  "https://www.googleapis.com/auth/drive.readonly",
+].join(" ");
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
