@@ -11,6 +11,7 @@ import Integrations from "./pages/Integrations";
 import Auth from "./pages/Auth";
 import Profile from "./pages/Profile";
 import ResetPassword from "./pages/ResetPassword";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -29,6 +30,7 @@ const App = () => (
             <Route path="/prompt" element={<ProtectedRoute><PromptEngine /></ProtectedRoute>} />
             <Route path="/integrations" element={<ProtectedRoute><Integrations /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
