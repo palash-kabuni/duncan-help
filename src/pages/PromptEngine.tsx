@@ -170,8 +170,8 @@ const PromptEngine = () => {
 
 const EmptyState = ({ mode, onSend }: { mode: Mode; onSend: (s: string) => void }) => {
   const suggestions: Record<Mode, string[]> = {
-    general: [
-      "Summarize all unread emails from this week",
+     general: [
+      "Generate a new NDA",
       "What are the top priorities across all projects?",
       "Draft a weekly status update from Notion data",
     ],
