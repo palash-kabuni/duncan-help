@@ -111,8 +111,6 @@ serve(async (req) => {
 
           if (normalizedStatus === "completed") {
             notionProperties["Signature Status"] = { checkbox: true };
-            // Try to set a "Signature Completed" property if it exists
-            notionProperties["Signature Completed"] = { checkbox: true };
           } else if (normalizedStatus === "declined" || normalizedStatus === "voided") {
             notionProperties["Signature Status"] = { checkbox: false };
           }

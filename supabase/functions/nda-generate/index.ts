@@ -382,9 +382,6 @@ async function createNotionRow(
     "Recipient Email": {
       email: data.recipient_email,
     },
-    "Send for Signature": {
-      checkbox: false,
-    },
     "Signature Status": {
       checkbox: false,
     },
