@@ -317,6 +317,89 @@ export type Database = {
         }
         Relationships: []
       }
+      wiki_categories: {
+        Row: {
+          created_at: string
+          description: string | null
+          icon: string | null
+          id: string
+          name: string
+          sort_order: number | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          icon?: string | null
+          id?: string
+          name: string
+          sort_order?: number | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          icon?: string | null
+          id?: string
+          name?: string
+          sort_order?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      wiki_pages: {
+        Row: {
+          category_id: string | null
+          content: string
+          created_at: string
+          created_by: string
+          id: string
+          is_published: boolean
+          summary: string | null
+          tags: string[] | null
+          title: string
+          updated_at: string
+          updated_by: string | null
+          view_count: number
+        }
+        Insert: {
+          category_id?: string | null
+          content?: string
+          created_at?: string
+          created_by: string
+          id?: string
+          is_published?: boolean
+          summary?: string | null
+          tags?: string[] | null
+          title: string
+          updated_at?: string
+          updated_by?: string | null
+          view_count?: number
+        }
+        Update: {
+          category_id?: string | null
+          content?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          is_published?: boolean
+          summary?: string | null
+          tags?: string[] | null
+          title?: string
+          updated_at?: string
+          updated_by?: string | null
+          view_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wiki_pages_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "wiki_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

@@ -1,4 +1,4 @@
-import { Brain, LayoutDashboard, Plug, Terminal, Settings, LogOut, UserCircle } from "lucide-react";
+import { Brain, LayoutDashboard, Plug, Terminal, Settings, LogOut, UserCircle, BookOpen } from "lucide-react";
 import { NavLink as RouterNavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -11,6 +11,10 @@ const navItems = [{
   icon: Terminal,
   label: "Prompt Engine",
   to: "/prompt"
+}, {
+  icon: BookOpen,
+  label: "Wiki",
+  to: "/wiki"
 }, {
   icon: Plug,
   label: "Integrations",
