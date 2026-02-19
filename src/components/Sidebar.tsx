@@ -1,4 +1,4 @@
-import { Brain, LayoutDashboard, Plug, Terminal, Settings, LogOut, UserCircle, BookOpen } from "lucide-react";
+import { Brain, LayoutDashboard, Plug, Terminal, Settings, LogOut, UserCircle, BookOpen, ShoppingCart } from "lucide-react";
 import { NavLink as RouterNavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -15,6 +15,10 @@ const navItems = [{
   icon: BookOpen,
   label: "Wiki",
   to: "/wiki"
+}, {
+  icon: ShoppingCart,
+  label: "Purchase Orders",
+  to: "/purchase-orders"
 }, {
   icon: Plug,
   label: "Integrations",

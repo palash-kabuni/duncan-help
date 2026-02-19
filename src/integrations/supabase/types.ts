@@ -14,6 +14,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      budgets: {
+        Row: {
+          allocated_amount: number
+          category: Database["public"]["Enums"]["po_category"]
+          created_at: string
+          department_id: string
+          fiscal_year: number
+          id: string
+          spent_amount: number
+          updated_at: string
+        }
+        Insert: {
+          allocated_amount?: number
+          category: Database["public"]["Enums"]["po_category"]
+          created_at?: string
+          department_id: string
+          fiscal_year?: number
+          id?: string
+          spent_amount?: number
+          updated_at?: string
+        }
+        Update: {
+          allocated_amount?: number
+          category?: Database["public"]["Enums"]["po_category"]
+          created_at?: string
+          department_id?: string
+          fiscal_year?: number
+          id?: string
+          spent_amount?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "budgets_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       company_integrations: {
         Row: {
           created_at: string
@@ -47,6 +88,30 @@ export type Database = {
           status?: string
           updated_at?: string
           updated_by?: string | null
+        }
+        Relationships: []
+      }
+      departments: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          owner_user_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          owner_user_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          owner_user_id?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
@@ -260,6 +325,83 @@ export type Database = {
         }
         Relationships: []
       }
+      purchase_orders: {
+        Row: {
+          approval_tier: string | null
+          approved_at: string | null
+          approved_by: string | null
+          attachment_path: string | null
+          category: Database["public"]["Enums"]["po_category"]
+          created_at: string
+          delivery_date: string | null
+          department_id: string
+          description: string
+          id: string
+          notes: string | null
+          po_number: string
+          quantity: number
+          rejection_reason: string | null
+          requester_id: string
+          status: Database["public"]["Enums"]["po_status"]
+          total_amount: number
+          unit_price: number
+          updated_at: string
+          vendor_name: string
+        }
+        Insert: {
+          approval_tier?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          attachment_path?: string | null
+          category?: Database["public"]["Enums"]["po_category"]
+          created_at?: string
+          delivery_date?: string | null
+          department_id: string
+          description: string
+          id?: string
+          notes?: string | null
+          po_number: string
+          quantity?: number
+          rejection_reason?: string | null
+          requester_id: string
+          status?: Database["public"]["Enums"]["po_status"]
+          total_amount: number
+          unit_price: number
+          updated_at?: string
+          vendor_name: string
+        }
+        Update: {
+          approval_tier?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          attachment_path?: string | null
+          category?: Database["public"]["Enums"]["po_category"]
+          created_at?: string
+          delivery_date?: string | null
+          department_id?: string
+          description?: string
+          id?: string
+          notes?: string | null
+          po_number?: string
+          quantity?: number
+          rejection_reason?: string | null
+          requester_id?: string
+          status?: Database["public"]["Enums"]["po_status"]
+          total_amount?: number
+          unit_price?: number
+          updated_at?: string
+          vendor_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchase_orders_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_integrations: {
         Row: {
           created_at: string
@@ -415,6 +557,20 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
+      po_category:
+        | "software"
+        | "hardware"
+        | "services"
+        | "marketing"
+        | "travel"
+        | "office_supplies"
+        | "other"
+      po_status:
+        | "draft"
+        | "pending_approval"
+        | "approved"
+        | "rejected"
+        | "cancelled"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -543,6 +699,22 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user"],
+      po_category: [
+        "software",
+        "hardware",
+        "services",
+        "marketing",
+        "travel",
+        "office_supplies",
+        "other",
+      ],
+      po_status: [
+        "draft",
+        "pending_approval",
+        "approved",
+        "rejected",
+        "cancelled",
+      ],
     },
   },
 } as const
