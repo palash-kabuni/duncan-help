@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useGoogleCalendar } from "@/hooks/useGoogleCalendar";
 import { useGoogleDrive } from "@/hooks/useGoogleDrive";
+import BasecampBrowser from "@/components/BasecampBrowser";
 import {
   useUserIntegrations,
   useConnectIntegration,
@@ -726,6 +727,11 @@ const IntegrationDetail = ({
                   <span className="text-[10px] font-mono text-muted-foreground">{new Date(integrationData.last_sync).toLocaleDateString()}</span>
                 )}
               </div>
+              {isBasecamp && (
+                <div className="mt-4">
+                  <BasecampBrowser />
+                </div>
+              )}
               {canEdit && (
                 <button
                   onClick={handleDisconnect}
