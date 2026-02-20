@@ -35,3 +35,12 @@ verify_jwt = false
 
 [functions.parse-google-form]
 verify_jwt = false
+
+[functions.basecamp-auth]
+verify_jwt = false
+
+[functions.basecamp-callback]
+verify_jwt = false
+
+[functions.basecamp-api]
+verify_jwt = false
