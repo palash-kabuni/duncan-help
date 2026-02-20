@@ -128,6 +128,21 @@ const integrations: Integration[] = [
       "Duncan can then search and read all accessible files",
     ],
   },
+  {
+    id: "basecamp",
+    name: "Basecamp",
+    description: "Connect Basecamp to access projects, to-dos, messages, schedules, and more across your team.",
+    icon: FolderOpen,
+    category: "Project Management",
+    services: ["Projects", "To-dos", "Messages", "Schedules"],
+    type: "company",
+    setupSteps: [
+      "Register an app at launchpad.37signals.com",
+      "Add the redirect URI provided by Duncan",
+      "An admin connects via OAuth to authorize access",
+      "Duncan can then fetch projects, to-dos, and messages",
+    ],
+  },
 ];
 
 const statusConfig = {
@@ -171,6 +186,17 @@ const Integrations = () => {
   const { isAdmin } = useIsAdmin();
   const { isConnected: isCalendarConnected, checkConnection: checkCalendarConnection } = useGoogleCalendar();
   const { isConnected: isDriveConnected, checkConnection: checkDriveConnection } = useGoogleDrive();
+  const [isBasecampConnected, setIsBasecampConnected] = useState<boolean | null>(null);
+
+  const checkBasecampConnection = async () => {
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      const { data } = await supabase.from("basecamp_tokens").select("id").limit(1);
+      setIsBasecampConnected(data && data.length > 0);
+    } catch {
+      setIsBasecampConnected(false);
+    }
+  };
 
   // Handle OAuth callback
   useEffect(() => {
@@ -184,6 +210,10 @@ const Integrations = () => {
     } else if (success === "google_drive") {
       toast.success("Google Drive connected successfully!");
       checkDriveConnection();
+      setSearchParams({});
+    } else if (success === "basecamp") {
+      toast.success("Basecamp connected successfully!");
+      checkBasecampConnection();
       setSearchParams({});
     } else if (error) {
       const errorMessages: Record<string, string> = {
@@ -205,6 +235,7 @@ const Integrations = () => {
   useEffect(() => {
     checkCalendarConnection();
     checkDriveConnection();
+    checkBasecampConnection();
   }, [checkCalendarConnection, checkDriveConnection]);
 
   const isLoading = userLoading || companyLoading;
@@ -360,6 +391,7 @@ const Integrations = () => {
               isAdmin={isAdmin}
               isCalendarConnected={isCalendarConnected}
               isDriveConnected={isDriveConnected}
+              isBasecampConnected={isBasecampConnected}
               onClose={() => setSelectedIntegration(null)}
             />
           )}
@@ -376,6 +408,7 @@ const IntegrationDetail = ({
   isAdmin,
   isCalendarConnected,
   isDriveConnected,
+  isBasecampConnected,
   onClose,
 }: {
   integration: Integration;
@@ -384,11 +417,14 @@ const IntegrationDetail = ({
   isAdmin: boolean;
   isCalendarConnected: boolean | null;
   isDriveConnected: boolean | null;
+  isBasecampConnected: boolean | null;
   onClose: () => void;
 }) => {
   const isGoogleCalendar = integration.id === "google-calendar";
   const isGoogleDrive = integration.id === "google-drive";
+  const isBasecamp = integration.id === "basecamp";
   const isGoogleOAuth = isGoogleCalendar || isGoogleDrive;
+  const isOAuthFlow = isGoogleOAuth || isBasecamp;
   
   // Determine status based on integration type
   let status: IntegrationStatus;
@@ -396,6 +432,8 @@ const IntegrationDetail = ({
     status = isCalendarConnected ? "connected" : "disconnected";
   } else if (isGoogleDrive) {
     status = isDriveConnected ? "connected" : "disconnected";
+  } else if (isBasecamp) {
+    status = isBasecampConnected ? "connected" : "disconnected";
   } else {
     status = getStatus(integration, userIntegrations, companyIntegrations);
   }
@@ -415,6 +453,7 @@ const IntegrationDetail = ({
   // Google OAuth hooks
   const { initiateOAuth: initiateCalendarOAuth, disconnect: disconnectCalendar, isLoading: calendarLoading } = useGoogleCalendar();
   const { initiateOAuth: initiateDriveOAuth, disconnect: disconnectDrive, isLoading: driveLoading } = useGoogleDrive();
+  const [basecampLoading, setBasecampLoading] = useState(false);
 
   const handleConnect = async () => {
     if (!apiKey.trim()) {
@@ -466,14 +505,26 @@ const IntegrationDetail = ({
         await initiateCalendarOAuth();
       } else if (isGoogleDrive) {
         await initiateDriveOAuth();
+      } else if (isBasecamp) {
+        setBasecampLoading(true);
+        const { supabase } = await import("@/integrations/supabase/client");
+        const { data, error } = await supabase.functions.invoke("basecamp-auth");
+        if (error) throw error;
+        if (data?.url) {
+          window.location.href = data.url;
+        } else {
+          throw new Error("No auth URL returned");
+        }
+        setBasecampLoading(false);
       }
     } catch (err: any) {
+      setBasecampLoading(false);
       toast.error(err.message || "Failed to start OAuth flow");
     }
   };
 
-  const googleOAuthLoading = isGoogleCalendar ? calendarLoading : driveLoading;
-  const isPending = isGoogleOAuth ? googleOAuthLoading : (isCompany ? companyMutation.isPending : (connectMutation.isPending || disconnectMutation.isPending));
+  const googleOAuthLoading = isGoogleCalendar ? calendarLoading : (isBasecamp ? basecampLoading : driveLoading);
+  const isPending = isOAuthFlow ? googleOAuthLoading : (isCompany ? companyMutation.isPending : (connectMutation.isPending || disconnectMutation.isPending));
   const canEdit = !isCompany || isAdmin;
 
   return (
@@ -580,17 +631,21 @@ const IntegrationDetail = ({
           {/* Action */}
           {status === "disconnected" ? (
             canEdit ? (
-              isGoogleOAuth ? (
-                // Google OAuth flow (Calendar or Drive)
+              isOAuthFlow ? (
+                // OAuth flow (Calendar, Drive, or Basecamp)
                 <div className="space-y-4">
                   <div className="rounded-lg border border-border bg-secondary/20 p-4 space-y-2">
                     <p className="text-sm text-foreground">
-                      Click below to sign in with Google and grant Duncan access to your {isGoogleCalendar ? "calendar" : "Drive files"}.
+                      {isBasecamp 
+                        ? "Click below to authorize Duncan to access your Basecamp projects, to-dos, and messages."
+                        : `Click below to sign in with Google and grant Duncan access to your ${isGoogleCalendar ? "calendar" : "Drive files"}.`}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {isGoogleCalendar 
                          ? "Duncan will be able to read your events and create/update/delete events on your behalf."
-                        : "Duncan will be able to search and read documents across your shared Drive."}
+                        : isGoogleDrive 
+                         ? "Duncan will be able to search and read documents across your shared Drive."
+                         : "Duncan will be able to read projects, to-dos, messages, and schedules from your Basecamp account."}
                     </p>
                     {isGoogleDrive && (
                       <p className="text-xs text-primary mt-2">
@@ -614,7 +669,7 @@ const IntegrationDetail = ({
                     ) : (
                       <>
                         <ExternalLink className="h-4 w-4" />
-                        Sign in with Google
+                        {isBasecamp ? "Connect with Basecamp" : "Sign in with Google"}
                       </>
                     )}
                   </button>
