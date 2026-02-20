@@ -23,6 +23,7 @@ Your capabilities:
 - **Calendar Management**: You have access to the user's Google Calendar. You can list events, create new events, update existing events, and delete events.
 - **Document Search**: You have access to the company's Google Drive. You can search for documents, read their content, and answer questions based on them.
 - **Notion Access**: You have access to the company's Notion workspace. You can search for pages, query databases, and read page content. Use these tools when users ask about information stored in Notion.
+- **Basecamp Access**: You have access to the company's Basecamp. You can list projects, fetch to-do lists and individual to-dos, and read messages from message boards. Use these tools when users ask about project status, tasks, to-dos, or messages in Basecamp. When asked about a specific project, first use list_basecamp_projects to find it, then use the project ID and dock tool IDs to fetch to-dos and messages.
 - **Google Forms**: You can fill and submit pre-configured Google Forms on behalf of the user. You can also parse a Google Form URL to automatically extract its fields and save it as a new pre-configured form. When a user asks to fill a form, first list available forms, then ask each required field ONE AT A TIME as a conversational question. Wait for the user to answer each question before asking the next. After collecting all answers, confirm the details and submit. When a user provides a Google Form URL, use parse_google_form to extract the fields, show the parsed result to the user for confirmation, then save it with save_parsed_google_form.
 
 Your personality:
@@ -430,6 +431,62 @@ const GOOGLE_FORMS_TOOLS = [
   },
 ];
 
+const BASECAMP_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "list_basecamp_projects",
+      description: "List all projects in Basecamp. Returns project names, IDs, statuses, and their dock items (todosets, message boards, etc.). Use this first to discover project IDs and dock IDs needed for other Basecamp tools.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_basecamp_todolists",
+      description: "Get all to-do lists within a Basecamp project's todoset. Requires the project ID and the todoset ID (found in the project's dock items).",
+      parameters: {
+        type: "object",
+        properties: {
+          project_id: { type: "number", description: "The Basecamp project ID" },
+          todoset_id: { type: "number", description: "The todoset ID from the project's dock items" },
+        },
+        required: ["project_id", "todoset_id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_basecamp_todos",
+      description: "Get all to-do items within a specific to-do list. Returns title, completion status, assignees, and due dates.",
+      parameters: {
+        type: "object",
+        properties: {
+          project_id: { type: "number", description: "The Basecamp project ID" },
+          todolist_id: { type: "number", description: "The to-do list ID" },
+        },
+        required: ["project_id", "todolist_id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_basecamp_messages",
+      description: "Get messages from a Basecamp project's message board. Requires the project ID and the message board ID (found in the project's dock items).",
+      parameters: {
+        type: "object",
+        properties: {
+          project_id: { type: "number", description: "The Basecamp project ID" },
+          message_board_id: { type: "number", description: "The message board ID from the project's dock items" },
+        },
+        required: ["project_id", "message_board_id"],
+      },
+    },
+  },
+];
+
 async function executeGoogleFormsTool(toolName: string, args: any, supabaseAdmin: any): Promise<any> {
   switch (toolName) {
     case "list_google_forms": {
@@ -575,6 +632,118 @@ async function executeNdaTool(
 
     default:
       throw new Error(`Unknown NDA tool: ${toolName}`);
+  }
+}
+
+async function getBasecampAccessToken(supabaseAdmin: any): Promise<{ accessToken: string; accountId: string } | null> {
+  const { data: tokenRow, error } = await supabaseAdmin
+    .from("basecamp_tokens")
+    .select("*")
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !tokenRow) return null;
+
+  let accessToken = tokenRow.access_token;
+
+  // Refresh if expired
+  if (new Date(tokenRow.token_expiry) <= new Date()) {
+    const clientId = Deno.env.get("BASECAMP_CLIENT_ID");
+    const clientSecret = Deno.env.get("BASECAMP_CLIENT_SECRET");
+    if (!clientId || !clientSecret) return null;
+
+    const refreshRes = await fetch("https://launchpad.37signals.com/authorization/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "refresh",
+        refresh_token: tokenRow.refresh_token,
+        client_id: clientId,
+        client_secret: clientSecret,
+      }),
+    });
+
+    if (!refreshRes.ok) return null;
+    const refreshed = await refreshRes.json();
+    accessToken = refreshed.access_token;
+
+    await supabaseAdmin
+      .from("basecamp_tokens")
+      .update({
+        access_token: refreshed.access_token,
+        refresh_token: refreshed.refresh_token || tokenRow.refresh_token,
+        token_expiry: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+      })
+      .eq("id", tokenRow.id);
+  }
+
+  return { accessToken, accountId: tokenRow.account_id || Deno.env.get("BASECAMP_ACCOUNT_ID") || "" };
+}
+
+async function executeBasecampTool(toolName: string, args: any, accessToken: string, accountId: string): Promise<any> {
+  const baseUrl = `https://3.basecampapi.com/${accountId}`;
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+    "User-Agent": "Duncan (duncan.help)",
+  };
+
+  async function bcFetch(endpoint: string) {
+    const url = `${baseUrl}/${endpoint}.json`;
+    const res = await fetch(url, { headers });
+    if (!res.ok) throw new Error(`Basecamp API error ${res.status}: ${await res.text()}`);
+    return res.json();
+  }
+
+  switch (toolName) {
+    case "list_basecamp_projects": {
+      const projects = await bcFetch("projects");
+      return (projects || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        status: p.status,
+        url: p.app_url,
+        dock: (p.dock || []).filter((d: any) => d.enabled).map((d: any) => ({
+          id: d.id,
+          title: d.title,
+          name: d.name,
+        })),
+      }));
+    }
+    case "get_basecamp_todolists": {
+      const lists = await bcFetch(`buckets/${args.project_id}/todosets/${args.todoset_id}/todolists`);
+      return (lists || []).map((l: any) => ({
+        id: l.id,
+        title: l.title,
+        description: l.description,
+        completed: l.completed,
+        completed_ratio: l.completed_ratio,
+      }));
+    }
+    case "get_basecamp_todos": {
+      const todos = await bcFetch(`buckets/${args.project_id}/todolists/${args.todolist_id}/todos`);
+      return (todos || []).map((t: any) => ({
+        id: t.id,
+        title: t.title,
+        completed: t.completed,
+        due_on: t.due_on,
+        assignees: (t.assignees || []).map((a: any) => a.name),
+        creator: t.creator?.name,
+      }));
+    }
+    case "get_basecamp_messages": {
+      const msgs = await bcFetch(`buckets/${args.project_id}/message_boards/${args.message_board_id}/messages`);
+      return (msgs || []).map((m: any) => ({
+        id: m.id,
+        title: m.title,
+        content: (m.content || "").slice(0, 2000),
+        created_at: m.created_at,
+        creator: m.creator?.name,
+      }));
+    }
+    default:
+      throw new Error(`Unknown Basecamp tool: ${toolName}`);
   }
 }
 
@@ -1049,6 +1218,7 @@ serve(async (req) => {
     let calendarAccessToken: string | null = null;
     let driveAccessToken: string | null = null;
     let notionToken: string | null = null;
+    let basecampCreds: { accessToken: string; accountId: string } | null = null;
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -1069,6 +1239,9 @@ serve(async (req) => {
 
     // Get Notion token (company-wide)
     notionToken = await getNotionToken(supabaseAdmin);
+
+    // Get Basecamp credentials (company-wide)
+    basecampCreds = await getBasecampAccessToken(supabaseAdmin);
     // Get available Google Forms and inject into system prompt
     const { data: googleForms } = await supabaseAdmin
       .from("google_forms")
@@ -1104,6 +1277,10 @@ serve(async (req) => {
 
     if (!notionToken) {
       systemContent += "\n\nNote: Notion is not connected. If the user asks about Notion data, let them know an admin needs to connect Notion first via the Integrations page.";
+    }
+
+    if (!basecampCreds) {
+      systemContent += "\n\nNote: Basecamp is not connected. If the user asks about Basecamp projects, to-dos, or messages, let them know an admin needs to connect Basecamp first via the Integrations page.";
     }
 
     // Inject user profile context if available
@@ -1147,6 +1324,9 @@ serve(async (req) => {
     }
     if (notionToken) {
       tools.push(...NOTION_TOOLS);
+    }
+    if (basecampCreds) {
+      tools.push(...BASECAMP_TOOLS);
     }
     if (tools.length > 0) {
       requestBody.tools = tools;
@@ -1250,6 +1430,7 @@ serve(async (req) => {
       const notionToolNames = ["search_notion", "query_notion_database", "get_notion_page_content"];
       const googleFormsToolNames = ["list_google_forms", "submit_google_form", "parse_google_form", "save_parsed_google_form"];
       const ndaToolNames = ["generate_nda", "list_nda_submissions", "send_nda_for_signature"];
+      const basecampToolNames = ["list_basecamp_projects", "get_basecamp_todolists", "get_basecamp_todos", "get_basecamp_messages"];
       const toolResults: any[] = [];
 
       for (const tc of toolCalls) {
@@ -1279,6 +1460,12 @@ serve(async (req) => {
             result = await executeGoogleFormsTool(tc.function.name, args, supabaseAdmin);
           } else if (ndaToolNames.includes(tc.function.name)) {
             result = await executeNdaTool(tc.function.name, args, supabaseAdmin, userId || "", userEmail, authHeader || "");
+          } else if (basecampToolNames.includes(tc.function.name)) {
+            if (!basecampCreds) {
+              result = { error: "Basecamp is not connected. An admin needs to connect it via the Integrations page." };
+            } else {
+              result = await executeBasecampTool(tc.function.name, args, basecampCreds.accessToken, basecampCreds.accountId);
+            }
           } else {
           }
           
