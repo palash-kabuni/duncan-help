@@ -9,7 +9,8 @@ Deno.serve(async (req) => {
     const state = url.searchParams.get("state");
     const error = url.searchParams.get("error");
 
-    const appUrl = Deno.env.get("APP_URL") || "https://duncan.help";
+    let appUrl = Deno.env.get("APP_URL") || "https://duncan.help";
+    if (!appUrl.startsWith("http")) appUrl = `https://${appUrl}`;
 
     if (error) {
       console.error("OAuth error from Basecamp:", error);
@@ -125,7 +126,8 @@ Deno.serve(async (req) => {
     return Response.redirect(`${appUrl}/integrations?success=basecamp`);
   } catch (error) {
     console.error("Basecamp callback error:", error);
-    const appUrl = Deno.env.get("APP_URL") || "https://duncan.help";
+    let appUrl = Deno.env.get("APP_URL") || "https://duncan.help";
+    if (!appUrl.startsWith("http")) appUrl = `https://${appUrl}`;
     return Response.redirect(`${appUrl}/integrations?error=unexpected`);
   }
 });
