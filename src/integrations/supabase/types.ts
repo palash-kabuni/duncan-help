@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      basecamp_tokens: {
+        Row: {
+          access_token: string
+          account_id: string | null
+          connected_by: string
+          created_at: string
+          id: string
+          refresh_token: string
+          token_expiry: string
+          updated_at: string
+        }
+        Insert: {
+          access_token: string
+          account_id?: string | null
+          connected_by: string
+          created_at?: string
+          id?: string
+          refresh_token: string
+          token_expiry: string
+          updated_at?: string
+        }
+        Update: {
+          access_token?: string
+          account_id?: string | null
+          connected_by?: string
+          created_at?: string
+          id?: string
+          refresh_token?: string
+          token_expiry?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       budgets: {
         Row: {
           allocated_amount: number
