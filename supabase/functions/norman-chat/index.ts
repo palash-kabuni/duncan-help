@@ -758,38 +758,40 @@ async function executeBasecampTool(toolName: string, args: any, accessToken: str
       }));
     }
     case "get_basecamp_card_table_cards": {
-      // Fetch the card table (kanban board) to get its columns
       const cardTable = await bcFetch(`buckets/${args.project_id}/card_tables/${args.kanban_board_id}`);
-      const columns: any[] = [];
-      // The card table has lists (columns), each with cards
-      if (cardTable.lists && Array.isArray(cardTable.lists)) {
-        for (const list of cardTable.lists) {
-          const cardsUrl = list.cards_url;
-          let cards: any[] = [];
-          if (cardsUrl) {
-            const cardsRes = await fetch(cardsUrl, { headers });
-            if (cardsRes.ok) {
-              cards = await cardsRes.json();
-            }
-          }
-          columns.push({
-            id: list.id,
-            title: list.title,
-            color: list.color,
-            cards: (cards || []).map((c: any) => ({
-              id: c.id,
-              title: c.title,
-              due_on: c.due_on,
-              assignees: (c.assignees || []).map((a: any) => a.name),
-              creator: c.creator?.name,
-              created_at: c.created_at,
-              updated_at: c.updated_at,
-              content: (c.content || "").slice(0, 500),
-            })),
-          });
-        }
+
+      if (!cardTable.lists || !Array.isArray(cardTable.lists)) {
+        return { card_table: cardTable.title, columns: [] };
       }
-      return { card_table: cardTable.title, columns };
+
+      // If a specific column_id is provided, fetch only that column's cards
+      if (args.column_id) {
+        const list = cardTable.lists.find((l: any) => l.id === args.column_id);
+        if (!list) return { error: `Column ${args.column_id} not found` };
+        const cardsUrl = list.cards_url || `${baseUrl}/buckets/${args.project_id}/card_tables/lists/${list.id}/cards.json`;
+        const res = await fetch(cardsUrl, { headers });
+        if (!res.ok) { await res.text(); return { error: `Failed to fetch cards: ${res.status}` }; }
+        const cards = await res.json();
+        return {
+          column: list.title,
+          color: list.color,
+          cards: cards.map((c: any) => ({
+            id: c.id, title: c.title, due_on: c.due_on, completed: c.completed,
+            assignees: (c.assignees || []).map((a: any) => a.name),
+            creator: c.creator?.name,
+            description: (c.description || "").slice(0, 300),
+          })),
+        };
+      }
+
+      // Otherwise return column summaries (no individual card fetch to avoid timeout)
+      const columns = cardTable.lists.map((list: any) => ({
+        id: list.id,
+        title: list.title,
+        color: list.color,
+        cards_count: list.cards_count || 0,
+      }));
+      return { card_table: cardTable.title, columns, note: "Use column IDs to fetch individual column cards with this same tool by passing column_id." };
     }
     default:
       throw new Error(`Unknown Basecamp tool: ${toolName}`);
@@ -1514,6 +1516,7 @@ serve(async (req) => {
               result = { error: "Basecamp is not connected. An admin needs to connect it via the Integrations page." };
             } else {
               result = await executeBasecampTool(tc.function.name, args, basecampCreds.accessToken, basecampCreds.accountId);
+              console.log(`Basecamp tool ${tc.function.name} result preview:`, JSON.stringify(result).slice(0, 500));
             }
           } else {
           }
@@ -1524,6 +1527,7 @@ serve(async (req) => {
             content: JSON.stringify(result),
           });
         } catch (error) {
+          console.error(`Tool ${tc.function.name} threw error:`, error.message, error.stack);
           toolResults.push({
             tool_call_id: tc.id,
             role: "tool",
