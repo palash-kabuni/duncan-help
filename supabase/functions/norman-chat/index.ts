@@ -23,7 +23,7 @@ Your capabilities:
 - **Calendar Management**: You have access to the user's Google Calendar. You can list events, create new events, update existing events, and delete events.
 - **Document Search**: You have access to the company's Google Drive. You can search for documents, read their content, and answer questions based on them.
 - **Notion Access**: You have access to the company's Notion workspace. You can search for pages, query databases, and read page content. Use these tools when users ask about information stored in Notion.
-- **Basecamp Access**: You have access to the company's Basecamp. You can list projects, fetch to-do lists and individual to-dos, and read messages from message boards. Use these tools when users ask about project status, tasks, to-dos, or messages in Basecamp. When asked about a specific project, first use list_basecamp_projects to find it, then use the project ID and dock tool IDs to fetch to-dos and messages.
+- **Basecamp Access**: You have access to the company's Basecamp. You can list projects, fetch to-do lists and individual to-dos, read messages from message boards, and fetch cards from Card Tables (Kanban boards). Use these tools when users ask about project status, tasks, to-dos, messages, or cards in Basecamp. When asked about a specific project, first use list_basecamp_projects to find it, then use the project ID and dock tool IDs to fetch to-dos, messages, or cards. For Card Tables, look for the 'kanban_board' dock item.
 - **Google Forms**: You can fill and submit pre-configured Google Forms on behalf of the user. You can also parse a Google Form URL to automatically extract its fields and save it as a new pre-configured form. When a user asks to fill a form, first list available forms, then ask each required field ONE AT A TIME as a conversational question. Wait for the user to answer each question before asking the next. After collecting all answers, confirm the details and submit. When a user provides a Google Form URL, use parse_google_form to extract the fields, show the parsed result to the user for confirmation, then save it with save_parsed_google_form.
 
 Your personality:
@@ -485,6 +485,21 @@ const BASECAMP_TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "get_basecamp_card_table_cards",
+      description: "Get all cards from a Basecamp Card Table (Kanban board). First use list_basecamp_projects to find the project and its 'kanban_board' dock item ID, then use this tool with that ID. Returns all columns and their cards with titles, assignees, due dates, and status.",
+      parameters: {
+        type: "object",
+        properties: {
+          project_id: { type: "number", description: "The Basecamp project ID" },
+          kanban_board_id: { type: "number", description: "The Card Table (kanban_board) ID from the project's dock items" },
+        },
+        required: ["project_id", "kanban_board_id"],
+      },
+    },
+  },
 ];
 
 async function executeGoogleFormsTool(toolName: string, args: any, supabaseAdmin: any): Promise<any> {
@@ -741,6 +756,40 @@ async function executeBasecampTool(toolName: string, args: any, accessToken: str
         created_at: m.created_at,
         creator: m.creator?.name,
       }));
+    }
+    case "get_basecamp_card_table_cards": {
+      // Fetch the card table (kanban board) to get its columns
+      const cardTable = await bcFetch(`buckets/${args.project_id}/card_tables/${args.kanban_board_id}`);
+      const columns: any[] = [];
+      // The card table has lists (columns), each with cards
+      if (cardTable.lists && Array.isArray(cardTable.lists)) {
+        for (const list of cardTable.lists) {
+          const cardsUrl = list.cards_url;
+          let cards: any[] = [];
+          if (cardsUrl) {
+            const cardsRes = await fetch(cardsUrl, { headers });
+            if (cardsRes.ok) {
+              cards = await cardsRes.json();
+            }
+          }
+          columns.push({
+            id: list.id,
+            title: list.title,
+            color: list.color,
+            cards: (cards || []).map((c: any) => ({
+              id: c.id,
+              title: c.title,
+              due_on: c.due_on,
+              assignees: (c.assignees || []).map((a: any) => a.name),
+              creator: c.creator?.name,
+              created_at: c.created_at,
+              updated_at: c.updated_at,
+              content: (c.content || "").slice(0, 500),
+            })),
+          });
+        }
+      }
+      return { card_table: cardTable.title, columns };
     }
     default:
       throw new Error(`Unknown Basecamp tool: ${toolName}`);
