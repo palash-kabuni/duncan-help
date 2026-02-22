@@ -489,12 +489,13 @@ const BASECAMP_TOOLS = [
     type: "function",
     function: {
       name: "get_basecamp_card_table_cards",
-      description: "Get all cards from a Basecamp Card Table (Kanban board). First use list_basecamp_projects to find the project and its 'kanban_board' dock item ID, then use this tool with that ID. Returns all columns and their cards with titles, assignees, due dates, and status.",
+      description: "Get cards from a Basecamp Card Table (Kanban board). TWO-STEP usage: 1) Call WITHOUT column_id to get all columns with their IDs and card counts. 2) Call again WITH a specific column_id to fetch that column's cards. Always do step 1 first, then step 2 for each column the user wants to see.",
       parameters: {
         type: "object",
         properties: {
           project_id: { type: "number", description: "The Basecamp project ID" },
           kanban_board_id: { type: "number", description: "The Card Table (kanban_board) ID from the project's dock items" },
+          column_id: { type: "number", description: "Optional. A specific column ID to fetch cards for. Omit to get column summaries only." },
         },
         required: ["project_id", "kanban_board_id"],
       },
