@@ -530,6 +530,7 @@ export type Database = {
           created_by: string
           id: string
           is_published: boolean
+          sort_order: number
           summary: string | null
           tags: string[] | null
           title: string
@@ -544,6 +545,7 @@ export type Database = {
           created_by: string
           id?: string
           is_published?: boolean
+          sort_order?: number
           summary?: string | null
           tags?: string[] | null
           title: string
@@ -558,6 +560,7 @@ export type Database = {
           created_by?: string
           id?: string
           is_published?: boolean
+          sort_order?: number
           summary?: string | null
           tags?: string[] | null
           title?: string
