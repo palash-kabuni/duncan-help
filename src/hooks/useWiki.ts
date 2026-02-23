@@ -48,7 +48,7 @@ export function useWikiPages(categoryId?: string | null, search?: string) {
         .from("wiki_pages")
         .select("*")
         .eq("is_published", true)
-        .order("updated_at", { ascending: false });
+        .order("sort_order", { ascending: true });
 
       if (categoryId) query = query.eq("category_id", categoryId);
       if (search) query = query.ilike("title", `%${search}%`);
