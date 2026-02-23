@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, Brain, Zap, BarChart3, Sparkles, Trash2, Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useLocation } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import { useNormanChat } from "@/hooks/useNormanChat";
@@ -114,7 +115,7 @@ const PromptEngine = () => {
                     >
                       {msg.role === "assistant" ? (
                         <div className="prose prose-sm prose-invert max-w-none leading-7 prose-headings:text-foreground prose-headings:mt-8 prose-headings:mb-4 prose-headings:pb-2 prose-headings:border-b prose-headings:border-border/60 prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-p:text-foreground/90 prose-p:mb-4 prose-p:leading-7 prose-strong:text-foreground prose-code:text-primary prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-xs prose-pre:bg-secondary prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-pre:my-5 prose-pre:p-4 prose-li:text-foreground/90 prose-li:mb-2 prose-li:leading-7 prose-ul:my-4 prose-ul:pl-1 prose-ol:my-4 prose-ol:pl-1 prose-hr:my-8 prose-hr:border-border/60 prose-blockquote:border-primary/30 prose-blockquote:pl-4 prose-blockquote:my-5 prose-blockquote:bg-primary/5 prose-blockquote:py-2 prose-blockquote:pr-4 prose-blockquote:rounded-r-lg prose-table:my-5 prose-th:bg-secondary/60 prose-th:px-3 prose-th:py-2 prose-th:text-xs prose-th:font-semibold prose-th:text-foreground prose-td:px-3 prose-td:py-2 prose-td:text-xs prose-td:border-border/40">
-                          <ReactMarkdown>{msg.content}</ReactMarkdown>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                         </div>
                       ) : (
                         msg.content
