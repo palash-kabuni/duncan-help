@@ -50,7 +50,17 @@ const WikiContentRenderer = ({ content, wikiPages, onNavigate }: WikiContentRend
       const listMatch = trimmed.match(/^[-*]\s+(?:\*\*)?(?:📊\s*)?(.+?)(?:\*\*)?(?:\s*—.*)?$/);
       if (listMatch) {
         const candidate = listMatch[1].trim().replace(/\*\*/g, "");
-        const matched = titleMap.get(candidate.toLowerCase().trim());
+        // Exact match first
+        let matched = titleMap.get(candidate.toLowerCase().trim());
+        // Fallback: check if candidate starts with a wiki page title (prefix match)
+        if (!matched) {
+          for (const [title, page] of titleMap.entries()) {
+            if (candidate.toLowerCase().trim().startsWith(title)) {
+              matched = page;
+              break;
+            }
+          }
+        }
         if (matched) {
           flushMd();
           result.push({ type: "internal-link", page: matched, label: candidate });
