@@ -104,7 +104,7 @@ const WikiContentRenderer = ({ content, wikiPages, onNavigate }: WikiContentRend
           return (
             <div
               key={i}
-              className="prose prose-sm prose-invert max-w-none leading-8 prose-headings:text-foreground prose-h2:mt-10 prose-h2:mb-4 prose-h2:text-base prose-h3:mt-6 prose-h3:mb-2 prose-h3:text-lg prose-p:text-foreground/90 prose-p:mb-3 prose-strong:text-foreground prose-code:text-primary prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-pre:bg-secondary prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-li:text-foreground/90 prose-li:my-1.5 prose-li:leading-8 prose-ul:my-3 prose-ol:my-3 prose-hr:hidden prose-blockquote:border-primary/30"
+              className="prose prose-sm prose-invert max-w-none leading-8 prose-headings:text-foreground prose-h2:mt-10 prose-h2:mb-4 prose-h2:text-lg prose-h3:mt-6 prose-h3:mb-2 prose-h3:text-lg prose-p:text-foreground/90 prose-p:mb-3 prose-strong:text-foreground prose-code:text-primary prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-pre:bg-secondary prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-li:text-foreground/90 prose-li:my-1.5 prose-li:leading-8 prose-ul:my-3 prose-ol:my-3 prose-hr:hidden prose-blockquote:border-primary/30"
             >
               <ReactMarkdown>{section.text}</ReactMarkdown>
             </div>
