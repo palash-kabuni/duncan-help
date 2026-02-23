@@ -4,6 +4,7 @@ import { BookOpen, Search, Plus, ArrowLeft, Edit3, Trash2, Tag, Clock, Eye, Fold
 import ReactMarkdown from "react-markdown";
 import Sidebar from "@/components/Sidebar";
 import WikiEditor from "@/components/wiki/WikiEditor";
+import WikiContentRenderer from "@/components/wiki/WikiContentRenderer";
 import { useWikiPages, useWikiCategories, useWikiPage, useDeleteWikiPage } from "@/hooks/useWiki";
 import { useIsAdmin } from "@/hooks/useUserRoles";
 import { formatDistanceToNow } from "date-fns";
@@ -17,6 +18,7 @@ const Wiki = () => {
   const [creating, setCreating] = useState(false);
 
   const { data: pages = [], isLoading } = useWikiPages(selectedCategory, search);
+  const { data: allPages = [] } = useWikiPages(null, "");
   const { data: categories = [] } = useWikiCategories();
   const { data: activePage } = useWikiPage(selectedPageId);
   const { isAdmin } = useIsAdmin();
@@ -94,9 +96,17 @@ const Wiki = () => {
                   ))}
                 </div>
               )}
-              <div className="prose prose-sm prose-invert max-w-none leading-7 prose-headings:text-foreground prose-p:text-foreground/90 prose-strong:text-foreground prose-code:text-primary prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-pre:bg-secondary prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-li:text-foreground/90 prose-hr:border-border prose-blockquote:border-primary/30">
-                <ReactMarkdown>{activePage.content}</ReactMarkdown>
-              </div>
+              {activePage.title.includes("Welcome") ? (
+                <WikiContentRenderer
+                  content={activePage.content}
+                  wikiPages={allPages}
+                  onNavigate={(id) => setSelectedPageId(id)}
+                />
+              ) : (
+                <div className="prose prose-sm prose-invert max-w-none leading-7 prose-headings:text-foreground prose-p:text-foreground/90 prose-strong:text-foreground prose-code:text-primary prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-pre:bg-secondary prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-li:text-foreground/90 prose-hr:border-border prose-blockquote:border-primary/30">
+                  <ReactMarkdown>{activePage.content}</ReactMarkdown>
+                </div>
+              )}
             </motion.div>
           </div>
         </main>
