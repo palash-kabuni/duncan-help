@@ -88,13 +88,13 @@ const WikiContentRenderer = ({ content, wikiPages, onNavigate }: WikiContentRend
   }, [content, titleMap]);
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       {sections.map((section, i) => {
         if (section.type === "markdown") {
           return (
             <div
               key={i}
-              className="prose prose-sm prose-invert max-w-none leading-7 prose-headings:text-foreground prose-headings:tracking-tight prose-headings:mt-8 prose-headings:mb-3 prose-p:text-foreground/85 prose-p:leading-relaxed prose-strong:text-foreground prose-code:text-primary prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-pre:bg-secondary prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-li:text-foreground/85 prose-hr:border-border/50 prose-hr:my-6 prose-blockquote:border-primary/30 prose-blockquote:bg-primary/5 prose-blockquote:rounded-r-lg prose-blockquote:py-1 prose-blockquote:px-4"
+              className="prose prose-sm prose-invert max-w-none leading-7 prose-headings:text-foreground prose-p:text-foreground/90 prose-strong:text-foreground prose-code:text-primary prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-pre:bg-secondary prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-li:text-foreground/90 prose-hr:border-border prose-blockquote:border-primary/30"
             >
               <ReactMarkdown>{section.text}</ReactMarkdown>
             </div>
@@ -105,24 +105,24 @@ const WikiContentRenderer = ({ content, wikiPages, onNavigate }: WikiContentRend
           return (
             <motion.button
               key={i}
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.025, duration: 0.25 }}
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.03 }}
               onClick={() => onNavigate(section.page.id)}
-              className="flex w-full items-center gap-3.5 rounded-xl border border-border/70 bg-card/40 backdrop-blur-sm px-4 py-3.5 text-left hover:bg-card/80 hover:border-primary/40 hover:shadow-[0_0_16px_-4px_hsl(var(--primary)/0.15)] transition-all duration-300 group"
+              className="flex w-full items-center gap-3 rounded-lg border border-border bg-card/60 px-4 py-3 text-left hover:bg-card hover:border-primary/30 transition-all duration-200 group"
             >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary group-hover:bg-primary/20 group-hover:scale-105 transition-all duration-300">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary group-hover:bg-primary/20 transition-colors">
                 <BookOpen className="h-4 w-4" />
               </div>
               <div className="min-w-0 flex-1">
-                <span className="text-sm font-semibold text-foreground/95 group-hover:text-primary transition-colors duration-200">
+                <span className="text-sm font-medium text-foreground group-hover:text-primary transition-colors">
                   {section.label}
                 </span>
                 {section.page.summary && (
-                  <p className="text-[11px] text-muted-foreground/70 mt-0.5 truncate leading-snug">{section.page.summary}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">{section.page.summary}</p>
                 )}
               </div>
-              <span className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground/40 shrink-0 group-hover:text-primary/50 transition-colors">Wiki</span>
+              <span className="text-[10px] font-mono text-muted-foreground/50 shrink-0">Wiki</span>
             </motion.button>
           );
         }
@@ -134,15 +134,15 @@ const WikiContentRenderer = ({ content, wikiPages, onNavigate }: WikiContentRend
               href={section.href}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex w-full items-center gap-3.5 rounded-xl border border-border/50 bg-secondary/20 backdrop-blur-sm px-4 py-3.5 text-left hover:bg-secondary/40 hover:border-border transition-all duration-300 group"
+              className="flex w-full items-center gap-3 rounded-lg border border-border/60 bg-secondary/30 px-4 py-3 text-left hover:bg-secondary/50 hover:border-border transition-all duration-200 group"
             >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground group-hover:text-foreground group-hover:bg-muted transition-all duration-300">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground group-hover:text-foreground transition-colors">
                 <ExternalLink className="h-4 w-4" />
               </div>
-              <span className="text-sm font-medium text-foreground/75 group-hover:text-foreground transition-colors duration-200 truncate">
+              <span className="text-sm font-medium text-foreground/80 group-hover:text-foreground transition-colors truncate">
                 {section.label}
               </span>
-              <span className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground/40 shrink-0">Ext</span>
+              <span className="text-[10px] font-mono text-muted-foreground/50 shrink-0">External</span>
             </a>
           );
         }
