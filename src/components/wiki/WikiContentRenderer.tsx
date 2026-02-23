@@ -98,13 +98,13 @@ const WikiContentRenderer = ({ content, wikiPages, onNavigate }: WikiContentRend
   }, [content, titleMap]);
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-2">
       {sections.map((section, i) => {
         if (section.type === "markdown") {
           return (
             <div
               key={i}
-              className="prose prose-sm prose-invert max-w-none leading-7 prose-headings:text-foreground prose-p:text-foreground/90 prose-strong:text-foreground prose-code:text-primary prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-pre:bg-secondary prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-li:text-foreground/90 prose-hr:border-border prose-blockquote:border-primary/30"
+              className="prose prose-sm prose-invert max-w-none leading-8 prose-headings:text-foreground prose-h2:mt-10 prose-h2:mb-4 prose-h3:mt-6 prose-h3:mb-2 prose-p:text-foreground/90 prose-p:mb-3 prose-strong:text-foreground prose-code:text-primary prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-pre:bg-secondary prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-li:text-foreground/90 prose-li:my-1.5 prose-li:leading-8 prose-ul:my-3 prose-ol:my-3 prose-hr:hidden prose-blockquote:border-primary/30"
             >
               <ReactMarkdown>{section.text}</ReactMarkdown>
             </div>
