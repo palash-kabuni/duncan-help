@@ -102,9 +102,9 @@ const WikiContentRenderer = ({ content, wikiPages, onNavigate }: WikiContentRend
       {sections.map((section, i) => {
         if (section.type === "markdown") {
           return (
-          <div
+            <div
               key={i}
-              className="prose prose-sm prose-invert max-w-none leading-7 prose-headings:text-foreground prose-h2:mt-10 prose-h2:mb-4 prose-h2:text-lg prose-h3:mt-6 prose-h3:mb-3 prose-h3:text-base prose-p:text-foreground/90 prose-p:mb-3 prose-strong:text-foreground prose-code:text-primary prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-pre:bg-secondary prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-li:text-foreground/90 prose-li:my-1 prose-ul:my-2 prose-hr:border-border/40 prose-hr:my-8 prose-blockquote:border-primary/30 prose-blockquote:bg-primary/5 prose-blockquote:rounded-lg prose-blockquote:py-3 prose-blockquote:px-4 prose-blockquote:not-italic"
+              className="prose prose-sm prose-invert max-w-none leading-7 prose-headings:text-foreground prose-p:text-foreground/90 prose-strong:text-foreground prose-code:text-primary prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-pre:bg-secondary prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-li:text-foreground/90 prose-hr:border-border prose-blockquote:border-primary/30"
             >
               <ReactMarkdown>{section.text}</ReactMarkdown>
             </div>
