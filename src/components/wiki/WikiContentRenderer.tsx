@@ -87,14 +87,26 @@ const WikiContentRenderer = ({ content, wikiPages, onNavigate }: WikiContentRend
     return result;
   }, [content, titleMap]);
 
+  // Group sections into visual "blocks" by splitting on h2 headings
   return (
-    <div className="space-y-1">
+    <div className="space-y-8">
       {sections.map((section, i) => {
         if (section.type === "markdown") {
           return (
             <div
               key={i}
-              className="prose prose-sm prose-invert max-w-none leading-7 prose-headings:text-foreground prose-p:text-foreground/90 prose-strong:text-foreground prose-code:text-primary prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-pre:bg-secondary prose-pre:border prose-pre:border-border prose-pre:rounded-lg prose-li:text-foreground/90 prose-hr:border-border prose-blockquote:border-primary/30"
+              className="prose prose-sm prose-invert max-w-none leading-7
+                prose-h2:text-lg prose-h2:font-bold prose-h2:text-foreground prose-h2:mt-8 prose-h2:mb-3 prose-h2:pb-2 prose-h2:border-b prose-h2:border-border
+                prose-h3:text-sm prose-h3:font-semibold prose-h3:text-muted-foreground prose-h3:uppercase prose-h3:tracking-wide prose-h3:mt-5 prose-h3:mb-2
+                prose-p:text-foreground/90 prose-p:mb-3
+                prose-strong:text-foreground
+                prose-code:text-primary prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md
+                prose-pre:bg-secondary prose-pre:border prose-pre:border-border prose-pre:rounded-lg
+                prose-li:text-foreground/90 prose-li:my-0.5
+                prose-ul:my-2 prose-ul:space-y-0.5
+                prose-hr:border-border
+                prose-blockquote:border-primary/30
+                prose-em:text-muted-foreground"
             >
               <ReactMarkdown>{section.text}</ReactMarkdown>
             </div>
@@ -109,7 +121,7 @@ const WikiContentRenderer = ({ content, wikiPages, onNavigate }: WikiContentRend
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.03 }}
               onClick={() => onNavigate(section.page.id)}
-              className="flex w-full items-center gap-3 rounded-lg border border-border bg-card/60 px-4 py-3 text-left hover:bg-card hover:border-primary/30 transition-all duration-200 group"
+              className="flex w-full items-center gap-3 rounded-lg border border-border bg-card/60 px-4 py-3 text-left hover:bg-card hover:border-primary/30 transition-all duration-200 group ml-1"
             >
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary group-hover:bg-primary/20 transition-colors">
                 <BookOpen className="h-4 w-4" />
@@ -134,7 +146,7 @@ const WikiContentRenderer = ({ content, wikiPages, onNavigate }: WikiContentRend
               href={section.href}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex w-full items-center gap-3 rounded-lg border border-border/60 bg-secondary/30 px-4 py-3 text-left hover:bg-secondary/50 hover:border-border transition-all duration-200 group"
+              className="flex w-full items-center gap-3 rounded-lg border border-border/60 bg-secondary/30 px-4 py-3 text-left hover:bg-secondary/50 hover:border-border transition-all duration-200 group ml-1"
             >
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground group-hover:text-foreground transition-colors">
                 <ExternalLink className="h-4 w-4" />
