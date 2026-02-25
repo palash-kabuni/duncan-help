@@ -44,6 +44,3 @@ verify_jwt = false
 
 [functions.basecamp-api]
 verify_jwt = false
-
-[functions.auth-signup-proxy]
-verify_jwt = false

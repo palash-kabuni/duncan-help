@@ -16,18 +16,11 @@ const Auth = () => {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
 
-  const isPreviewOrigin =
-    window.location.origin.includes("id-preview--") ||
-    window.location.origin.includes("lovableproject.com") ||
-    window.location.origin.includes("lovable.app");
-
-  const AUTH_REDIRECT_ORIGIN = isPreviewOrigin ? "https://duncan.help" : window.location.origin;
-
   const getAuthErrorMessage = (error: unknown) => {
     const message = error instanceof Error ? error.message : String((error as any)?.message ?? error ?? "");
 
     if (message.toLowerCase().includes("failed to fetch")) {
-      return "Can’t reach authentication service from this browser. If you're in preview, continue on https://duncan.help/auth, or disable blockers/VPN and retry.";
+      return "Can’t reach authentication service from this browser. Check VPN/firewall/ad-blockers or try another network.";
     }
 
     return message || "Authentication failed";
@@ -61,39 +54,22 @@ const Auth = () => {
     setSubmitting(true);
 
     try {
-      if (isLogin) {
-        const { error } = await withRetry(() => supabase.auth.signInWithPassword({ email, password }));
+        const { error } = isLogin
+          ? await withRetry(() => supabase.auth.signInWithPassword({ email, password }))
+          : await withRetry(() =>
+              supabase.auth.signUp({
+                email,
+                password,
+                options: {
+                  data: { display_name: displayName },
+                  emailRedirectTo: window.location.origin,
+                },
+              })
+            );
+
         if (error) throw error;
-      } else {
-        const { data: proxyData, error: proxyError } = await withRetry(() =>
-          supabase.functions.invoke("auth-signup-proxy", {
-            body: {
-              email,
-              password,
-              displayName,
-              redirectTo: AUTH_REDIRECT_ORIGIN,
-            },
-          })
-        );
 
-        if (proxyError) {
-          const { error } = await withRetry(() =>
-            supabase.auth.signUp({
-              email,
-              password,
-              options: {
-                data: { display_name: displayName },
-                emailRedirectTo: AUTH_REDIRECT_ORIGIN,
-              },
-            })
-          );
-          if (error) throw error;
-        } else if ((proxyData as { error?: string } | null)?.error) {
-          throw new Error((proxyData as { error: string }).error);
-        }
-      }
-
-      toast.success(isLogin ? "Welcome back to Duncan" : "Check your email to verify your account");
+        toast.success(isLogin ? "Welcome back to Duncan" : "Check your email to verify your account");
     } catch (error: unknown) {
       console.error("Auth submit failed", {
         error,
@@ -112,7 +88,7 @@ const Auth = () => {
     try {
       const { error } = await withRetry(() =>
         supabase.auth.resetPasswordForEmail(resetEmail, {
-          redirectTo: `${AUTH_REDIRECT_ORIGIN}/reset-password`,
+          redirectTo: `${window.location.origin}/reset-password`,
         })
       );
       if (error) throw error;
