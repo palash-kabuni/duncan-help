@@ -16,6 +16,27 @@ const Auth = () => {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
 
+  const getAuthErrorMessage = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String((error as any)?.message ?? error ?? "");
+
+    if (message.toLowerCase().includes("failed to fetch")) {
+      return "Can’t reach authentication service from this browser. Check VPN/firewall/ad-blockers or try another network.";
+    }
+
+    return message || "Authentication failed";
+  };
+
+  const withRetry = async <T,>(request: () => Promise<T>, retries = 1): Promise<T> => {
+    try {
+      return await request();
+    } catch (error) {
+      if (retries > 0 && String((error as any)?.message ?? error).toLowerCase().includes("failed to fetch")) {
+        return withRetry(request, retries - 1);
+      }
+      throw error;
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -33,24 +54,29 @@ const Auth = () => {
     setSubmitting(true);
 
     try {
-      if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = isLogin
+          ? await withRetry(() => supabase.auth.signInWithPassword({ email, password }))
+          : await withRetry(() =>
+              supabase.auth.signUp({
+                email,
+                password,
+                options: {
+                  data: { display_name: displayName },
+                  emailRedirectTo: window.location.origin,
+                },
+              })
+            );
+
         if (error) throw error;
-        toast.success("Welcome back to Duncan");
-      } else {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: { display_name: displayName },
-            emailRedirectTo: window.location.origin,
-          },
-        });
-        if (error) throw error;
-        toast.success("Check your email to verify your account");
-      }
-    } catch (error: any) {
-      toast.error(error.message || "Authentication failed");
+
+        toast.success(isLogin ? "Welcome back to Duncan" : "Check your email to verify your account");
+    } catch (error: unknown) {
+      console.error("Auth submit failed", {
+        error,
+        online: navigator.onLine,
+        origin: window.location.origin,
+      });
+      toast.error(getAuthErrorMessage(error));
     } finally {
       setSubmitting(false);
     }
@@ -60,14 +86,21 @@ const Auth = () => {
     e.preventDefault();
     setSubmitting(true);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
+      const { error } = await withRetry(() =>
+        supabase.auth.resetPasswordForEmail(resetEmail, {
+          redirectTo: `${window.location.origin}/reset-password`,
+        })
+      );
       if (error) throw error;
       toast.success("Check your email for a password reset link");
       setShowForgotPassword(false);
-    } catch (error: any) {
-      toast.error(error.message || "Failed to send reset email");
+    } catch (error: unknown) {
+      console.error("Password reset request failed", {
+        error,
+        online: navigator.onLine,
+        origin: window.location.origin,
+      });
+      toast.error(getAuthErrorMessage(error));
     } finally {
       setSubmitting(false);
     }
