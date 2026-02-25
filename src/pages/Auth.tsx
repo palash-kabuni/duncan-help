@@ -16,11 +16,15 @@ const Auth = () => {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
 
+  const AUTH_REDIRECT_ORIGIN = window.location.origin.includes("id-preview--")
+    ? "https://duncan.help"
+    : window.location.origin;
+
   const getAuthErrorMessage = (error: unknown) => {
     const message = error instanceof Error ? error.message : String((error as any)?.message ?? error ?? "");
 
     if (message.toLowerCase().includes("failed to fetch")) {
-      return "Can’t reach authentication service from this browser. Check VPN/firewall/ad-blockers or try another network.";
+      return "Can’t reach authentication service from this browser. If you're in preview, continue on https://duncan.help/auth.";
     }
 
     return message || "Authentication failed";
@@ -62,7 +66,7 @@ const Auth = () => {
                 password,
                 options: {
                   data: { display_name: displayName },
-                  emailRedirectTo: window.location.origin,
+                  emailRedirectTo: AUTH_REDIRECT_ORIGIN,
                 },
               })
             );
@@ -88,7 +92,7 @@ const Auth = () => {
     try {
       const { error } = await withRetry(() =>
         supabase.auth.resetPasswordForEmail(resetEmail, {
-          redirectTo: `${window.location.origin}/reset-password`,
+          redirectTo: `${AUTH_REDIRECT_ORIGIN}/reset-password`,
         })
       );
       if (error) throw error;
