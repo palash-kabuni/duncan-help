@@ -16,9 +16,12 @@ const Auth = () => {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
 
-  const AUTH_REDIRECT_ORIGIN = window.location.origin.includes("id-preview--")
-    ? "https://duncan.help"
-    : window.location.origin;
+  const isPreviewOrigin =
+    window.location.origin.includes("id-preview--") ||
+    window.location.origin.includes("lovableproject.com") ||
+    window.location.origin.includes("lovable.app");
+
+  const AUTH_REDIRECT_ORIGIN = isPreviewOrigin ? "https://duncan.help" : window.location.origin;
 
   const getAuthErrorMessage = (error: unknown) => {
     const message = error instanceof Error ? error.message : String((error as any)?.message ?? error ?? "");
