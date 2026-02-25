@@ -16,6 +16,9 @@ const Auth = () => {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
 
+  const publishedAuthUrl = "https://duncan-help.lovable.app/auth";
+  const isPreviewEnvironment = window.location.hostname.endsWith("lovableproject.com");
+
   const getAuthErrorMessage = (error: unknown) => {
     const message = error instanceof Error ? error.message : String((error as any)?.message ?? error ?? "");
 
@@ -54,18 +57,24 @@ const Auth = () => {
     setSubmitting(true);
 
     try {
-        const { error } = isLogin
-          ? await withRetry(() => supabase.auth.signInWithPassword({ email, password }))
-          : await withRetry(() =>
-              supabase.auth.signUp({
-                email,
-                password,
-                options: {
-                  data: { display_name: displayName },
-                  emailRedirectTo: window.location.origin,
-                },
-              })
-            );
+      if (!isLogin && isPreviewEnvironment) {
+        toast.error("Signup is only supported on the published app. Opening it now.");
+        window.open(publishedAuthUrl, "_blank", "noopener,noreferrer");
+        return;
+      }
+
+      const { error } = isLogin
+        ? await withRetry(() => supabase.auth.signInWithPassword({ email, password }))
+        : await withRetry(() =>
+            supabase.auth.signUp({
+              email,
+              password,
+              options: {
+                data: { display_name: displayName },
+                emailRedirectTo: publishedAuthUrl,
+              },
+            })
+          );
 
         if (error) throw error;
 
