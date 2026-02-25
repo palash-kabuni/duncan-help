@@ -16,16 +16,11 @@ const Auth = () => {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
 
-  const isFailedToFetchError = (error: unknown) =>
-    String((error as { message?: string } | null)?.message ?? error ?? "")
-      .toLowerCase()
-      .includes("failed to fetch");
-
   const getAuthErrorMessage = (error: unknown) => {
     const message = error instanceof Error ? error.message : String((error as any)?.message ?? error ?? "");
 
-    if (isFailedToFetchError(error)) {
-      return "Direct signup request failed in this browser. Retrying through backend fallback...";
+    if (message.toLowerCase().includes("failed to fetch")) {
+      return "Can’t reach authentication service from this browser. Check VPN/firewall/ad-blockers or try another network.";
     }
 
     return message || "Authentication failed";
@@ -35,7 +30,7 @@ const Auth = () => {
     try {
       return await request();
     } catch (error) {
-      if (retries > 0 && isFailedToFetchError(error)) {
+      if (retries > 0 && String((error as any)?.message ?? error).toLowerCase().includes("failed to fetch")) {
         return withRetry(request, retries - 1);
       }
       throw error;
@@ -59,50 +54,23 @@ const Auth = () => {
     setSubmitting(true);
 
     try {
-      const { error } = isLogin
-        ? await withRetry(() => supabase.auth.signInWithPassword({ email, password }))
-        : await withRetry(() =>
-            supabase.auth.signUp({
-              email,
-              password,
-              options: {
-                data: { display_name: displayName },
-                emailRedirectTo: window.location.origin,
-              },
-            })
-          );
+        const { error } = isLogin
+          ? await withRetry(() => supabase.auth.signInWithPassword({ email, password }))
+          : await withRetry(() =>
+              supabase.auth.signUp({
+                email,
+                password,
+                options: {
+                  data: { display_name: displayName },
+                  emailRedirectTo: window.location.origin,
+                },
+              })
+            );
 
-      if (error) throw error;
+        if (error) throw error;
 
-      toast.success(isLogin ? "Welcome back to Duncan" : "Check your email to verify your account");
+        toast.success(isLogin ? "Welcome back to Duncan" : "Check your email to verify your account");
     } catch (error: unknown) {
-      if (!isLogin && isFailedToFetchError(error)) {
-        try {
-          const { data, error: proxyError } = await supabase.functions.invoke("auth-signup-proxy", {
-            body: {
-              email,
-              password,
-              displayName,
-              redirectTo: window.location.origin,
-            },
-          });
-
-          if (proxyError) throw proxyError;
-          if ((data as { error?: string } | null)?.error) throw new Error((data as { error: string }).error);
-
-          toast.success("Check your email to verify your account");
-          return;
-        } catch (fallbackError) {
-          console.error("Signup fallback failed", {
-            fallbackError,
-            online: navigator.onLine,
-            origin: window.location.origin,
-          });
-          toast.error(fallbackError instanceof Error ? fallbackError.message : "Signup failed");
-          return;
-        }
-      }
-
       console.error("Auth submit failed", {
         error,
         online: navigator.onLine,
