@@ -87,7 +87,7 @@ const Sidebar = () => {
           <div className="h-2 w-2 rounded-full bg-norman-success animate-pulse-glow" />
           <span className="text-xs font-mono text-muted-foreground">System Online</span>
         </div>
-        <p className="text-[10px] font-mono text-muted-foreground/50">v0.1.0 · Last sync 2m ago</p>
+        <p className="text-[10px] font-mono text-muted-foreground/50">v0.1.0</p>
       </div>
     </aside>;
 };

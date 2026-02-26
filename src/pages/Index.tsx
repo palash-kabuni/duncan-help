@@ -1,13 +1,11 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Database, Plug, Brain, Zap, Mail, FileText, Calendar, MessageSquare, FolderOpen } from "lucide-react";
+import { Database, Plug, Mail, FileText, Calendar, MessageSquare, FolderOpen, Zap } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import CommandBar from "@/components/CommandBar";
 import StatusCard from "@/components/StatusCard";
 import IntegrationCard from "@/components/IntegrationCard";
-import ActivityFeed from "@/components/ActivityFeed";
-import PipelineOverview from "@/components/PipelineOverview";
 import WelcomeModal from "@/components/WelcomeModal";
 import { useUserIntegrations } from "@/hooks/useUserIntegrations";
 
@@ -110,26 +108,13 @@ const Index = () => {
           </div>
 
           {/* Status Cards */}
-          <div className="grid grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-2 gap-4 mb-8">
             <StatusCard icon={Database} label="Documents Indexed" value={totalDocs.toLocaleString()} subtext={totalDocs > 0 ? "Across integrations" : "Connect tools to start"} status={totalDocs > 0 ? "success" : "neutral"} delay={0.15} />
             <StatusCard icon={Plug} label="Active Integrations" value={`${connectedCount} / ${allIntegrationIds.length}`} subtext={pendingCount > 0 ? `${pendingCount} pending setup` : "All connected"} status={connectedCount > 0 ? "info" : "neutral"} delay={0.2} />
-            <StatusCard icon={Zap} label="Automations Run" value="0" subtext="Connect tools to start" status="neutral" delay={0.25} />
-            <StatusCard icon={Brain} label="Reasoning Tasks" value="0" subtext="Use Prompt Engine" status="neutral" delay={0.3} />
           </div>
 
-          {/* Pipeline */}
-          <div className="mb-8">
-            <PipelineOverview />
-          </div>
-
-          {/* Two columns */}
-          <div className="grid grid-cols-5 gap-6">
-            <div className="col-span-3">
-              <ActivityFeed />
-            </div>
-
-            {/* Integrations - real data */}
-            <div className="col-span-2 space-y-3">
+          {/* Integrations */}
+          <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-foreground">Integrations</h3>
                 <button onClick={() => navigate("/integrations")} className="text-xs text-primary hover:underline">Manage</button>
@@ -151,7 +136,6 @@ const Index = () => {
                   </div>
                 );
               })}
-            </div>
           </div>
         </div>
       </main>
