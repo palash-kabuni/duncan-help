@@ -88,6 +88,68 @@ export type Database = {
           },
         ]
       }
+      candidates: {
+        Row: {
+          competency_score: number | null
+          created_at: string
+          cv_storage_path: string | null
+          cv_text: string | null
+          email: string | null
+          email_subject: string | null
+          gmail_message_id: string | null
+          id: string
+          job_role_id: string | null
+          name: string
+          scoring_details: Json | null
+          status: string
+          total_score: number | null
+          updated_at: string
+          values_score: number | null
+        }
+        Insert: {
+          competency_score?: number | null
+          created_at?: string
+          cv_storage_path?: string | null
+          cv_text?: string | null
+          email?: string | null
+          email_subject?: string | null
+          gmail_message_id?: string | null
+          id?: string
+          job_role_id?: string | null
+          name: string
+          scoring_details?: Json | null
+          status?: string
+          total_score?: number | null
+          updated_at?: string
+          values_score?: number | null
+        }
+        Update: {
+          competency_score?: number | null
+          created_at?: string
+          cv_storage_path?: string | null
+          cv_text?: string | null
+          email?: string | null
+          email_subject?: string | null
+          gmail_message_id?: string | null
+          id?: string
+          job_role_id?: string | null
+          name?: string
+          scoring_details?: Json | null
+          status?: string
+          total_score?: number | null
+          updated_at?: string
+          values_score?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidates_job_role_id_fkey"
+            columns: ["job_role_id"]
+            isOneToOne: false
+            referencedRelation: "job_roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       company_integrations: {
         Row: {
           created_at: string
@@ -144,6 +206,39 @@ export type Database = {
           id?: string
           name?: string
           owner_user_id?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      gmail_tokens: {
+        Row: {
+          access_token: string
+          connected_by: string
+          created_at: string
+          email_address: string | null
+          id: string
+          refresh_token: string
+          token_expiry: string
+          updated_at: string
+        }
+        Insert: {
+          access_token: string
+          connected_by: string
+          created_at?: string
+          email_address?: string | null
+          id?: string
+          refresh_token: string
+          token_expiry: string
+          updated_at?: string
+        }
+        Update: {
+          access_token?: string
+          connected_by?: string
+          created_at?: string
+          email_address?: string | null
+          id?: string
+          refresh_token?: string
+          token_expiry?: string
           updated_at?: string
         }
         Relationships: []
@@ -240,6 +335,42 @@ export type Database = {
           form_url?: string
           id?: string
           name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      job_roles: {
+        Row: {
+          company_values: Json
+          competencies: Json
+          created_at: string
+          created_by: string
+          description: string | null
+          id: string
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          company_values?: Json
+          competencies?: Json
+          created_at?: string
+          created_by: string
+          description?: string | null
+          id?: string
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          company_values?: Json
+          competencies?: Json
+          created_at?: string
+          created_by?: string
+          description?: string | null
+          id?: string
+          status?: string
+          title?: string
           updated_at?: string
         }
         Relationships: []
