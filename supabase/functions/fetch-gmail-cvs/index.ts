@@ -111,12 +111,27 @@ serve(async (req) => {
 
     const headers = { Authorization: `Bearer ${credentials.token}` };
 
-    // Search for emails with attachments (CV-related)
-    // Look for emails with attachments that have common CV file extensions
-    const query = "has:attachment (filename:pdf OR filename:docx OR filename:doc)";
+    // Fetch active job roles to build subject-based search
+    const { data: activeRoles } = await supabaseAdmin
+      .from("job_roles")
+      .select("id, title")
+      .eq("status", "active");
+
+    if (!activeRoles || activeRoles.length === 0) {
+      return new Response(
+        JSON.stringify({ error: "No active job roles found. Create job roles first so Duncan can match CVs by subject line." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Build Gmail query: emails with attachments whose subject contains any role title
+    const subjectClauses = activeRoles.map((r: any) => `subject:"${r.title}"`).join(" OR ");
+    const query = `has:attachment (filename:pdf OR filename:docx OR filename:doc) (${subjectClauses})`;
+    console.log("Gmail search query:", query);
+
     const searchUrl = new URL(`${GMAIL_API}/messages`);
     searchUrl.searchParams.set("q", query);
-    searchUrl.searchParams.set("maxResults", "20");
+    searchUrl.searchParams.set("maxResults", "50");
 
     const searchRes = await fetch(searchUrl.toString(), { headers });
     if (!searchRes.ok) {
@@ -220,20 +235,13 @@ serve(async (req) => {
         continue;
       }
 
-      // Try to match job role from subject line
-      const { data: roles } = await supabaseAdmin
-        .from("job_roles")
-        .select("id, title")
-        .eq("status", "active");
-
+      // Match job role from subject line using already-fetched active roles
       let matchedRoleId: string | null = null;
-      if (roles) {
-        const subjectLower = subject.toLowerCase();
-        for (const role of roles) {
-          if (subjectLower.includes(role.title.toLowerCase())) {
-            matchedRoleId = role.id;
-            break;
-          }
+      const subjectLower = subject.toLowerCase();
+      for (const role of activeRoles) {
+        if (subjectLower.includes(role.title.toLowerCase())) {
+          matchedRoleId = role.id;
+          break;
         }
       }
 
