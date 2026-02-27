@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { ZipReader, BlobReader, TextWriter } from "https://deno.land/x/zipjs@v2.7.32/index.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,6 +16,26 @@ function uint8ToBase64(bytes: Uint8Array): string {
     result += String.fromCharCode(...chunk);
   }
   return btoa(result);
+}
+
+// Extract text content from a DOCX file (ZIP of XML)
+async function extractDocxText(bytes: Uint8Array): Promise<string> {
+  const blob = new Blob([bytes]);
+  const reader = new ZipReader(new BlobReader(blob));
+  const entries = await reader.getEntries();
+  
+  let text = "";
+  for (const entry of entries) {
+    if (entry.filename === "word/document.xml" && entry.getData) {
+      const writer = new TextWriter();
+      const xml = await entry.getData(writer);
+      // Strip XML tags, keep text content
+      text = xml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      break;
+    }
+  }
+  await reader.close();
+  return text.slice(0, 15000);
 }
 
 serve(async (req) => {
@@ -63,36 +84,68 @@ serve(async (req) => {
     const base64 = uint8ToBase64(bytes);
 
     const ext = storage_path.split(".").pop()?.toLowerCase();
-    let mimeType = "application/pdf";
-    if (ext === "docx") mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-    else if (ext === "doc") mimeType = "application/msword";
+    const isPdf = ext === "pdf";
+    const isDocx = ext === "docx";
 
-    // Always send as a file attachment — Gemini can handle PDF and DOCX natively
-    const aiMessages = [
-      {
-        role: "system",
-        content: `You are a CV/resume parser. Extract the candidate's full name and email address from the document. 
+    const systemMsg = {
+      role: "system",
+      content: `You are a CV/resume parser. Extract the candidate's full name and email address from the document. 
 If you cannot find an email, return null for email. 
 Always return the result by calling the extract_candidate_info function.`,
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "file",
-            file: {
-              filename: storage_path.split("/").pop() || "cv.pdf",
-              file_data: `data:${mimeType};base64,${base64}`,
-            },
-          },
-          {
-            type: "text",
-            text: "Extract the candidate's full name and email address from this CV/resume document.",
-          },
-        ],
-      },
-    ];
+    };
 
+    let aiMessages: any[];
+
+    if (isPdf) {
+      // PDFs: send as file attachment (Gemini supports PDF natively)
+      const base64 = uint8ToBase64(bytes);
+      aiMessages = [
+        systemMsg,
+        {
+          role: "user",
+          content: [
+            {
+              type: "file",
+              file: {
+                filename: storage_path.split("/").pop() || "cv.pdf",
+                file_data: `data:application/pdf;base64,${base64}`,
+              },
+            },
+            {
+              type: "text",
+              text: "Extract the candidate's full name and email address from this CV/resume document.",
+            },
+          ],
+        },
+      ];
+    } else if (isDocx) {
+      // DOCX: extract text from XML inside the ZIP, send as plain text
+      const docxText = await extractDocxText(bytes);
+      if (!docxText || docxText.length < 20) {
+        return new Response(
+          JSON.stringify({ error: "Could not extract text from DOCX file", candidate_id }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      aiMessages = [
+        systemMsg,
+        {
+          role: "user",
+          content: `Extract the candidate's full name and email from this CV text:\n\n${docxText}`,
+        },
+      ];
+    } else {
+      // DOC or other: best-effort raw text extraction
+      const textContent = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+      const cleanText = textContent.replace(/[^\x20-\x7E\n\r\t]/g, " ").replace(/\s{3,}/g, " ").slice(0, 8000);
+      aiMessages = [
+        systemMsg,
+        {
+          role: "user",
+          content: `Extract the candidate's full name and email from this CV text:\n\n${cleanText}`,
+        },
+      ];
+    }
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
