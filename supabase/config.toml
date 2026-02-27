@@ -53,3 +53,6 @@ verify_jwt = false
 
 [functions.fetch-gmail-cvs]
 verify_jwt = false
+
+[functions.parse-cv]
+verify_jwt = false
