@@ -203,12 +203,12 @@ serve(async (req) => {
 
       // Process each CV attachment as a separate candidate
       for (const cv of cvAttachments) {
-        // Dedup by gmail_message_id + filename
+        // Dedup by gmail_message_id + original filename (storage path has timestamp prefix)
         const { data: existing } = await supabaseAdmin
           .from("candidates")
           .select("id")
           .eq("gmail_message_id", msg.id)
-          .eq("cv_storage_path", cv.filename)
+          .like("cv_storage_path", `%_${cv.filename}`)
           .maybeSingle();
 
         if (existing) {
