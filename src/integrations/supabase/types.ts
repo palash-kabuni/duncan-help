@@ -347,6 +347,7 @@ export type Database = {
           created_by: string
           description: string | null
           id: string
+          jd_storage_path: string | null
           status: string
           title: string
           updated_at: string
@@ -358,6 +359,7 @@ export type Database = {
           created_by: string
           description?: string | null
           id?: string
+          jd_storage_path?: string | null
           status?: string
           title: string
           updated_at?: string
@@ -369,6 +371,7 @@ export type Database = {
           created_by?: string
           description?: string | null
           id?: string
+          jd_storage_path?: string | null
           status?: string
           title?: string
           updated_at?: string

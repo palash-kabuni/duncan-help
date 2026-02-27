@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Mail, RefreshCw, Users, Briefcase, Loader2, CheckCircle, AlertCircle, Star } from "lucide-react";
+import { Mail, RefreshCw, Users, Briefcase, Loader2, CheckCircle, AlertCircle, Star, Target } from "lucide-react";
 import { toast } from "sonner";
 import { JobRolesManager } from "@/components/recruitment/JobRolesManager";
 
@@ -16,6 +16,7 @@ const Recruitment = () => {
   const [connecting, setConnecting] = useState(false);
   const [fetching, setFetching] = useState(false);
   const [scoring, setScoring] = useState(false);
+  const [scoringCompetencies, setScoringCompetencies] = useState(false);
 
   // Check Gmail connection status
   const { data: gmailStatus } = useQuery({
@@ -97,6 +98,21 @@ const Recruitment = () => {
       toast.error("Failed to score candidates: " + err.message);
     } finally {
       setScoring(false);
+    }
+  };
+
+  const scoreCompetencies = async () => {
+    setScoringCompetencies(true);
+    try {
+      const res = await supabase.functions.invoke("score-cv-competencies");
+      if (res.error) throw res.error;
+      const { scored, failed, skipped } = res.data;
+      toast.success(`Scored ${scored} candidate(s) on competencies.${skipped ? ` ${skipped} skipped (no JD).` : ""}${failed ? ` ${failed} failed.` : ""}`);
+      refetchCandidates();
+    } catch (err: any) {
+      toast.error("Failed to score competencies: " + err.message);
+    } finally {
+      setScoringCompetencies(false);
     }
   };
 
@@ -199,10 +215,16 @@ const Recruitment = () => {
               <CardDescription>CVs ingested from Gmail</CardDescription>
             </div>
             {candidates && candidates.length > 0 && (
-              <Button size="sm" onClick={scoreValues} disabled={scoring}>
-                {scoring ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Star className="h-4 w-4 mr-1" />}
-                Score Values
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={scoreValues} disabled={scoring}>
+                  {scoring ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Star className="h-4 w-4 mr-1" />}
+                  Score Values
+                </Button>
+                <Button size="sm" variant="outline" onClick={scoreCompetencies} disabled={scoringCompetencies}>
+                  {scoringCompetencies ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Target className="h-4 w-4 mr-1" />}
+                  Score Competencies
+                </Button>
+              </div>
             )}
           </CardHeader>
           <CardContent>
@@ -216,6 +238,8 @@ const Recruitment = () => {
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Values (Detail)</TableHead>
+                    <TableHead>Competencies (Detail)</TableHead>
+                    <TableHead>Total</TableHead>
                     <TableHead>Date</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -272,6 +296,33 @@ const Recruitment = () => {
                             </div>
                           );
                         })()}
+                      </TableCell>
+                      <TableCell>
+                        {(() => {
+                          const details = c.scoring_details as any;
+                          const comps = details?.competencies;
+                          if (!comps) return <span className="text-muted-foreground">—</span>;
+                          const entries = Object.entries(comps) as [string, any][];
+                          return (
+                            <div className="space-y-0.5">
+                              <div className="flex flex-wrap gap-1">
+                                {entries.map(([name, data]) => (
+                                  <span
+                                    key={name}
+                                    title={`${name}: ${data?.justification || ""}`}
+                                    className={`text-xs px-1 py-0.5 rounded ${data?.score >= 4 ? "bg-primary/20 text-primary" : data?.score >= 3 ? "bg-yellow-500/20 text-yellow-700" : "bg-destructive/20 text-destructive"}`}
+                                  >
+                                    {name.split(" ").map((w: string) => w[0]).join("")} {data?.score}
+                                  </span>
+                                ))}
+                              </div>
+                              <p className="text-xs font-semibold">Avg: {c.competency_score ?? "—"}/5</p>
+                            </div>
+                          );
+                        })()}
+                      </TableCell>
+                      <TableCell className="font-bold text-base">
+                        {c.total_score ?? "—"}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {new Date(c.created_at).toLocaleDateString()}
