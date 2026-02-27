@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Mail, RefreshCw, Users, Briefcase, Loader2, CheckCircle, AlertCircle } from "lucide-react";
+import { Mail, RefreshCw, Users, Briefcase, Loader2, CheckCircle, AlertCircle, Star } from "lucide-react";
 import { toast } from "sonner";
 import { JobRolesManager } from "@/components/recruitment/JobRolesManager";
 
@@ -15,6 +15,7 @@ const Recruitment = () => {
   const { user } = useAuth();
   const [connecting, setConnecting] = useState(false);
   const [fetching, setFetching] = useState(false);
+  const [scoring, setScoring] = useState(false);
 
   // Check Gmail connection status
   const { data: gmailStatus } = useQuery({
@@ -81,6 +82,21 @@ const Recruitment = () => {
       toast.error("Failed to fetch CVs: " + err.message);
     } finally {
       setFetching(false);
+    }
+  };
+
+  const scoreValues = async () => {
+    setScoring(true);
+    try {
+      const res = await supabase.functions.invoke("score-cv-values");
+      if (res.error) throw res.error;
+      const { scored, failed } = res.data;
+      toast.success(`Scored ${scored} candidate(s) on values. ${failed ? `${failed} failed.` : ""}`);
+      refetchCandidates();
+    } catch (err: any) {
+      toast.error("Failed to score candidates: " + err.message);
+    } finally {
+      setScoring(false);
     }
   };
 
@@ -177,9 +193,17 @@ const Recruitment = () => {
 
         {/* Candidates Table */}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Candidates</CardTitle>
-            <CardDescription>CVs ingested from Gmail</CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <div>
+              <CardTitle className="text-base">Candidates</CardTitle>
+              <CardDescription>CVs ingested from Gmail</CardDescription>
+            </div>
+            {candidates && candidates.length > 0 && (
+              <Button size="sm" onClick={scoreValues} disabled={scoring}>
+                {scoring ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Star className="h-4 w-4 mr-1" />}
+                Score Values
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
             {candidates && candidates.length > 0 ? (
