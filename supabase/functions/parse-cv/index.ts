@@ -6,6 +6,17 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// Safe base64 encoding that doesn't blow the stack on large files
+function uint8ToBase64(bytes: Uint8Array): string {
+  const CHUNK = 8192;
+  let result = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    const chunk = bytes.subarray(i, i + CHUNK);
+    result += String.fromCharCode(...chunk);
+  }
+  return btoa(result);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -47,69 +58,41 @@ serve(async (req) => {
       );
     }
 
-    // Convert file to base64 for AI processing
     const arrayBuffer = await fileData.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    const bytes = new Uint8Array(arrayBuffer);
+    const base64 = uint8ToBase64(bytes);
 
-    // Determine MIME type from filename
     const ext = storage_path.split(".").pop()?.toLowerCase();
     let mimeType = "application/pdf";
     if (ext === "docx") mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     else if (ext === "doc") mimeType = "application/msword";
 
-    // For PDFs, use Gemini's vision capabilities to read the document
-    // For non-PDF, we'll extract text first then send to AI
-    const isPdf = ext === "pdf";
-
-    let aiMessages: any[];
-
-    if (isPdf) {
-      // Use multimodal: send PDF as inline_data
-      aiMessages = [
-        {
-          role: "system",
-          content: `You are a CV/resume parser. Extract the candidate's full name and email address from the document. 
+    // Always send as a file attachment — Gemini can handle PDF and DOCX natively
+    const aiMessages = [
+      {
+        role: "system",
+        content: `You are a CV/resume parser. Extract the candidate's full name and email address from the document. 
 If you cannot find an email, return null for email. 
 Always return the result by calling the extract_candidate_info function.`,
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "file",
-              file: {
-                filename: storage_path.split("/").pop() || "cv.pdf",
-                file_data: `data:${mimeType};base64,${base64}`,
-              },
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "file",
+            file: {
+              filename: storage_path.split("/").pop() || "cv.pdf",
+              file_data: `data:${mimeType};base64,${base64}`,
             },
-            {
-              type: "text",
-              text: "Extract the candidate's full name and email address from this CV/resume document.",
-            },
-          ],
-        },
-      ];
-    } else {
-      // For DOC/DOCX, try to extract raw text (limited, but best effort)
-      const textContent = new TextDecoder("utf-8", { fatal: false }).decode(new Uint8Array(arrayBuffer));
-      // Clean up binary noise, keep readable portions
-      const cleanText = textContent.replace(/[^\\x20-\\x7E\\n\\r\\t]/g, " ").replace(/\s{3,}/g, " ").slice(0, 8000);
+          },
+          {
+            type: "text",
+            text: "Extract the candidate's full name and email address from this CV/resume document.",
+          },
+        ],
+      },
+    ];
 
-      aiMessages = [
-        {
-          role: "system",
-          content: `You are a CV/resume parser. Extract the candidate's full name and email address from the text below.
-If you cannot find an email, return null for email.
-Always return the result by calling the extract_candidate_info function.`,
-        },
-        {
-          role: "user",
-          content: `Extract the candidate's full name and email from this CV text:\n\n${cleanText}`,
-        },
-      ];
-    }
-
-    // Call Lovable AI with tool calling for structured output
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -173,7 +156,6 @@ Always return the result by calling the extract_candidate_info function.`,
     const aiData = await aiResponse.json();
     console.log("AI response:", JSON.stringify(aiData));
 
-    // Extract structured result from tool call
     let parsedName: string | null = null;
     let parsedEmail: string | null = null;
 
@@ -195,7 +177,6 @@ Always return the result by calling the extract_candidate_info function.`,
       );
     }
 
-    // Update the candidate record with parsed info
     const updateData: any = { name: parsedName };
     if (parsedEmail) {
       updateData.email = parsedEmail;
