@@ -215,9 +215,7 @@ const Recruitment = () => {
                     <TableHead>Subject</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Competency</TableHead>
-                    <TableHead>Values</TableHead>
-                    <TableHead>Total</TableHead>
+                    <TableHead>Values (Detail)</TableHead>
                     <TableHead>Date</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -241,9 +239,40 @@ const Recruitment = () => {
                           {c.status}
                         </Badge>
                       </TableCell>
-                      <TableCell>{c.competency_score ?? "—"}</TableCell>
-                      <TableCell>{c.values_score ?? "—"}</TableCell>
-                      <TableCell className="font-semibold">{c.total_score ?? "—"}</TableCell>
+                      <TableCell>
+                        {(() => {
+                          const details = c.scoring_details as any;
+                          const vals = details?.values;
+                          if (!vals) return <span className="text-muted-foreground">—</span>;
+                          const valueLabels = [
+                            { key: "sweat_the_detail", emoji: "🔍" },
+                            { key: "integrity_always", emoji: "✨" },
+                            { key: "behaviour_over_attention", emoji: "🧭" },
+                            { key: "progress_is_collective", emoji: "🤝" },
+                            { key: "health_family_happiness", emoji: "❤️" },
+                            { key: "build_for_long_term", emoji: "🚀" },
+                          ];
+                          return (
+                            <div className="space-y-0.5">
+                              <div className="flex flex-wrap gap-1">
+                                {valueLabels.map((v) => {
+                                  const s = vals[v.key]?.score;
+                                  return s != null ? (
+                                    <span
+                                      key={v.key}
+                                      title={`${v.key.replace(/_/g, " ")}: ${vals[v.key]?.justification || ""}`}
+                                      className={`text-xs px-1 py-0.5 rounded ${s >= 4 ? "bg-primary/20 text-primary" : s >= 3 ? "bg-yellow-500/20 text-yellow-700" : "bg-destructive/20 text-destructive"}`}
+                                    >
+                                      {v.emoji}{s}
+                                    </span>
+                                  ) : null;
+                                })}
+                              </div>
+                              <p className="text-xs font-semibold">Avg: {c.values_score ?? "—"}/5</p>
+                            </div>
+                          );
+                        })()}
+                      </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {new Date(c.created_at).toLocaleDateString()}
                       </TableCell>
