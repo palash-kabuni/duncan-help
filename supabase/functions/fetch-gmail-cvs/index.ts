@@ -54,18 +54,24 @@ async function getAccessToken(supabaseAdmin: any): Promise<{ token: string; emai
   return { token: tokenData.access_token, email: tokenData.email_address || "" };
 }
 
-function extractNameFromEmail(fromHeader: string): string {
-  // "John Doe <john@example.com>" → "John Doe"
-  const match = fromHeader.match(/^"?([^"<]+)"?\s*</);
-  if (match) return match[1].trim();
-  // Just an email
-  const emailMatch = fromHeader.match(/<([^>]+)>/);
-  return emailMatch ? emailMatch[1] : fromHeader;
+function candidateNameFromFilename(filename: string): string {
+  // "John_Doe_CV.pdf" → "John Doe CV", "resume-jane-smith.docx" → "resume jane smith"
+  return filename
+    .replace(/\.(pdf|docx?|rtf)$/i, "")
+    .replace(/[_\-\.]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-function extractEmailAddress(fromHeader: string): string {
+function extractSenderEmail(fromHeader: string): string {
   const match = fromHeader.match(/<([^>]+)>/);
   return match ? match[1] : fromHeader.trim();
+}
+
+interface CvAttachment {
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
 }
 
 serve(async (req) => {
@@ -146,18 +152,6 @@ serve(async (req) => {
     const results: any[] = [];
 
     for (const msg of messages) {
-      // Check if we already have this message
-      const { data: existing } = await supabaseAdmin
-        .from("candidates")
-        .select("id")
-        .eq("gmail_message_id", msg.id)
-        .maybeSingle();
-
-      if (existing) {
-        skipped++;
-        continue;
-      }
-
       // Fetch full message
       const msgRes = await fetch(`${GMAIL_API}/messages/${msg.id}?format=full`, { headers });
       if (!msgRes.ok) continue;
@@ -167,75 +161,9 @@ serve(async (req) => {
       const msgHeaders = msgData.payload?.headers || [];
       const subject = msgHeaders.find((h: any) => h.name.toLowerCase() === "subject")?.value || "";
       const from = msgHeaders.find((h: any) => h.name.toLowerCase() === "from")?.value || "";
+      const senderEmail = extractSenderEmail(from);
 
-      const candidateName = extractNameFromEmail(from);
-      const candidateEmail = extractEmailAddress(from);
-
-      // Find attachments (PDF, DOCX, DOC)
-      const parts = msgData.payload?.parts || [];
-      let cvAttachment: any = null;
-
-      for (const part of parts) {
-        const filename = (part.filename || "").toLowerCase();
-        if (
-          part.body?.attachmentId &&
-          (filename.endsWith(".pdf") || filename.endsWith(".docx") || filename.endsWith(".doc"))
-        ) {
-          cvAttachment = { id: part.body.attachmentId, filename: part.filename, mimeType: part.mimeType };
-          break;
-        }
-        // Check nested parts (multipart messages)
-        if (part.parts) {
-          for (const nested of part.parts) {
-            const nestedFilename = (nested.filename || "").toLowerCase();
-            if (
-              nested.body?.attachmentId &&
-              (nestedFilename.endsWith(".pdf") || nestedFilename.endsWith(".docx") || nestedFilename.endsWith(".doc"))
-            ) {
-              cvAttachment = { id: nested.body.attachmentId, filename: nested.filename, mimeType: nested.mimeType };
-              break;
-            }
-          }
-          if (cvAttachment) break;
-        }
-      }
-
-      if (!cvAttachment) {
-        skipped++;
-        continue;
-      }
-
-      // Download attachment
-      const attachRes = await fetch(
-        `${GMAIL_API}/messages/${msg.id}/attachments/${cvAttachment.id}`,
-        { headers }
-      );
-      if (!attachRes.ok) continue;
-      const attachData = await attachRes.json();
-
-      // Decode base64url to binary
-      const base64Data = attachData.data.replace(/-/g, "+").replace(/_/g, "/");
-      const binaryStr = atob(base64Data);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
-
-      // Upload to storage
-      const storagePath = `${Date.now()}_${cvAttachment.filename}`;
-      const { error: uploadError } = await supabaseAdmin.storage
-        .from("cvs")
-        .upload(storagePath, bytes, {
-          contentType: cvAttachment.mimeType || "application/octet-stream",
-          upsert: false,
-        });
-
-      if (uploadError) {
-        console.error("Upload error:", uploadError);
-        continue;
-      }
-
-      // Match job role from subject line using already-fetched active roles
+      // Match job role from subject line
       let matchedRoleId: string | null = null;
       const subjectLower = subject.toLowerCase();
       for (const role of activeRoles) {
@@ -245,28 +173,105 @@ serve(async (req) => {
         }
       }
 
-      // Insert candidate
-      const { data: candidate, error: insertError } = await supabaseAdmin
-        .from("candidates")
-        .insert({
-          name: candidateName,
-          email: candidateEmail,
-          gmail_message_id: msg.id,
-          email_subject: subject,
-          cv_storage_path: storagePath,
-          job_role_id: matchedRoleId,
-          status: matchedRoleId ? "pending" : "unmatched",
-        })
-        .select()
-        .single();
+      // Collect ALL CV attachments from the email (not just the first one)
+      const cvAttachments: CvAttachment[] = [];
+      function collectAttachments(parts: any[]) {
+        for (const part of parts) {
+          const filename = (part.filename || "").toLowerCase();
+          if (
+            part.body?.attachmentId &&
+            (filename.endsWith(".pdf") || filename.endsWith(".docx") || filename.endsWith(".doc"))
+          ) {
+            cvAttachments.push({
+              attachmentId: part.body.attachmentId,
+              filename: part.filename,
+              mimeType: part.mimeType,
+            });
+          }
+          // Recurse into nested parts (multipart messages)
+          if (part.parts) {
+            collectAttachments(part.parts);
+          }
+        }
+      }
+      collectAttachments(msgData.payload?.parts || []);
 
-      if (insertError) {
-        console.error("Insert error:", insertError);
+      if (cvAttachments.length === 0) {
+        skipped++;
         continue;
       }
 
-      results.push(candidate);
-      ingested++;
+      // Process each CV attachment as a separate candidate
+      for (const cv of cvAttachments) {
+        // Dedup by gmail_message_id + filename
+        const { data: existing } = await supabaseAdmin
+          .from("candidates")
+          .select("id")
+          .eq("gmail_message_id", msg.id)
+          .eq("cv_storage_path", cv.filename)
+          .maybeSingle();
+
+        if (existing) {
+          skipped++;
+          continue;
+        }
+
+        // Download attachment
+        const attachRes = await fetch(
+          `${GMAIL_API}/messages/${msg.id}/attachments/${cv.attachmentId}`,
+          { headers }
+        );
+        if (!attachRes.ok) continue;
+        const attachData = await attachRes.json();
+
+        // Decode base64url to binary
+        const base64Data = attachData.data.replace(/-/g, "+").replace(/_/g, "/");
+        const binaryStr = atob(base64Data);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+
+        // Upload to storage
+        const storagePath = `${Date.now()}_${cv.filename}`;
+        const { error: uploadError } = await supabaseAdmin.storage
+          .from("cvs")
+          .upload(storagePath, bytes, {
+            contentType: cv.mimeType || "application/octet-stream",
+            upsert: false,
+          });
+
+        if (uploadError) {
+          console.error("Upload error:", uploadError);
+          continue;
+        }
+
+        // Use filename as candidate name (not sender)
+        const candidateName = candidateNameFromFilename(cv.filename);
+
+        // Insert candidate — one per CV attachment
+        const { data: candidate, error: insertError } = await supabaseAdmin
+          .from("candidates")
+          .insert({
+            name: candidateName,
+            email: senderEmail,
+            gmail_message_id: msg.id,
+            email_subject: subject,
+            cv_storage_path: storagePath,
+            job_role_id: matchedRoleId,
+            status: matchedRoleId ? "pending" : "unmatched",
+          })
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error("Insert error:", insertError);
+          continue;
+        }
+
+        results.push(candidate);
+        ingested++;
+      }
     }
 
     return new Response(
