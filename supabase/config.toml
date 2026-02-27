@@ -56,3 +56,6 @@ verify_jwt = false
 
 [functions.parse-cv]
 verify_jwt = false
+
+[functions.score-cv-values]
+verify_jwt = false
