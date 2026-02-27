@@ -59,3 +59,9 @@ verify_jwt = false
 
 [functions.score-cv-values]
 verify_jwt = false
+
+[functions.parse-jd-competencies]
+verify_jwt = false
+
+[functions.score-cv-competencies]
+verify_jwt = false
