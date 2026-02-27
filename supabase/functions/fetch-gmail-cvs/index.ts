@@ -246,7 +246,7 @@ serve(async (req) => {
           continue;
         }
 
-        // Use filename as candidate name (not sender)
+        // Use filename as temporary candidate name
         const candidateName = candidateNameFromFilename(cv.filename);
 
         // Insert candidate — one per CV attachment
@@ -267,6 +267,38 @@ serve(async (req) => {
         if (insertError) {
           console.error("Insert error:", insertError);
           continue;
+        }
+
+        // Parse CV with AI to extract real candidate name & email
+        try {
+          const parseRes = await fetch(
+            `${supabaseUrl}/functions/v1/parse-cv`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${supabaseServiceKey}`,
+              },
+              body: JSON.stringify({
+                candidate_id: candidate.id,
+                storage_path: storagePath,
+              }),
+            }
+          );
+          if (parseRes.ok) {
+            const parseData = await parseRes.json();
+            if (parseData.parsed_name) {
+              candidate.name = parseData.parsed_name;
+            }
+            if (parseData.parsed_email) {
+              candidate.email = parseData.parsed_email;
+            }
+            console.log(`Parsed CV for ${candidate.id}: name=${parseData.parsed_name}, email=${parseData.parsed_email}`);
+          } else {
+            console.warn(`CV parse returned ${parseRes.status} for candidate ${candidate.id}`);
+          }
+        } catch (parseErr) {
+          console.warn("CV parse failed (non-blocking):", parseErr);
         }
 
         results.push(candidate);
