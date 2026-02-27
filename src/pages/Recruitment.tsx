@@ -7,9 +7,57 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Mail, RefreshCw, Users, Briefcase, Loader2, CheckCircle, AlertCircle, Star, Target } from "lucide-react";
 import { toast } from "sonner";
 import { JobRolesManager } from "@/components/recruitment/JobRolesManager";
+
+const VALUE_LABELS = [
+  { key: "sweat_the_detail", label: "Detail", emoji: "🔍" },
+  { key: "integrity_always", label: "Integrity", emoji: "✨" },
+  { key: "behaviour_over_attention", label: "Behaviour", emoji: "🧭" },
+  { key: "progress_is_collective", label: "Progress", emoji: "🤝" },
+  { key: "health_family_happiness", label: "Health", emoji: "❤️" },
+  { key: "build_for_long_term", label: "Long Term", emoji: "🚀" },
+];
+
+function ScorePill({ score, label, justification }: { score: number; label: string; justification?: string }) {
+  const color = score >= 4 ? "bg-primary/15 text-primary border-primary/20" : score >= 3 ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20" : "bg-destructive/10 text-destructive border-destructive/20";
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded border ${color} cursor-default`}>
+            {label}<span className="font-bold">{score}</span>
+          </span>
+        </TooltipTrigger>
+        {justification && (
+          <TooltipContent side="top" className="max-w-xs text-xs">
+            {justification}
+          </TooltipContent>
+        )}
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function ScoreRing({ score, label }: { score: number | null; label: string }) {
+  if (score == null) return <span className="text-muted-foreground text-xs">—</span>;
+  const pct = (score / 5) * 100;
+  const color = score >= 4 ? "text-primary" : score >= 3 ? "text-yellow-500" : "text-destructive";
+  const stroke = score >= 4 ? "hsl(var(--primary))" : score >= 3 ? "#eab308" : "hsl(var(--destructive))";
+  const r = 18, circ = 2 * Math.PI * r;
+  return (
+    <div className="flex flex-col items-center gap-0.5">
+      <svg width="44" height="44" className="-rotate-90">
+        <circle cx="22" cy="22" r={r} fill="none" stroke="hsl(var(--border))" strokeWidth="3" />
+        <circle cx="22" cy="22" r={r} fill="none" stroke={stroke} strokeWidth="3" strokeDasharray={`${circ * pct / 100} ${circ}`} strokeLinecap="round" />
+      </svg>
+      <span className={`text-sm font-bold ${color} -mt-8`}>{score}</span>
+      <span className="text-[10px] text-muted-foreground mt-3">{label}</span>
+    </div>
+  );
+}
 
 const Recruitment = () => {
   const { user } = useAuth();
@@ -18,7 +66,6 @@ const Recruitment = () => {
   const [scoring, setScoring] = useState(false);
   const [scoringCompetencies, setScoringCompetencies] = useState(false);
 
-  // Check Gmail connection status
   const { data: gmailStatus } = useQuery({
     queryKey: ["gmail-status"],
     queryFn: async () => {
@@ -32,20 +79,18 @@ const Recruitment = () => {
     },
   });
 
-  // Fetch candidates
   const { data: candidates, refetch: refetchCandidates } = useQuery({
     queryKey: ["candidates"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("candidates")
         .select("*")
-        .order("created_at", { ascending: false });
+        .order("total_score", { ascending: false, nullsFirst: false });
       if (error) throw error;
       return data ?? [];
     },
   });
 
-  // Fetch job roles
   const { data: jobRoles } = useQuery({
     queryKey: ["job-roles"],
     queryFn: async () => {
@@ -63,8 +108,7 @@ const Recruitment = () => {
     try {
       const res = await supabase.functions.invoke("gmail-auth");
       if (res.error) throw res.error;
-      const { url } = res.data;
-      window.location.href = url;
+      window.location.href = res.data.url;
     } catch (err: any) {
       toast.error("Failed to start Gmail connection: " + err.message);
       setConnecting(false);
@@ -76,8 +120,7 @@ const Recruitment = () => {
     try {
       const res = await supabase.functions.invoke("fetch-gmail-cvs");
       if (res.error) throw res.error;
-      const { ingested, skipped } = res.data;
-      toast.success(`Fetched ${ingested} new CV(s), ${skipped} skipped.`);
+      toast.success(`Fetched ${res.data.ingested} new CV(s), ${res.data.skipped} skipped.`);
       refetchCandidates();
     } catch (err: any) {
       toast.error("Failed to fetch CVs: " + err.message);
@@ -91,8 +134,7 @@ const Recruitment = () => {
     try {
       const res = await supabase.functions.invoke("score-cv-values");
       if (res.error) throw res.error;
-      const { scored, failed } = res.data;
-      toast.success(`Scored ${scored} candidate(s) on values. ${failed ? `${failed} failed.` : ""}`);
+      toast.success(`Scored ${res.data.scored} candidate(s) on values.${res.data.failed ? ` ${res.data.failed} failed.` : ""}`);
       refetchCandidates();
     } catch (err: any) {
       toast.error("Failed to score candidates: " + err.message);
@@ -106,8 +148,7 @@ const Recruitment = () => {
     try {
       const res = await supabase.functions.invoke("score-cv-competencies");
       if (res.error) throw res.error;
-      const { scored, failed, skipped } = res.data;
-      toast.success(`Scored ${scored} candidate(s) on competencies.${skipped ? ` ${skipped} skipped (no JD).` : ""}${failed ? ` ${failed} failed.` : ""}`);
+      toast.success(`Scored ${res.data.scored} candidate(s) on competencies.${res.data.skipped ? ` ${res.data.skipped} skipped.` : ""}${res.data.failed ? ` ${res.data.failed} failed.` : ""}`);
       refetchCandidates();
     } catch (err: any) {
       toast.error("Failed to score competencies: " + err.message);
@@ -122,217 +163,192 @@ const Recruitment = () => {
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar />
-      <main className="flex-1 ml-64 p-8 space-y-6">
+      <main className="flex-1 ml-64 p-8 space-y-6 max-w-[calc(100vw-16rem)]">
+        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Recruitment</h1>
+            <h1 className="text-2xl font-bold text-foreground tracking-tight">Recruitment</h1>
             <p className="text-sm text-muted-foreground">CV ingestion, job role matching & candidate scoring</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {isGmailConnected ? (
+              <>
+                <Badge variant="outline" className="border-primary/30 text-primary gap-1">
+                  <CheckCircle className="h-3 w-3" /> Gmail Connected
+                </Badge>
+                <Button size="sm" variant="outline" onClick={fetchCVs} disabled={fetching}>
+                  {fetching ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                  Fetch CVs
+                </Button>
+              </>
+            ) : (
+              <Button onClick={connectGmail} disabled={connecting}>
+                {connecting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Mail className="h-4 w-4 mr-1" />}
+                Connect Gmail
+              </Button>
+            )}
           </div>
         </div>
 
-        {/* Gmail Connection Card */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <div>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Mail className="h-4 w-4" />
-                Gmail Connection
-              </CardTitle>
-              <CardDescription>
-                {isGmailConnected
-                  ? `Connected · Last sync: ${gmailStatus?.last_sync ? new Date(gmailStatus.last_sync).toLocaleString() : "Never"}`
-                  : "Connect Gmail to start fetching CVs"}
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-2">
-              {isGmailConnected ? (
-                <>
-                  <Badge variant="outline" className="border-primary/30 text-primary">
-                    <CheckCircle className="h-3 w-3 mr-1" /> Connected
-                  </Badge>
-                  <Button size="sm" onClick={fetchCVs} disabled={fetching}>
-                    {fetching ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-                    Fetch CVs
-                  </Button>
-                </>
-              ) : (
-                <Button onClick={connectGmail} disabled={connecting}>
-                  {connecting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Mail className="h-4 w-4 mr-1" />}
-                  Connect Gmail
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-        </Card>
-
-        {/* Stats */}
+        {/* Stats row */}
         <div className="grid grid-cols-3 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <Users className="h-5 w-5 text-primary" />
-                <div>
-                  <p className="text-2xl font-bold">{candidates?.length ?? 0}</p>
-                  <p className="text-xs text-muted-foreground">Total Candidates</p>
+          {[
+            { icon: Users, label: "Total Candidates", value: candidates?.length ?? 0, color: "text-primary" },
+            { icon: Briefcase, label: "Active Roles", value: jobRoles?.length ?? 0, color: "text-primary" },
+            { icon: AlertCircle, label: "Unmatched CVs", value: candidates?.filter((c: any) => c.status === "unmatched").length ?? 0, color: "text-destructive" },
+          ].map((stat) => (
+            <Card key={stat.label} className="border-border/50">
+              <CardContent className="flex items-center gap-3 py-4 px-5">
+                <div className={`p-2 rounded-lg bg-secondary ${stat.color}`}>
+                  <stat.icon className="h-4 w-4" />
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <Briefcase className="h-5 w-5 text-primary" />
                 <div>
-                  <p className="text-2xl font-bold">{jobRoles?.length ?? 0}</p>
-                  <p className="text-xs text-muted-foreground">Active Roles</p>
+                  <p className="text-2xl font-bold leading-none">{stat.value}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{stat.label}</p>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <AlertCircle className="h-5 w-5 text-destructive" />
-                <div>
-                  <p className="text-2xl font-bold">
-                    {candidates?.filter((c: any) => c.status === "unmatched").length ?? 0}
-                  </p>
-                  <p className="text-xs text-muted-foreground">Unmatched CVs</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          ))}
         </div>
 
         {/* Job Roles */}
         <JobRolesManager />
 
         {/* Candidates Table */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <Card className="border-border/50">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
             <div>
-              <CardTitle className="text-base">Candidates</CardTitle>
-              <CardDescription>CVs ingested from Gmail</CardDescription>
+              <CardTitle className="text-lg font-semibold">Candidates</CardTitle>
+              <CardDescription>Ranked by total score · hover score pills for AI justification</CardDescription>
             </div>
             {candidates && candidates.length > 0 && (
               <div className="flex gap-2">
-                <Button size="sm" onClick={scoreValues} disabled={scoring}>
-                  {scoring ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Star className="h-4 w-4 mr-1" />}
+                <Button size="sm" onClick={scoreValues} disabled={scoring} className="gap-1.5">
+                  {scoring ? <Loader2 className="h-4 w-4 animate-spin" /> : <Star className="h-4 w-4" />}
                   Score Values
                 </Button>
-                <Button size="sm" variant="outline" onClick={scoreCompetencies} disabled={scoringCompetencies}>
-                  {scoringCompetencies ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Target className="h-4 w-4 mr-1" />}
+                <Button size="sm" variant="outline" onClick={scoreCompetencies} disabled={scoringCompetencies} className="gap-1.5">
+                  {scoringCompetencies ? <Loader2 className="h-4 w-4 animate-spin" /> : <Target className="h-4 w-4" />}
                   Score Competencies
                 </Button>
               </div>
             )}
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-0">
             {candidates && candidates.length > 0 ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Subject</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Values (Detail)</TableHead>
-                    <TableHead>Competencies (Detail)</TableHead>
-                    <TableHead>Total</TableHead>
-                    <TableHead>Date</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {candidates.map((c: any) => (
-                    <TableRow key={c.id}>
-                      <TableCell className="font-medium">{c.name}</TableCell>
-                      <TableCell className="text-muted-foreground text-xs">{c.email}</TableCell>
-                      <TableCell className="text-xs max-w-[200px] truncate">{c.email_subject}</TableCell>
-                      <TableCell>
-                        {c.job_role_id ? (
-                          <Badge variant="outline">{roleMap.get(c.job_role_id) || "Unknown"}</Badge>
-                        ) : (
-                          <Badge variant="secondary">Unmatched</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={c.status === "scored" ? "default" : c.status === "unmatched" ? "destructive" : "secondary"}
-                        >
-                          {c.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {(() => {
-                          const details = c.scoring_details as any;
-                          const vals = details?.values;
-                          if (!vals) return <span className="text-muted-foreground">—</span>;
-                          const valueLabels = [
-                            { key: "sweat_the_detail", emoji: "🔍" },
-                            { key: "integrity_always", emoji: "✨" },
-                            { key: "behaviour_over_attention", emoji: "🧭" },
-                            { key: "progress_is_collective", emoji: "🤝" },
-                            { key: "health_family_happiness", emoji: "❤️" },
-                            { key: "build_for_long_term", emoji: "🚀" },
-                          ];
-                          return (
-                            <div className="space-y-0.5">
-                              <div className="flex flex-wrap gap-1">
-                                {valueLabels.map((v) => {
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-border/50 hover:bg-transparent">
+                      <TableHead className="pl-6 w-[180px]">Candidate</TableHead>
+                      <TableHead className="w-[120px]">Role</TableHead>
+                      <TableHead className="w-[90px]">Status</TableHead>
+                      <TableHead>Values Breakdown</TableHead>
+                      <TableHead>Competency Breakdown</TableHead>
+                      <TableHead className="text-center w-[160px]">Scores</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {candidates.map((c: any, idx: number) => {
+                      const details = c.scoring_details as any;
+                      const vals = details?.values;
+                      const comps = details?.competencies;
+                      const compEntries = comps ? (Object.entries(comps) as [string, any][]) : [];
+
+                      return (
+                        <TableRow key={c.id} className="border-border/30 group">
+                          {/* Candidate info */}
+                          <TableCell className="pl-6">
+                            <div className="flex items-center gap-3">
+                              <div className="h-8 w-8 rounded-full bg-secondary flex items-center justify-center text-xs font-bold text-foreground shrink-0">
+                                {c.name?.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-medium text-sm truncate">{c.name}</p>
+                                <p className="text-[11px] text-muted-foreground truncate">{c.email}</p>
+                              </div>
+                            </div>
+                          </TableCell>
+
+                          {/* Role */}
+                          <TableCell>
+                            {c.job_role_id ? (
+                              <Badge variant="outline" className="text-[11px] font-normal">{roleMap.get(c.job_role_id) || "Unknown"}</Badge>
+                            ) : (
+                              <Badge variant="secondary" className="text-[11px]">Unmatched</Badge>
+                            )}
+                          </TableCell>
+
+                          {/* Status */}
+                          <TableCell>
+                            <Badge
+                              variant={c.status === "scored" ? "default" : c.status === "unmatched" ? "destructive" : "secondary"}
+                              className="text-[11px]"
+                            >
+                              {c.status}
+                            </Badge>
+                          </TableCell>
+
+                          {/* Values breakdown */}
+                          <TableCell>
+                            {vals ? (
+                              <div className="flex flex-wrap gap-1 max-w-[280px]">
+                                {VALUE_LABELS.map((v) => {
                                   const s = vals[v.key]?.score;
                                   return s != null ? (
-                                    <span
+                                    <ScorePill
                                       key={v.key}
-                                      title={`${v.key.replace(/_/g, " ")}: ${vals[v.key]?.justification || ""}`}
-                                      className={`text-xs px-1 py-0.5 rounded ${s >= 4 ? "bg-primary/20 text-primary" : s >= 3 ? "bg-yellow-500/20 text-yellow-700" : "bg-destructive/20 text-destructive"}`}
-                                    >
-                                      {v.emoji}{s}
-                                    </span>
+                                      score={s}
+                                      label={v.emoji}
+                                      justification={`${v.label}: ${vals[v.key]?.justification || ""}`}
+                                    />
                                   ) : null;
                                 })}
                               </div>
-                              <p className="text-xs font-semibold">Avg: {c.values_score ?? "—"}/5</p>
-                            </div>
-                          );
-                        })()}
-                      </TableCell>
-                      <TableCell>
-                        {(() => {
-                          const details = c.scoring_details as any;
-                          const comps = details?.competencies;
-                          if (!comps) return <span className="text-muted-foreground">—</span>;
-                          const entries = Object.entries(comps) as [string, any][];
-                          return (
-                            <div className="space-y-0.5">
-                              <div className="flex flex-wrap gap-1">
-                                {entries.map(([name, data]) => (
-                                  <span
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
+                          </TableCell>
+
+                          {/* Competencies breakdown */}
+                          <TableCell>
+                            {compEntries.length > 0 ? (
+                              <div className="flex flex-wrap gap-1 max-w-[280px]">
+                                {compEntries.map(([name, data]) => (
+                                  <ScorePill
                                     key={name}
-                                    title={`${name}: ${data?.justification || ""}`}
-                                    className={`text-xs px-1 py-0.5 rounded ${data?.score >= 4 ? "bg-primary/20 text-primary" : data?.score >= 3 ? "bg-yellow-500/20 text-yellow-700" : "bg-destructive/20 text-destructive"}`}
-                                  >
-                                    {name.split(" ").map((w: string) => w[0]).join("")} {data?.score}
-                                  </span>
+                                    score={data?.score || 0}
+                                    label={name.split(" ").map((w: string) => w[0]).join("")}
+                                    justification={`${name}: ${data?.justification || ""}`}
+                                  />
                                 ))}
                               </div>
-                              <p className="text-xs font-semibold">Avg: {c.competency_score ?? "—"}/5</p>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
+                          </TableCell>
+
+                          {/* Score rings */}
+                          <TableCell>
+                            <div className="flex items-center justify-center gap-3">
+                              <ScoreRing score={c.values_score} label="Values" />
+                              <ScoreRing score={c.competency_score} label="Comp." />
+                              <div className="flex flex-col items-center border-l border-border/50 pl-3">
+                                <span className={`text-xl font-bold ${c.total_score >= 4 ? "text-primary" : c.total_score >= 3 ? "text-yellow-500" : "text-destructive"}`}>
+                                  {c.total_score ?? "—"}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground">Total</span>
+                              </div>
                             </div>
-                          );
-                        })()}
-                      </TableCell>
-                      <TableCell className="font-bold text-base">
-                        {c.total_score ?? "—"}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {new Date(c.created_at).toLocaleDateString()}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
             ) : (
-              <p className="text-sm text-muted-foreground py-8 text-center">
+              <p className="text-sm text-muted-foreground py-12 text-center">
                 No candidates yet. Connect Gmail and fetch CVs to get started.
               </p>
             )}
