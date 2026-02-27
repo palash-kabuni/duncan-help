@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Mail, RefreshCw, Users, Briefcase, Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { JobRolesManager } from "@/components/recruitment/JobRolesManager";
 
 const Recruitment = () => {
   const { user } = useAuth();
@@ -170,6 +171,9 @@ const Recruitment = () => {
             </CardContent>
           </Card>
         </div>
+
+        {/* Job Roles */}
+        <JobRolesManager />
 
         {/* Candidates Table */}
         <Card>
