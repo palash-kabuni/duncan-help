@@ -1,0 +1,1 @@
+ALTER TABLE public.job_roles ADD COLUMN IF NOT EXISTS hireflix_position_id text DEFAULT null;
