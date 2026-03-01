@@ -68,3 +68,6 @@ verify_jwt = false
 
 [functions.hireflix-send-invite]
 verify_jwt = false
+
+[functions.hireflix-sync-interviews]
+verify_jwt = false
