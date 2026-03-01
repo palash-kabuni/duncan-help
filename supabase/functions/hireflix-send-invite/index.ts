@@ -16,8 +16,14 @@ async function fetchHireflixPositions(apiKey: string): Promise<any[]> {
     },
     body: JSON.stringify({ query }),
   });
-  const data = await res.json();
-  return data.data?.positions || [];
+  const rawText = await res.text();
+  console.log("Hireflix raw API response status:", res.status, "body:", rawText);
+  try {
+    const data = JSON.parse(rawText);
+    return data.data?.positions || [];
+  } catch {
+    return [];
+  }
 }
 
 serve(async (req) => {
@@ -90,6 +96,8 @@ serve(async (req) => {
     const unmappedRoles = (roles || []).filter((r: any) => !r.hireflix_position_id);
     if (unmappedRoles.length > 0) {
       const hfPositions = await fetchHireflixPositions(HIREFLIX_API_KEY);
+      console.log("Hireflix positions returned:", JSON.stringify(hfPositions.map((p: any) => ({ id: p.id, name: p.name, status: p.status }))));
+      console.log("Unmapped roles to match:", JSON.stringify(unmappedRoles.map((r: any) => ({ id: r.id, title: r.title }))));
 
       for (const role of unmappedRoles) {
         // Fuzzy match: case-insensitive title contains
