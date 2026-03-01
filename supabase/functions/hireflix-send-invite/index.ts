@@ -7,12 +7,12 @@ const corsHeaders = {
 };
 
 async function fetchHireflixPositions(apiKey: string): Promise<any[]> {
-  const query = `query { positions { id name status } }`;
+  const query = `query { positions { id name } }`;
   const res = await fetch("https://api.hireflix.com/me", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
+      "X-API-KEY": apiKey,
     },
     body: JSON.stringify({ query }),
   });
@@ -148,17 +148,18 @@ serve(async (req) => {
       }
 
       try {
-        const nameParts = (candidate.name || "").trim().split(/\s+/);
-        const firstName = nameParts[0] || "";
-        const lastName = nameParts.slice(1).join(" ") || "";
+        const fullName = (candidate.name || "").trim();
 
         const mutation = `
-          mutation InviteCandidate($positionId: ID!, $firstName: String!, $lastName: String!, $email: String!) {
-            invite(positionId: $positionId, firstName: $firstName, lastName: $lastName, email: $email) {
-              id
-              hash
-              url
-              status
+          mutation {
+            Position(id: "${positionId}") {
+              invite(candidate: { name: "${fullName}", email: "${candidate.email}" }) {
+                id
+                url {
+                  public
+                  short
+                }
+              }
             }
           }
         `;
@@ -167,12 +168,9 @@ serve(async (req) => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${HIREFLIX_API_KEY}`,
+            "X-API-KEY": HIREFLIX_API_KEY,
           },
-          body: JSON.stringify({
-            query: mutation,
-            variables: { positionId, firstName, lastName, email: candidate.email },
-          }),
+          body: JSON.stringify({ query: mutation }),
         });
 
         const gqlData = await gqlResponse.json();
@@ -184,8 +182,8 @@ serve(async (req) => {
           continue;
         }
 
-        const interview = gqlData.data?.invite;
-        const interviewUrl = interview?.url || null;
+        const interview = gqlData.data?.Position?.invite;
+        const interviewUrl = interview?.url?.short || interview?.url?.public || null;
 
         await supabaseAdmin
           .from("candidates")
