@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Mail, RefreshCw, Users, Briefcase, Loader2, CheckCircle, AlertCircle, Star, Target, FileText, Video, ExternalLink } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Mail, RefreshCw, Users, Briefcase, Loader2, CheckCircle, AlertCircle, Star, Target, FileText, Video, ExternalLink, Trophy, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
 import { JobRolesManager } from "@/components/recruitment/JobRolesManager";
 
@@ -20,6 +21,16 @@ const VALUE_LABELS = [
   { key: "progress_is_collective", label: "Progress", emoji: "🤝" },
   { key: "health_family_happiness", label: "Health", emoji: "❤️" },
   { key: "build_for_long_term", label: "Long Term", emoji: "🚀" },
+];
+
+const INTERVIEW_METRICS = [
+  { key: "communication_clarity", label: "Communication", emoji: "🗣️" },
+  { key: "structured_thinking", label: "Structure", emoji: "🧠" },
+  { key: "role_knowledge", label: "Knowledge", emoji: "📚" },
+  { key: "problem_solving", label: "Problem Solving", emoji: "🔧" },
+  { key: "confidence_professionalism", label: "Confidence", emoji: "💼" },
+  { key: "culture_alignment", label: "Culture Fit", emoji: "🤝" },
+  { key: "conciseness_focus", label: "Conciseness", emoji: "🎯" },
 ];
 
 function ScorePill({ score, label, justification }: { score: number; label: string; justification?: string }) {
@@ -35,6 +46,27 @@ function ScorePill({ score, label, justification }: { score: number; label: stri
         {justification && (
           <TooltipContent side="top" className="max-w-xs text-xs">
             {justification}
+          </TooltipContent>
+        )}
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function InterviewScorePill({ score, label, reason, evidence }: { score: number; label: string; reason?: string; evidence?: string }) {
+  const color = score >= 7 ? "bg-primary/15 text-primary border-primary/20" : score >= 5 ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20" : "bg-destructive/10 text-destructive border-destructive/20";
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded border ${color} cursor-default`}>
+            {label}<span className="font-bold">{score}</span>/10
+          </span>
+        </TooltipTrigger>
+        {(reason || evidence) && (
+          <TooltipContent side="top" className="max-w-sm text-xs space-y-1">
+            {reason && <p>{reason}</p>}
+            {evidence && <p className="italic text-muted-foreground">"{evidence}"</p>}
           </TooltipContent>
         )}
       </Tooltip>
@@ -68,6 +100,8 @@ const Recruitment = () => {
   const [scoringCompetencies, setScoringCompetencies] = useState(false);
   const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(new Set());
   const [sendingInvites, setSendingInvites] = useState(false);
+  const [syncingInterviews, setSyncingInterviews] = useState(false);
+  const [interviewDetailCandidate, setInterviewDetailCandidate] = useState<any>(null);
 
   const { data: gmailStatus } = useQuery({
     queryKey: ["gmail-status"],
@@ -214,10 +248,31 @@ const Recruitment = () => {
     }
   };
 
+  const syncInterviews = async () => {
+    setSyncingInterviews(true);
+    try {
+      const res = await supabase.functions.invoke("hireflix-sync-interviews");
+      if (res.error) throw res.error;
+      const d = res.data;
+      toast.success(`Synced ${d.synced} interview(s), scored ${d.scored}.${d.failed ? ` ${d.failed} failed.` : ""}`);
+      refetchCandidates();
+    } catch (err: any) {
+      toast.error("Failed to sync interviews: " + err.message);
+    } finally {
+      setSyncingInterviews(false);
+    }
+  };
+
   const isGmailConnected = gmailStatus?.status === "connected";
   const roleMap = new Map((jobRoles ?? []).map((r: any) => [r.id, r.title]));
 
   const eligibleCount = candidates?.filter((c: any) => c.email && c.hireflix_status !== "invited" && c.hireflix_status !== "completed").length ?? 0;
+
+  // Top 3 candidates by interview score
+  const top3 = (candidates || [])
+    .filter((c: any) => c.interview_final_score != null)
+    .sort((a: any, b: any) => (b.interview_final_score || 0) - (a.interview_final_score || 0))
+    .slice(0, 3);
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -293,6 +348,10 @@ const Recruitment = () => {
                   </Button>
                 </>
               )}
+              <Button size="sm" variant="outline" onClick={syncInterviews} disabled={syncingInterviews} className="gap-1.5">
+                {syncingInterviews ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart3 className="h-4 w-4" />}
+                Sync Interviews
+              </Button>
               {selectedCandidates.size > 0 && (
                 <Button
                   size="sm"
@@ -327,6 +386,7 @@ const Recruitment = () => {
                       <TableHead>Competency Breakdown</TableHead>
                       <TableHead className="text-center w-[160px]">Scores</TableHead>
                       <TableHead className="w-[100px] text-center">Interview</TableHead>
+                      <TableHead className="w-[120px] text-center">Interview Score</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -471,9 +531,42 @@ const Recruitment = () => {
                                 )}
                               </div>
                             ) : c.hireflix_status === "completed" ? (
-                              <Badge variant="outline" className="text-[11px] border-primary/30 text-primary gap-1">
-                                <CheckCircle className="h-3 w-3" /> Done
-                              </Badge>
+                              <div className="flex flex-col items-center gap-1">
+                                <Badge variant="outline" className="text-[11px] border-primary/30 text-primary gap-1">
+                                  <CheckCircle className="h-3 w-3" /> Done
+                                </Badge>
+                                {c.hireflix_interview_url && (
+                                  <a href={c.hireflix_interview_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground hover:text-primary flex items-center gap-0.5">
+                                    <ExternalLink className="h-3 w-3" /> Video
+                                  </a>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
+                          </TableCell>
+
+                          {/* Interview Score */}
+                          <TableCell className="text-center">
+                            {c.interview_final_score != null ? (
+                              <div className="flex flex-col items-center gap-1">
+                                <span className={`text-lg font-bold ${c.interview_final_score >= 7 ? "text-primary" : c.interview_final_score >= 5 ? "text-yellow-500" : "text-destructive"}`}>
+                                  {c.interview_final_score}/10
+                                </span>
+                                {top3.some((t: any) => t.id === c.id) && (
+                                  <Badge className="text-[10px] bg-yellow-500/15 text-yellow-600 border-yellow-500/30 gap-0.5">
+                                    <Trophy className="h-3 w-3" /> Top 3
+                                  </Badge>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-[10px] h-5 px-1.5"
+                                  onClick={() => setInterviewDetailCandidate(c)}
+                                >
+                                  Details
+                                </Button>
+                              </div>
                             ) : (
                               <span className="text-muted-foreground text-xs">—</span>
                             )}
@@ -491,6 +584,111 @@ const Recruitment = () => {
             )}
           </CardContent>
         </Card>
+
+        {/* Top 3 Interview Candidates */}
+        {top3.length > 0 && (
+          <Card className="border-border/50 border-yellow-500/30">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                <Trophy className="h-5 w-5 text-yellow-500" /> Top 3 Interview Candidates
+              </CardTitle>
+              <CardDescription>Highest scoring candidates from video interviews — only these receive shareable video links</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {top3.map((c: any, idx: number) => {
+                  const scores = c.interview_scores as any;
+                  return (
+                    <Card key={c.id} className={`border-border/50 ${idx === 0 ? "ring-2 ring-yellow-500/30" : ""}`}>
+                      <CardContent className="pt-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-lg font-bold ${idx === 0 ? "text-yellow-500" : idx === 1 ? "text-muted-foreground" : "text-orange-400"}`}>
+                              #{idx + 1}
+                            </span>
+                            <div>
+                              <p className="font-medium text-sm">{c.name}</p>
+                              <p className="text-[11px] text-muted-foreground">{c.email}</p>
+                            </div>
+                          </div>
+                          <span className={`text-2xl font-bold ${c.interview_final_score >= 7 ? "text-primary" : c.interview_final_score >= 5 ? "text-yellow-500" : "text-destructive"}`}>
+                            {c.interview_final_score}
+                          </span>
+                        </div>
+                        {scores && (
+                          <div className="flex flex-wrap gap-1">
+                            {INTERVIEW_METRICS.map((m) => {
+                              const s = scores[m.key];
+                              return s ? (
+                                <InterviewScorePill
+                                  key={m.key}
+                                  score={s.score}
+                                  label={m.emoji}
+                                  reason={`${m.label}: ${s.reason}`}
+                                  evidence={s.evidence_quote}
+                                />
+                              ) : null;
+                            })}
+                          </div>
+                        )}
+                        {c.hireflix_interview_url && (
+                          <a
+                            href={c.hireflix_interview_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                          >
+                            <Video className="h-3 w-3" /> Watch Interview
+                          </a>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Interview Score Detail Dialog */}
+        <Dialog open={!!interviewDetailCandidate} onOpenChange={(open) => !open && setInterviewDetailCandidate(null)}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Interview Score — {interviewDetailCandidate?.name}</DialogTitle>
+              <DialogDescription>AI-evaluated video interview performance breakdown</DialogDescription>
+            </DialogHeader>
+            {interviewDetailCandidate?.interview_scores && (
+              <div className="space-y-3">
+                {INTERVIEW_METRICS.map((m) => {
+                  const s = (interviewDetailCandidate.interview_scores as any)?.[m.key];
+                  if (!s) return null;
+                  return (
+                    <div key={m.key} className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{m.emoji} {m.label}</span>
+                        <span className={`text-sm font-bold ${s.score >= 7 ? "text-primary" : s.score >= 5 ? "text-yellow-500" : "text-destructive"}`}>
+                          {s.score}/10
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{s.reason}</p>
+                      {s.evidence_quote && (
+                        <p className="text-xs italic text-muted-foreground/70 border-l-2 border-border pl-2">
+                          "{s.evidence_quote}"
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+                <div className="pt-2 border-t border-border flex items-center justify-between">
+                  <span className="text-sm font-semibold">Final Score</span>
+                  <span className={`text-xl font-bold ${interviewDetailCandidate.interview_final_score >= 7 ? "text-primary" : interviewDetailCandidate.interview_final_score >= 5 ? "text-yellow-500" : "text-destructive"}`}>
+                    {interviewDetailCandidate.interview_final_score}/10
+                  </span>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );

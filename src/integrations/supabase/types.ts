@@ -97,10 +97,15 @@ export type Database = {
           email: string | null
           email_subject: string | null
           gmail_message_id: string | null
+          hireflix_interview_id: string | null
           hireflix_interview_url: string | null
           hireflix_invited_at: string | null
           hireflix_status: string | null
           id: string
+          interview_final_score: number | null
+          interview_scored_at: string | null
+          interview_scores: Json | null
+          interview_transcript: string | null
           job_role_id: string | null
           name: string
           scoring_details: Json | null
@@ -117,10 +122,15 @@ export type Database = {
           email?: string | null
           email_subject?: string | null
           gmail_message_id?: string | null
+          hireflix_interview_id?: string | null
           hireflix_interview_url?: string | null
           hireflix_invited_at?: string | null
           hireflix_status?: string | null
           id?: string
+          interview_final_score?: number | null
+          interview_scored_at?: string | null
+          interview_scores?: Json | null
+          interview_transcript?: string | null
           job_role_id?: string | null
           name: string
           scoring_details?: Json | null
@@ -137,10 +147,15 @@ export type Database = {
           email?: string | null
           email_subject?: string | null
           gmail_message_id?: string | null
+          hireflix_interview_id?: string | null
           hireflix_interview_url?: string | null
           hireflix_invited_at?: string | null
           hireflix_status?: string | null
           id?: string
+          interview_final_score?: number | null
+          interview_scored_at?: string | null
+          interview_scores?: Json | null
+          interview_transcript?: string | null
           job_role_id?: string | null
           name?: string
           scoring_details?: Json | null
