@@ -195,16 +195,11 @@ const Recruitment = () => {
       return;
     }
 
-    // For now, prompt for position ID — in future this can be mapped from job_roles
-    const positionId = prompt("Enter the Hireflix Position ID for this interview:");
-    if (!positionId) return;
-
     setSendingInvites(true);
     try {
       const res = await supabase.functions.invoke("hireflix-send-invite", {
         body: {
           candidate_ids: Array.from(selectedCandidates),
-          position_id: positionId,
         },
       });
       if (res.error) throw res.error;

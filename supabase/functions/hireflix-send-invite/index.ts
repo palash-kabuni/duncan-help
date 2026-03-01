@@ -6,6 +6,20 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+async function fetchHireflixPositions(apiKey: string): Promise<any[]> {
+  const query = `query { positions { id name status } }`;
+  const res = await fetch("https://api.hireflix.com/me", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ query }),
+  });
+  const data = await res.json();
+  return data.data?.positions || [];
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -15,12 +29,11 @@ serve(async (req) => {
     const HIREFLIX_API_KEY = Deno.env.get("HIREFLIX_API_KEY");
 
     if (!HIREFLIX_API_KEY) {
-      return new Response(JSON.stringify({ error: "HIREFLIX_API_KEY not configured. Please add it in project secrets." }), {
+      return new Response(JSON.stringify({ error: "HIREFLIX_API_KEY not configured." }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Auth check
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -41,9 +54,8 @@ serve(async (req) => {
     }
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
-
     const body = await req.json();
-    const { candidate_ids, position_id } = body;
+    const { candidate_ids } = body;
 
     if (!candidate_ids || !Array.isArray(candidate_ids) || candidate_ids.length === 0) {
       return new Response(JSON.stringify({ error: "candidate_ids array is required" }), {
@@ -51,22 +63,50 @@ serve(async (req) => {
       });
     }
 
-    if (!position_id) {
-      return new Response(JSON.stringify({ error: "position_id (Hireflix position ID) is required" }), {
+    // Fetch candidates with their job role info
+    const { data: candidates, error: fetchError } = await supabaseAdmin
+      .from("candidates")
+      .select("id, name, email, hireflix_status, job_role_id")
+      .in("id", candidate_ids);
+
+    if (fetchError || !candidates || candidates.length === 0) {
+      return new Response(JSON.stringify({ error: "No candidates found" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Fetch candidate details
-    const { data: candidates, error: fetchError } = await supabaseAdmin
-      .from("candidates")
-      .select("id, name, email, hireflix_status")
-      .in("id", candidate_ids);
+    // Get unique job_role_ids from selected candidates
+    const roleIds = [...new Set(candidates.map((c: any) => c.job_role_id).filter(Boolean))];
 
-    if (fetchError || !candidates || candidates.length === 0) {
-      return new Response(JSON.stringify({ error: "No candidates found for the given IDs" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Fetch job roles to get hireflix_position_id and title
+    const { data: roles } = await supabaseAdmin
+      .from("job_roles")
+      .select("id, title, hireflix_position_id")
+      .in("id", roleIds);
+
+    const roleMap = new Map((roles || []).map((r: any) => [r.id, r]));
+
+    // Check if any roles are missing hireflix_position_id — auto-match from Hireflix
+    const unmappedRoles = (roles || []).filter((r: any) => !r.hireflix_position_id);
+    if (unmappedRoles.length > 0) {
+      const hfPositions = await fetchHireflixPositions(HIREFLIX_API_KEY);
+
+      for (const role of unmappedRoles) {
+        // Fuzzy match: case-insensitive title contains
+        const match = hfPositions.find((p: any) =>
+          p.name?.toLowerCase().includes(role.title.toLowerCase()) ||
+          role.title.toLowerCase().includes(p.name?.toLowerCase())
+        );
+        if (match) {
+          // Save the mapping for future use
+          await supabaseAdmin
+            .from("job_roles")
+            .update({ hireflix_position_id: match.id })
+            .eq("id", role.id);
+          role.hireflix_position_id = match.id;
+          roleMap.set(role.id, role);
+        }
+      }
     }
 
     let invited = 0;
@@ -75,27 +115,35 @@ serve(async (req) => {
     const results: any[] = [];
 
     for (const candidate of candidates) {
-      // Skip candidates without email
       if (!candidate.email) {
         skipped++;
         results.push({ id: candidate.id, name: candidate.name, status: "skipped", reason: "no email" });
         continue;
       }
 
-      // Skip already invited candidates
       if (candidate.hireflix_status === "invited" || candidate.hireflix_status === "completed") {
         skipped++;
         results.push({ id: candidate.id, name: candidate.name, status: "skipped", reason: `already ${candidate.hireflix_status}` });
         continue;
       }
 
+      const role = roleMap.get(candidate.job_role_id);
+      const positionId = role?.hireflix_position_id;
+
+      if (!positionId) {
+        failed++;
+        const reason = !candidate.job_role_id
+          ? "candidate has no job role assigned"
+          : `no Hireflix position matched for role "${role?.title || "unknown"}"`;
+        results.push({ id: candidate.id, name: candidate.name, status: "failed", reason });
+        continue;
+      }
+
       try {
-        // Split name into first/last
         const nameParts = (candidate.name || "").trim().split(/\s+/);
         const firstName = nameParts[0] || "";
         const lastName = nameParts.slice(1).join(" ") || "";
 
-        // Hireflix GraphQL invite mutation
         const mutation = `
           mutation InviteCandidate($positionId: ID!, $firstName: String!, $lastName: String!, $email: String!) {
             invite(positionId: $positionId, firstName: $firstName, lastName: $lastName, email: $email) {
@@ -115,12 +163,7 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             query: mutation,
-            variables: {
-              positionId: position_id,
-              firstName,
-              lastName,
-              email: candidate.email,
-            },
+            variables: { positionId, firstName, lastName, email: candidate.email },
           }),
         });
 
@@ -136,7 +179,6 @@ serve(async (req) => {
         const interview = gqlData.data?.invite;
         const interviewUrl = interview?.url || null;
 
-        // Update candidate record
         await supabaseAdmin
           .from("candidates")
           .update({

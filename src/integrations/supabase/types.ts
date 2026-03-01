@@ -355,6 +355,7 @@ export type Database = {
           created_at: string
           created_by: string
           description: string | null
+          hireflix_position_id: string | null
           id: string
           jd_storage_path: string | null
           status: string
@@ -367,6 +368,7 @@ export type Database = {
           created_at?: string
           created_by: string
           description?: string | null
+          hireflix_position_id?: string | null
           id?: string
           jd_storage_path?: string | null
           status?: string
@@ -379,6 +381,7 @@ export type Database = {
           created_at?: string
           created_by?: string
           description?: string | null
+          hireflix_position_id?: string | null
           id?: string
           jd_storage_path?: string | null
           status?: string
