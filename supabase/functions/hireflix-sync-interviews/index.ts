@@ -143,14 +143,14 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: authHeader } },
     });
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(
-      authHeader.replace("Bearer ", "")
-    );
-    if (claimsError || !claimsData?.claims) {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      console.error("Auth error:", userError?.message);
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    console.log("Authenticated user:", user.email);
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -161,6 +161,7 @@ serve(async (req) => {
       .eq("hireflix_status", "invited");
 
     if (candErr) throw candErr;
+    console.log("Found invited candidates:", candidates?.length || 0, candidates?.map((c: any) => ({ id: c.id, name: c.name, email: c.email })));
     if (!candidates || candidates.length === 0) {
       return new Response(JSON.stringify({ synced: 0, scored: 0, message: "No invited candidates to sync" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -175,15 +176,21 @@ serve(async (req) => {
       .in("id", roleIds);
 
     const rolePositionMap = new Map((roles || []).map((r: any) => [r.id, r.hireflix_position_id]));
+    console.log("Role-position map:", JSON.stringify(Object.fromEntries(rolePositionMap)));
 
     // Group candidates by position
     const positionCandidates = new Map<string, any[]>();
     for (const c of candidates) {
       const posId = rolePositionMap.get(c.job_role_id);
-      if (!posId) continue;
+      if (!posId) {
+        console.log(`Candidate ${c.name} has no mapped position (role: ${c.job_role_id})`);
+        continue;
+      }
       if (!positionCandidates.has(posId)) positionCandidates.set(posId, []);
       positionCandidates.get(posId)!.push(c);
     }
+
+    console.log("Positions to check:", [...positionCandidates.keys()]);
 
     let synced = 0;
     let scored = 0;
@@ -195,6 +202,8 @@ serve(async (req) => {
       let interviews: any[];
       try {
         interviews = await fetchPositionInterviews(HIREFLIX_API_KEY, positionId);
+        console.log(`Position ${positionId}: found ${interviews.length} interviews`, 
+          interviews.map((i: any) => ({ email: i.candidate?.email, status: i.status })));
       } catch (e) {
         console.error(`Failed to fetch interviews for position ${positionId}:`, e);
         failed += posCandidates.length;
@@ -204,7 +213,7 @@ serve(async (req) => {
       // Match interviews to candidates by email
       for (const candidate of posCandidates) {
         const interview = interviews.find(
-          (i: any) => i.candidate?.email?.toLowerCase() === candidate.email?.toLowerCase() && i.status === "finished"
+          (i: any) => i.candidate?.email?.toLowerCase() === candidate.email?.toLowerCase() && (i.status === "finished" || i.status === "completed")
         );
 
         if (!interview) continue; // not finished yet
