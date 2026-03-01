@@ -65,3 +65,6 @@ verify_jwt = false
 
 [functions.score-cv-competencies]
 verify_jwt = false
+
+[functions.hireflix-send-invite]
+verify_jwt = false

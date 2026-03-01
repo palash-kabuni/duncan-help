@@ -8,7 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Mail, RefreshCw, Users, Briefcase, Loader2, CheckCircle, AlertCircle, Star, Target } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Mail, RefreshCw, Users, Briefcase, Loader2, CheckCircle, AlertCircle, Star, Target, FileText, Video, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { JobRolesManager } from "@/components/recruitment/JobRolesManager";
 
@@ -65,6 +66,8 @@ const Recruitment = () => {
   const [fetching, setFetching] = useState(false);
   const [scoring, setScoring] = useState(false);
   const [scoringCompetencies, setScoringCompetencies] = useState(false);
+  const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(new Set());
+  const [sendingInvites, setSendingInvites] = useState(false);
 
   const { data: gmailStatus } = useQuery({
     queryKey: ["gmail-status"],
@@ -157,8 +160,69 @@ const Recruitment = () => {
     }
   };
 
+  const downloadCV = async (storagePath: string, candidateName: string) => {
+    try {
+      const { data, error } = await supabase.storage.from("cvs").createSignedUrl(storagePath, 60);
+      if (error) throw error;
+      window.open(data.signedUrl, "_blank");
+    } catch (err: any) {
+      toast.error("Failed to open CV: " + err.message);
+    }
+  };
+
+  const toggleCandidate = (id: string) => {
+    setSelectedCandidates((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (!candidates) return;
+    const eligible = candidates.filter((c: any) => c.email && c.hireflix_status !== "invited" && c.hireflix_status !== "completed");
+    if (selectedCandidates.size === eligible.length) {
+      setSelectedCandidates(new Set());
+    } else {
+      setSelectedCandidates(new Set(eligible.map((c: any) => c.id)));
+    }
+  };
+
+  const sendHireflixInvites = async () => {
+    if (selectedCandidates.size === 0) {
+      toast.error("No candidates selected.");
+      return;
+    }
+
+    // For now, prompt for position ID — in future this can be mapped from job_roles
+    const positionId = prompt("Enter the Hireflix Position ID for this interview:");
+    if (!positionId) return;
+
+    setSendingInvites(true);
+    try {
+      const res = await supabase.functions.invoke("hireflix-send-invite", {
+        body: {
+          candidate_ids: Array.from(selectedCandidates),
+          position_id: positionId,
+        },
+      });
+      if (res.error) throw res.error;
+      const d = res.data;
+      toast.success(`Invited ${d.invited} candidate(s).${d.skipped ? ` ${d.skipped} skipped.` : ""}${d.failed ? ` ${d.failed} failed.` : ""}`);
+      setSelectedCandidates(new Set());
+      refetchCandidates();
+    } catch (err: any) {
+      toast.error("Failed to send invites: " + err.message);
+    } finally {
+      setSendingInvites(false);
+    }
+  };
+
   const isGmailConnected = gmailStatus?.status === "connected";
   const roleMap = new Map((jobRoles ?? []).map((r: any) => [r.id, r.title]));
+
+  const eligibleCount = candidates?.filter((c: any) => c.email && c.hireflix_status !== "invited" && c.hireflix_status !== "completed").length ?? 0;
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -221,18 +285,31 @@ const Recruitment = () => {
               <CardTitle className="text-lg font-semibold">Candidates</CardTitle>
               <CardDescription>Ranked by total score · hover score pills for AI justification</CardDescription>
             </div>
-            {candidates && candidates.length > 0 && (
-              <div className="flex gap-2">
-                <Button size="sm" onClick={scoreValues} disabled={scoring} className="gap-1.5">
-                  {scoring ? <Loader2 className="h-4 w-4 animate-spin" /> : <Star className="h-4 w-4" />}
-                  Score Values
+            <div className="flex gap-2 flex-wrap justify-end">
+              {candidates && candidates.length > 0 && (
+                <>
+                  <Button size="sm" onClick={scoreValues} disabled={scoring} className="gap-1.5">
+                    {scoring ? <Loader2 className="h-4 w-4 animate-spin" /> : <Star className="h-4 w-4" />}
+                    Score Values
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={scoreCompetencies} disabled={scoringCompetencies} className="gap-1.5">
+                    {scoringCompetencies ? <Loader2 className="h-4 w-4 animate-spin" /> : <Target className="h-4 w-4" />}
+                    Score Competencies
+                  </Button>
+                </>
+              )}
+              {selectedCandidates.size > 0 && (
+                <Button
+                  size="sm"
+                  onClick={sendHireflixInvites}
+                  disabled={sendingInvites}
+                  className="gap-1.5 bg-primary"
+                >
+                  {sendingInvites ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}
+                  Send Hireflix Invite ({selectedCandidates.size})
                 </Button>
-                <Button size="sm" variant="outline" onClick={scoreCompetencies} disabled={scoringCompetencies} className="gap-1.5">
-                  {scoringCompetencies ? <Loader2 className="h-4 w-4 animate-spin" /> : <Target className="h-4 w-4" />}
-                  Score Competencies
-                </Button>
-              </div>
-            )}
+              )}
+            </div>
           </CardHeader>
           <CardContent className="px-0">
             {candidates && candidates.length > 0 ? (
@@ -240,25 +317,45 @@ const Recruitment = () => {
                 <Table>
                   <TableHeader>
                     <TableRow className="border-border/50 hover:bg-transparent">
-                      <TableHead className="pl-6 w-[180px]">Candidate</TableHead>
+                      <TableHead className="pl-6 w-[50px]">
+                        <Checkbox
+                          checked={selectedCandidates.size > 0 && selectedCandidates.size === eligibleCount}
+                          onCheckedChange={toggleAll}
+                          aria-label="Select all candidates"
+                        />
+                      </TableHead>
+                      <TableHead className="w-[180px]">Candidate</TableHead>
                       <TableHead className="w-[120px]">Role</TableHead>
                       <TableHead className="w-[90px]">Status</TableHead>
+                      <TableHead className="w-[60px] text-center">CV</TableHead>
                       <TableHead>Values Breakdown</TableHead>
                       <TableHead>Competency Breakdown</TableHead>
                       <TableHead className="text-center w-[160px]">Scores</TableHead>
+                      <TableHead className="w-[100px] text-center">Interview</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {candidates.map((c: any, idx: number) => {
+                    {candidates.map((c: any) => {
                       const details = c.scoring_details as any;
                       const vals = details?.values;
                       const comps = details?.competencies;
                       const compEntries = comps ? (Object.entries(comps) as [string, any][]) : [];
+                      const isEligible = c.email && c.hireflix_status !== "invited" && c.hireflix_status !== "completed";
 
                       return (
                         <TableRow key={c.id} className="border-border/30 group">
-                          {/* Candidate info */}
+                          {/* Checkbox */}
                           <TableCell className="pl-6">
+                            <Checkbox
+                              checked={selectedCandidates.has(c.id)}
+                              onCheckedChange={() => toggleCandidate(c.id)}
+                              disabled={!isEligible}
+                              aria-label={`Select ${c.name}`}
+                            />
+                          </TableCell>
+
+                          {/* Candidate info */}
+                          <TableCell>
                             <div className="flex items-center gap-3">
                               <div className="h-8 w-8 rounded-full bg-secondary flex items-center justify-center text-xs font-bold text-foreground shrink-0">
                                 {c.name?.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()}
@@ -287,6 +384,29 @@ const Recruitment = () => {
                             >
                               {c.status}
                             </Badge>
+                          </TableCell>
+
+                          {/* CV Download */}
+                          <TableCell className="text-center">
+                            {c.cv_storage_path ? (
+                              <TooltipProvider delayDuration={200}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      onClick={() => downloadCV(c.cv_storage_path, c.name)}
+                                    >
+                                      <FileText className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>View CV</TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
                           </TableCell>
 
                           {/* Values breakdown */}
@@ -340,6 +460,28 @@ const Recruitment = () => {
                                 <span className="text-[10px] text-muted-foreground">Total</span>
                               </div>
                             </div>
+                          </TableCell>
+
+                          {/* Hireflix status */}
+                          <TableCell className="text-center">
+                            {c.hireflix_status === "invited" ? (
+                              <div className="flex flex-col items-center gap-1">
+                                <Badge variant="outline" className="text-[11px] border-primary/30 text-primary gap-1">
+                                  <Video className="h-3 w-3" /> Invited
+                                </Badge>
+                                {c.hireflix_interview_url && (
+                                  <a href={c.hireflix_interview_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground hover:text-primary flex items-center gap-0.5">
+                                    <ExternalLink className="h-3 w-3" /> Link
+                                  </a>
+                                )}
+                              </div>
+                            ) : c.hireflix_status === "completed" ? (
+                              <Badge variant="outline" className="text-[11px] border-primary/30 text-primary gap-1">
+                                <CheckCircle className="h-3 w-3" /> Done
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
                           </TableCell>
                         </TableRow>
                       );
