@@ -23,7 +23,7 @@ async function hireflixQuery(apiKey: string, query: string, variables?: Record<s
 async function fetchPositionInterviews(apiKey: string, positionId: string) {
   const query = `
     query {
-      Position(id: "${positionId}") {
+      position(id: "${positionId}") {
         interviews {
           id
           status
@@ -44,7 +44,7 @@ async function fetchPositionInterviews(apiKey: string, positionId: string) {
     }
   `;
   const data = await hireflixQuery(apiKey, query);
-  return data?.Position?.interviews || [];
+  return data?.position?.interviews || [];
 }
 
 // Score transcript using Lovable AI
