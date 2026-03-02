@@ -35,7 +35,10 @@ async function getAccessToken(supabaseAdmin: any): Promise<{ token: string; emai
       }),
     });
 
-    if (!refreshRes.ok) return null;
+    if (!refreshRes.ok) {
+      console.error("Gmail token refresh failed:", await refreshRes.text());
+      return null;
+    }
 
     const newTokens = await refreshRes.json();
     const newExpiry = new Date(Date.now() + newTokens.expires_in * 1000);
