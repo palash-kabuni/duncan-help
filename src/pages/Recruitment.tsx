@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Mail, RefreshCw, Users, Briefcase, Loader2, CheckCircle, AlertCircle, Star, Target, FileText, Video, ExternalLink, Trophy, BarChart3 } from "lucide-react";
 import { toast } from "sonner";
 import { JobRolesManager } from "@/components/recruitment/JobRolesManager";
@@ -102,6 +103,8 @@ const Recruitment = () => {
   const [sendingInvites, setSendingInvites] = useState(false);
   const [syncingInterviews, setSyncingInterviews] = useState(false);
   const [interviewDetailCandidate, setInterviewDetailCandidate] = useState<any>(null);
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
+  const [hasFetched, setHasFetched] = useState(false);
 
   const { data: gmailStatus } = useQuery({
     queryKey: ["gmail-status"],
@@ -117,15 +120,18 @@ const Recruitment = () => {
   });
 
   const { data: candidates, refetch: refetchCandidates } = useQuery({
-    queryKey: ["candidates"],
+    queryKey: ["candidates", selectedRoleId],
     queryFn: async () => {
+      if (!selectedRoleId || !hasFetched) return [];
       const { data, error } = await supabase
         .from("candidates")
         .select("*")
+        .eq("job_role_id", selectedRoleId)
         .order("total_score", { ascending: false, nullsFirst: false });
       if (error) throw error;
       return data ?? [];
     },
+    enabled: !!selectedRoleId && hasFetched,
   });
 
   const { data: jobRoles } = useQuery({
@@ -153,17 +159,30 @@ const Recruitment = () => {
   };
 
   const fetchCVs = async () => {
+    if (!selectedRoleId) {
+      toast.error("Select a role first.");
+      return;
+    }
     setFetching(true);
     try {
-      const res = await supabase.functions.invoke("fetch-gmail-cvs");
+      const res = await supabase.functions.invoke("fetch-gmail-cvs", {
+        body: { role_id: selectedRoleId },
+      });
       if (res.error) throw res.error;
       toast.success(`Fetched ${res.data.ingested} new CV(s), ${res.data.skipped} skipped.`);
+      setHasFetched(true);
       refetchCandidates();
     } catch (err: any) {
       toast.error("Failed to fetch CVs: " + err.message);
     } finally {
       setFetching(false);
     }
+  };
+
+  const handleRoleChange = (roleId: string) => {
+    setSelectedRoleId(roleId);
+    setHasFetched(false);
+    setSelectedCandidates(new Set());
   };
 
   const scoreValues = async () => {
@@ -290,7 +309,17 @@ const Recruitment = () => {
                 <Badge variant="outline" className="border-primary/30 text-primary gap-1">
                   <CheckCircle className="h-3 w-3" /> Gmail Connected
                 </Badge>
-                <Button size="sm" variant="outline" onClick={fetchCVs} disabled={fetching}>
+                <Select value={selectedRoleId || ""} onValueChange={handleRoleChange}>
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue placeholder="Select a role…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(jobRoles ?? []).filter((r: any) => r.status === "active").map((r: any) => (
+                      <SelectItem key={r.id} value={r.id}>{r.title}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button size="sm" variant="outline" onClick={fetchCVs} disabled={fetching || !selectedRoleId}>
                   {fetching ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
                   Fetch CVs
                 </Button>
@@ -579,7 +608,11 @@ const Recruitment = () => {
               </div>
             ) : (
               <p className="text-sm text-muted-foreground py-12 text-center">
-                No candidates yet. Connect Gmail and fetch CVs to get started.
+                {!selectedRoleId
+                  ? "Select a role above, then click Fetch CVs to load candidates."
+                  : !hasFetched
+                    ? "Click Fetch CVs to load candidates for the selected role."
+                    : "No candidates found for this role."}
               </p>
             )}
           </CardContent>

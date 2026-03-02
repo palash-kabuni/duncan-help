@@ -117,11 +117,26 @@ serve(async (req) => {
 
     const headers = { Authorization: `Bearer ${credentials.token}` };
 
+    // Parse optional role_id from request body
+    let filterRoleId: string | null = null;
+    try {
+      const body = await req.json();
+      filterRoleId = body?.role_id || null;
+    } catch {
+      // no body — fetch all roles
+    }
+
     // Fetch active job roles to build subject-based search
-    const { data: activeRoles } = await supabaseAdmin
+    let roleQuery = supabaseAdmin
       .from("job_roles")
       .select("id, title")
       .eq("status", "active");
+
+    if (filterRoleId) {
+      roleQuery = roleQuery.eq("id", filterRoleId);
+    }
+
+    const { data: activeRoles } = await roleQuery;
 
     if (!activeRoles || activeRoles.length === 0) {
       return new Response(
