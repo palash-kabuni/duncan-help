@@ -57,6 +57,21 @@ const integrations: Integration[] = [
     ],
   },
   {
+    id: "gmail",
+    name: "Gmail (Recruitment)",
+    description: "Company-wide Gmail connection for CV ingestion. Duncan scans incoming emails for CV attachments matching active job roles.",
+    icon: Mail,
+    category: "Recruitment",
+    services: ["CV Ingestion", "Email Parsing", "Attachment Download"],
+    type: "company",
+    setupSteps: [
+      "Uses the same Google Cloud project as other Google integrations",
+      "Ensure the Gmail API is enabled",
+      "An admin connects via OAuth to authorize read-only access",
+      "Duncan will then scan for CV attachments based on job role titles",
+    ],
+  },
+  {
     id: "notion",
     name: "Notion",
     description: "Company-wide Notion workspace. Duncan indexes and reasons over shared databases, pages, and wikis.",
@@ -188,6 +203,7 @@ const Integrations = () => {
   const { isConnected: isCalendarConnected, checkConnection: checkCalendarConnection } = useGoogleCalendar();
   const { isConnected: isDriveConnected, checkConnection: checkDriveConnection } = useGoogleDrive();
   const [isBasecampConnected, setIsBasecampConnected] = useState<boolean | null>(null);
+  const [isGmailConnected, setIsGmailConnected] = useState<boolean | null>(null);
 
   const checkBasecampConnection = async () => {
     try {
@@ -196,6 +212,16 @@ const Integrations = () => {
       setIsBasecampConnected(data && data.length > 0);
     } catch {
       setIsBasecampConnected(false);
+    }
+  };
+
+  const checkGmailConnection = async () => {
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      const { data } = await supabase.from("company_integrations").select("status").eq("integration_id", "gmail").maybeSingle();
+      setIsGmailConnected(data?.status === "connected");
+    } catch {
+      setIsGmailConnected(false);
     }
   };
 
@@ -215,6 +241,20 @@ const Integrations = () => {
     } else if (success === "basecamp") {
       toast.success("Basecamp connected successfully!");
       checkBasecampConnection();
+      setSearchParams({});
+    } else if (searchParams.get("gmail_connected") === "true") {
+      toast.success("Gmail connected successfully!");
+      checkGmailConnection();
+      setSearchParams({});
+    } else if (searchParams.get("gmail_error")) {
+      const gmailError = searchParams.get("gmail_error");
+      const errorMessages: Record<string, string> = {
+        no_code: "Gmail OAuth flow was cancelled",
+        token_exchange_failed: "Failed to exchange Gmail authorization code",
+        storage_failed: "Failed to save Gmail credentials",
+        unknown: "An unexpected Gmail error occurred",
+      };
+      toast.error(errorMessages[gmailError || "unknown"] || `Gmail connection failed: ${gmailError}`);
       setSearchParams({});
     } else if (error) {
       const errorMessages: Record<string, string> = {
@@ -237,6 +277,7 @@ const Integrations = () => {
     checkCalendarConnection();
     checkDriveConnection();
     checkBasecampConnection();
+    checkGmailConnection();
   }, [checkCalendarConnection, checkDriveConnection]);
 
   const isLoading = userLoading || companyLoading;
@@ -393,6 +434,7 @@ const Integrations = () => {
               isCalendarConnected={isCalendarConnected}
               isDriveConnected={isDriveConnected}
               isBasecampConnected={isBasecampConnected}
+              isGmailConnected={isGmailConnected}
               onClose={() => setSelectedIntegration(null)}
             />
           )}
@@ -410,6 +452,7 @@ const IntegrationDetail = ({
   isCalendarConnected,
   isDriveConnected,
   isBasecampConnected,
+  isGmailConnected,
   onClose,
 }: {
   integration: Integration;
@@ -419,13 +462,15 @@ const IntegrationDetail = ({
   isCalendarConnected: boolean | null;
   isDriveConnected: boolean | null;
   isBasecampConnected: boolean | null;
+  isGmailConnected: boolean | null;
   onClose: () => void;
 }) => {
   const isGoogleCalendar = integration.id === "google-calendar";
   const isGoogleDrive = integration.id === "google-drive";
   const isBasecamp = integration.id === "basecamp";
+  const isGmail = integration.id === "gmail";
   const isGoogleOAuth = isGoogleCalendar || isGoogleDrive;
-  const isOAuthFlow = isGoogleOAuth || isBasecamp;
+  const isOAuthFlow = isGoogleOAuth || isBasecamp || isGmail;
   
   // Determine status based on integration type
   let status: IntegrationStatus;
@@ -435,6 +480,8 @@ const IntegrationDetail = ({
     status = isDriveConnected ? "connected" : "disconnected";
   } else if (isBasecamp) {
     status = isBasecampConnected ? "connected" : "disconnected";
+  } else if (isGmail) {
+    status = isGmailConnected ? "connected" : "disconnected";
   } else {
     status = getStatus(integration, userIntegrations, companyIntegrations);
   }
@@ -455,6 +502,7 @@ const IntegrationDetail = ({
   const { initiateOAuth: initiateCalendarOAuth, disconnect: disconnectCalendar, isLoading: calendarLoading } = useGoogleCalendar();
   const { initiateOAuth: initiateDriveOAuth, disconnect: disconnectDrive, isLoading: driveLoading } = useGoogleDrive();
   const [basecampLoading, setBasecampLoading] = useState(false);
+  const [gmailLoading, setGmailLoading] = useState(false);
 
   const handleConnect = async () => {
     if (!apiKey.trim()) {
@@ -517,14 +565,26 @@ const IntegrationDetail = ({
           throw new Error("No auth URL returned");
         }
         setBasecampLoading(false);
+      } else if (isGmail) {
+        setGmailLoading(true);
+        const { supabase } = await import("@/integrations/supabase/client");
+        const { data, error } = await supabase.functions.invoke("gmail-auth");
+        if (error) throw error;
+        if (data?.url) {
+          window.location.href = data.url;
+        } else {
+          throw new Error("No auth URL returned");
+        }
+        setGmailLoading(false);
       }
     } catch (err: any) {
       setBasecampLoading(false);
+      setGmailLoading(false);
       toast.error(err.message || "Failed to start OAuth flow");
     }
   };
 
-  const googleOAuthLoading = isGoogleCalendar ? calendarLoading : (isBasecamp ? basecampLoading : driveLoading);
+  const googleOAuthLoading = isGoogleCalendar ? calendarLoading : (isBasecamp ? basecampLoading : (isGmail ? gmailLoading : driveLoading));
   const isPending = isOAuthFlow ? googleOAuthLoading : (isCompany ? companyMutation.isPending : (connectMutation.isPending || disconnectMutation.isPending));
   const canEdit = !isCompany || isAdmin;
 
@@ -639,6 +699,8 @@ const IntegrationDetail = ({
                     <p className="text-sm text-foreground">
                       {isBasecamp 
                         ? "Click below to authorize Duncan to access your Basecamp projects, to-dos, and messages."
+                        : isGmail
+                        ? "Click below to sign in with Google and grant Duncan read-only access to your Gmail for CV ingestion."
                         : `Click below to sign in with Google and grant Duncan access to your ${isGoogleCalendar ? "calendar" : "Drive files"}.`}
                     </p>
                     <p className="text-xs text-muted-foreground">
@@ -646,6 +708,8 @@ const IntegrationDetail = ({
                          ? "Duncan will be able to read your events and create/update/delete events on your behalf."
                         : isGoogleDrive 
                          ? "Duncan will be able to search and read documents across your shared Drive."
+                         : isGmail
+                         ? "Duncan will scan emails for CV attachments matching active job role titles in the subject line."
                          : "Duncan will be able to read projects, to-dos, messages, and schedules from your Basecamp account."}
                     </p>
                     {isGoogleDrive && (
@@ -670,7 +734,7 @@ const IntegrationDetail = ({
                     ) : (
                       <>
                         <ExternalLink className="h-4 w-4" />
-                        {isBasecamp ? "Connect with Basecamp" : "Sign in with Google"}
+                        {isBasecamp ? "Connect with Basecamp" : isGmail ? "Connect Gmail" : "Sign in with Google"}
                       </>
                     )}
                   </button>
