@@ -205,7 +205,6 @@ export function JobRolesManager() {
             <TableHeader>
               <TableRow>
                 <TableHead>Title</TableHead>
-                <TableHead>Description</TableHead>
                 <TableHead>Competencies</TableHead>
                 <TableHead>JD</TableHead>
                 <TableHead>Status</TableHead>
@@ -219,9 +218,6 @@ export function JobRolesManager() {
                 return (
                   <TableRow key={role.id}>
                     <TableCell className="font-medium">{role.title}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
-                      {role.description || "—"}
-                    </TableCell>
                     <TableCell>
                       {competencies.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
