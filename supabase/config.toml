@@ -71,6 +71,3 @@ verify_jwt = false
 
 [functions.hireflix-sync-interviews]
 verify_jwt = false
-
-[functions.azure-blob-api]
-verify_jwt = false
