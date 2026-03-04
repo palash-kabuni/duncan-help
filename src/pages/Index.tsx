@@ -10,15 +10,15 @@ import WelcomeModal from "@/components/WelcomeModal";
 import { useUserIntegrations } from "@/hooks/useUserIntegrations";
 
 const integrationMeta: Record<string, { icon: any; name: string; description: string }> = {
-  "google-workspace": { icon: Mail, name: "Google Workspace", description: "Gmail, Drive, Calendar" },
+  "google-workspace": { icon: Mail, name: "Google Workspace", description: "Gmail, Calendar" },
   "notion": { icon: FileText, name: "Notion", description: "Databases & pages" },
   "slack": { icon: MessageSquare, name: "Slack", description: "Channels & messages" },
   "linear": { icon: Zap, name: "Linear", description: "Issues & projects" },
   "google-calendar": { icon: Calendar, name: "Google Calendar", description: "Events & scheduling" },
-  "google-drive": { icon: FolderOpen, name: "Google Drive", description: "Documents & files" },
+  "azure-blob": { icon: FolderOpen, name: "Azure Blob Storage", description: "Documents & files" },
 };
 
-const allIntegrationIds = ["google-workspace", "notion", "slack", "linear", "google-calendar", "google-drive"];
+const allIntegrationIds = ["google-workspace", "notion", "slack", "linear", "google-calendar", "azure-blob"];
 
 const getGreeting = () => {
   const hour = new Date().getHours();

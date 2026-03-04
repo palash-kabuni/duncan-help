@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useGoogleCalendar } from "@/hooks/useGoogleCalendar";
-import { useGoogleDrive } from "@/hooks/useGoogleDrive";
+import { useAzureBlobStorage } from "@/hooks/useAzureBlobStorage";
 import BasecampBrowser from "@/components/BasecampBrowser";
 import {
   useUserIntegrations,
@@ -44,10 +44,10 @@ const integrations: Integration[] = [
   {
     id: "google-workspace",
     name: "Google Workspace",
-    description: "Connect Gmail, Google Drive, Calendar, and Docs for full workspace intelligence.",
+    description: "Connect Gmail, Calendar, and Docs for workspace intelligence.",
     icon: Mail,
     category: "Productivity",
-    services: ["Gmail", "Google Drive", "Google Calendar", "Google Docs"],
+    services: ["Gmail", "Google Calendar", "Google Docs"],
     type: "user",
     setupSteps: [
       "Create a Google Cloud project and enable the required APIs (Gmail, Drive, Calendar, Docs)",
@@ -130,18 +130,18 @@ const integrations: Integration[] = [
     ],
   },
   {
-    id: "google-drive",
-    name: "Google Drive",
-    description: "Company-wide document access. Duncan can search and read files across your shared Drive to answer questions based on your docs.",
+    id: "azure-blob",
+    name: "Azure Blob Storage",
+    description: "Company-wide document storage. Duncan can search and read files across your Azure Blob Storage to answer questions based on your docs.",
     icon: FolderOpen,
     category: "Knowledge",
-    services: ["Documents", "Spreadsheets", "Presentations", "Folders"],
+    services: ["Documents", "NDAs", "Templates", "File Storage"],
     type: "company",
     setupSteps: [
-      "Admin connects using the same Google Cloud project as Calendar",
-      "Enable the Drive API in your Google Cloud project",
-      "Add the Drive callback URL to your OAuth client",
-      "Duncan can then search and read all accessible files",
+      "Azure Blob Storage connection string is configured as a backend secret",
+      "The storage container 'duncanstorage01' is used for all documents",
+      "Documents are organized in folders: documents/, ndas/, templates/",
+      "Duncan can search, list, and read file contents automatically",
     ],
   },
   {
@@ -201,9 +201,18 @@ const Integrations = () => {
   const { data: companyIntegrations = [], isLoading: companyLoading } = useCompanyIntegrations();
   const { isAdmin } = useIsAdmin();
   const { isConnected: isCalendarConnected, checkConnection: checkCalendarConnection } = useGoogleCalendar();
-  const { isConnected: isDriveConnected, checkConnection: checkDriveConnection } = useGoogleDrive();
+  const [isAzureBlobConnected, setIsAzureBlobConnected] = useState<boolean | null>(null);
   const [isBasecampConnected, setIsBasecampConnected] = useState<boolean | null>(null);
   const [isGmailConnected, setIsGmailConnected] = useState<boolean | null>(null);
+  const checkAzureBlobConnection = async () => {
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      const { data } = await supabase.from("company_integrations").select("status").eq("integration_id", "azure-blob").maybeSingle();
+      setIsAzureBlobConnected(data?.status === "connected");
+    } catch {
+      setIsAzureBlobConnected(false);
+    }
+  };
 
   const checkBasecampConnection = async () => {
     try {
@@ -234,9 +243,9 @@ const Integrations = () => {
       toast.success("Google Calendar connected successfully!");
       checkCalendarConnection();
       setSearchParams({});
-    } else if (success === "google_drive") {
-      toast.success("Google Drive connected successfully!");
-      checkDriveConnection();
+    } else if (success === "azure_blob") {
+      toast.success("Azure Blob Storage connected successfully!");
+      checkAzureBlobConnection();
       setSearchParams({});
     } else if (success === "basecamp") {
       toast.success("Basecamp connected successfully!");
@@ -270,15 +279,15 @@ const Integrations = () => {
       toast.error(errorMessages[error] || `Connection failed: ${error}`);
       setSearchParams({});
     }
-  }, [searchParams, setSearchParams, checkCalendarConnection, checkDriveConnection]);
+  }, [searchParams, setSearchParams, checkCalendarConnection]);
 
   // Check OAuth connections on mount
   useEffect(() => {
     checkCalendarConnection();
-    checkDriveConnection();
+    checkAzureBlobConnection();
     checkBasecampConnection();
     checkGmailConnection();
-  }, [checkCalendarConnection, checkDriveConnection]);
+  }, [checkCalendarConnection]);
 
   const isLoading = userLoading || companyLoading;
 
@@ -432,7 +441,7 @@ const Integrations = () => {
               companyIntegrations={companyIntegrations}
               isAdmin={isAdmin}
               isCalendarConnected={isCalendarConnected}
-              isDriveConnected={isDriveConnected}
+              isAzureBlobConnected={isAzureBlobConnected}
               isBasecampConnected={isBasecampConnected}
               isGmailConnected={isGmailConnected}
               onClose={() => setSelectedIntegration(null)}
@@ -450,7 +459,7 @@ const IntegrationDetail = ({
   companyIntegrations,
   isAdmin,
   isCalendarConnected,
-  isDriveConnected,
+  isAzureBlobConnected,
   isBasecampConnected,
   isGmailConnected,
   onClose,
@@ -460,24 +469,24 @@ const IntegrationDetail = ({
   companyIntegrations: CompanyIntegration[];
   isAdmin: boolean;
   isCalendarConnected: boolean | null;
-  isDriveConnected: boolean | null;
+  isAzureBlobConnected: boolean | null;
   isBasecampConnected: boolean | null;
   isGmailConnected: boolean | null;
   onClose: () => void;
 }) => {
   const isGoogleCalendar = integration.id === "google-calendar";
-  const isGoogleDrive = integration.id === "google-drive";
+  const isAzureBlob = integration.id === "azure-blob";
   const isBasecamp = integration.id === "basecamp";
   const isGmail = integration.id === "gmail";
-  const isGoogleOAuth = isGoogleCalendar || isGoogleDrive;
+  const isGoogleOAuth = isGoogleCalendar;
   const isOAuthFlow = isGoogleOAuth || isBasecamp || isGmail;
   
   // Determine status based on integration type
   let status: IntegrationStatus;
   if (isGoogleCalendar) {
     status = isCalendarConnected ? "connected" : "disconnected";
-  } else if (isGoogleDrive) {
-    status = isDriveConnected ? "connected" : "disconnected";
+  } else if (isAzureBlob) {
+    status = isAzureBlobConnected ? "connected" : "disconnected";
   } else if (isBasecamp) {
     status = isBasecampConnected ? "connected" : "disconnected";
   } else if (isGmail) {
@@ -500,7 +509,6 @@ const IntegrationDetail = ({
   
   // Google OAuth hooks
   const { initiateOAuth: initiateCalendarOAuth, disconnect: disconnectCalendar, isLoading: calendarLoading } = useGoogleCalendar();
-  const { initiateOAuth: initiateDriveOAuth, disconnect: disconnectDrive, isLoading: driveLoading } = useGoogleDrive();
   const [basecampLoading, setBasecampLoading] = useState(false);
   const [gmailLoading, setGmailLoading] = useState(false);
 
@@ -530,12 +538,6 @@ const IntegrationDetail = ({
         onClose();
         return;
       }
-      if (isGoogleDrive) {
-        await disconnectDrive();
-        toast.success("Google Drive disconnected");
-        onClose();
-        return;
-      }
       if (isCompany) {
         await companyMutation.mutateAsync({ integrationId: integration.id, action: "disconnect" });
       } else {
@@ -552,8 +554,6 @@ const IntegrationDetail = ({
     try {
       if (isGoogleCalendar) {
         await initiateCalendarOAuth();
-      } else if (isGoogleDrive) {
-        await initiateDriveOAuth();
       } else if (isBasecamp) {
         setBasecampLoading(true);
         const { supabase } = await import("@/integrations/supabase/client");
@@ -584,7 +584,7 @@ const IntegrationDetail = ({
     }
   };
 
-  const googleOAuthLoading = isGoogleCalendar ? calendarLoading : (isBasecamp ? basecampLoading : (isGmail ? gmailLoading : driveLoading));
+  const googleOAuthLoading = isGoogleCalendar ? calendarLoading : (isBasecamp ? basecampLoading : gmailLoading);
   const isPending = isOAuthFlow ? googleOAuthLoading : (isCompany ? companyMutation.isPending : (connectMutation.isPending || disconnectMutation.isPending));
   const canEdit = !isCompany || isAdmin;
 
@@ -701,25 +701,15 @@ const IntegrationDetail = ({
                         ? "Click below to authorize Duncan to access your Basecamp projects, to-dos, and messages."
                         : isGmail
                         ? "Click below to sign in with Google and grant Duncan read-only access to your Gmail for CV ingestion."
-                        : `Click below to sign in with Google and grant Duncan access to your ${isGoogleCalendar ? "calendar" : "Drive files"}.`}
+                        : `Click below to sign in with Google and grant Duncan access to your calendar.`}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {isGoogleCalendar 
                          ? "Duncan will be able to read your events and create/update/delete events on your behalf."
-                        : isGoogleDrive 
-                         ? "Duncan will be able to search and read documents across your shared Drive."
                          : isGmail
                          ? "Duncan will scan emails for CV attachments matching active job role titles in the subject line."
                          : "Duncan will be able to read projects, to-dos, messages, and schedules from your Basecamp account."}
                     </p>
-                    {isGoogleDrive && (
-                      <p className="text-xs text-primary mt-2">
-                        Note: Add this redirect URI to your Google Cloud Console:<br/>
-                        <code className="text-[10px] bg-secondary px-1 py-0.5 rounded">
-                          {import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-drive-callback
-                        </code>
-                      </p>
-                    )}
                   </div>
                   <button
                     onClick={handleGoogleOAuthConnect}
