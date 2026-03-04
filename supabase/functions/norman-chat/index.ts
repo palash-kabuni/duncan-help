@@ -9,7 +9,6 @@ const corsHeaders = {
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_CALENDAR_API = "https://www.googleapis.com/calendar/v3";
-const GOOGLE_DRIVE_API = "https://www.googleapis.com/drive/v3";
 const NOTION_API_URL = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
 
@@ -21,7 +20,7 @@ Your capabilities:
 - **Data Synthesis**: Cross-reference information from multiple sources (emails, documents, databases, project management tools) to provide comprehensive answers.
 - **Task Orchestration**: Break down complex requests into actionable steps and describe how they'd be executed across integrated systems.
 - **Calendar Management**: You have access to the user's Google Calendar. You can list events, create new events, update existing events, and delete events.
-- **Document Search**: You have access to the company's Google Drive. You can search for documents, read their content, and answer questions based on them.
+- **Document Search**: You have access to the company's document storage. You can search for documents, read their content, list folders, and answer questions based on them. Documents are organized in folders: documents/, ndas/, and templates/.
 - **Notion Access**: You have access to the company's Notion workspace. You can search for pages, query databases, and read page content. Use these tools when users ask about information stored in Notion.
 - **Basecamp Access**: You have access to the company's Basecamp. You can list projects, fetch to-do lists and individual to-dos, read messages from message boards, and fetch cards from Card Tables (Kanban boards). Use these tools when users ask about project status, tasks, to-dos, messages, or cards in Basecamp. When asked about a specific project, first use list_basecamp_projects to find it, then use the project ID and dock tool IDs to fetch to-dos, messages, or cards. For Card Tables, look for the 'kanban_board' dock item.
 - **Google Forms**: You can fill and submit pre-configured Google Forms on behalf of the user. You can also parse a Google Form URL to automatically extract its fields and save it as a new pre-configured form. When a user asks to fill a form, first list available forms, then ask each required field ONE AT A TIME as a conversational question. Wait for the user to answer each question before asking the next. After collecting all answers, confirm the details and submit. When a user provides a Google Form URL, use parse_google_form to extract the fields, show the parsed result to the user for confirmation, then save it with save_parsed_google_form.
@@ -56,9 +55,10 @@ When working with calendar:
 - Format dates and times clearly for the user
 - If creating events, ask for confirmation of the details before creating
 
-When working with documents/Drive:
-- Use the search_drive tool to find relevant documents based on the user's query
+When working with documents:
+- Use the search_documents tool to find relevant documents based on the user's query
 - Use the read_document tool to get the content of specific files
+- Use the list_documents tool to browse folder contents
 - Summarize key findings from documents and cite which document the information came from
 - If the user asks about something that might be in company docs, search for it first
 
@@ -82,8 +82,8 @@ When generating NDAs:
   8. Internal Signer Name (who signs on behalf of Kabuni — defaults to "Palash Soundarkar" if not provided)
   9. Internal Signer Email (email of the internal signer — defaults to "palash@kabuni.com" if not provided)
 - After collecting all fields, show a summary and ask for confirmation before calling generate_nda.
-- The tool will: copy a Google Docs template, replace placeholders, export PDF, and create a Notion log entry.
-- After generation, share the Google Doc URL and Notion page URL with the user.
+- The tool will: load an NDA template from storage, populate placeholders, upload to Azure Blob Storage, and create a Notion log entry.
+- After generation, share the document URL and Notion page URL with the user.
 - To view existing NDA submissions or check status, use list_nda_submissions.
 - To send an NDA for e-signature (admin only), use send_nda_for_signature with the submission_id. This sends via DocuSign to the internal signer first, then the recipient.
 - Use send_nda_for_signature with dry_run=true to validate without actually sending.
@@ -210,22 +210,18 @@ const CALENDAR_TOOLS = [
   },
 ];
 
-const DRIVE_TOOLS = [
+const DOCUMENT_TOOLS = [
   {
     type: "function",
     function: {
-      name: "search_drive",
-      description: "Search for documents in Google Drive. Use this when the user asks about company documents, policies, guides, or any information that might be stored in Drive.",
+      name: "search_documents",
+      description: "Search for documents in the company document storage (Azure Blob Storage). Use this when the user asks about company documents, policies, guides, or any information that might be stored in the document system.",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
-            description: "Search query to find relevant documents. Be specific and include key terms.",
-          },
-          limit: {
-            type: "number",
-            description: "Maximum number of results to return. Default 10.",
+            description: "Search query to find relevant documents by name. Be specific and include key terms.",
           },
         },
         required: ["query"],
@@ -236,20 +232,33 @@ const DRIVE_TOOLS = [
     type: "function",
     function: {
       name: "read_document",
-      description: "Read the content of a specific document from Google Drive. Use this after finding a document with search_drive to get its full content.",
+      description: "Read the content of a specific document from storage. Use this after finding a document with search_documents to get its content.",
       parameters: {
         type: "object",
         properties: {
-          fileId: {
+          blob_path: {
             type: "string",
-            description: "The ID of the file to read (from search_drive results).",
-          },
-          fileName: {
-            type: "string",
-            description: "The name of the file (for context in responses).",
+            description: "The blob path of the file to read (from search_documents results).",
           },
         },
-        required: ["fileId"],
+        required: ["blob_path"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_documents",
+      description: "List documents in a specific folder path. Use this to browse folder contents.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "The folder path to list (e.g. 'documents/', 'ndas/', 'templates/'). Defaults to root.",
+          },
+        },
+        required: [],
       },
     },
   },
@@ -932,184 +941,107 @@ async function executeNotionTool(toolName: string, args: any, token: string): Pr
   }
 }
 
-async function getDriveAccessToken(supabaseAdmin: any): Promise<string | null> {
-  const clientId = Deno.env.get("GOOGLE_CALENDAR_CLIENT_ID");
-  const clientSecret = Deno.env.get("GOOGLE_CALENDAR_CLIENT_SECRET");
-
-  if (!clientId || !clientSecret) {
-    console.log("Google credentials not configured");
-    return null;
+function getAzureStorageConfig(): { accountName: string; accountKey: string; containerName: string } | null {
+  const connStr = Deno.env.get("AZURE_STORAGE_CONNECTION_STRING");
+  if (!connStr) return null;
+  
+  const parts: Record<string, string> = {};
+  for (const part of connStr.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx > 0) parts[part.slice(0, idx)] = part.slice(idx + 1);
   }
-
-  const { data: tokenData, error } = await supabaseAdmin
-    .from("google_drive_tokens")
-    .select("*")
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !tokenData) {
-    console.log("No Drive tokens found");
-    return null;
-  }
-
-  // Check if token needs refresh
-  const tokenExpiry = new Date(tokenData.token_expiry);
-  if (tokenExpiry <= new Date()) {
-    console.log("Drive token expired, refreshing...");
-    
-    const refreshResponse = await fetch(GOOGLE_TOKEN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        refresh_token: tokenData.refresh_token,
-        grant_type: "refresh_token",
-      }),
-    });
-
-    if (!refreshResponse.ok) {
-      console.error("Failed to refresh Drive token");
-      return null;
-    }
-
-    const newTokens = await refreshResponse.json();
-    const newExpiry = new Date(Date.now() + (newTokens.expires_in * 1000));
-    
-    await supabaseAdmin
-      .from("google_drive_tokens")
-      .update({
-        access_token: newTokens.access_token,
-        token_expiry: newExpiry.toISOString(),
-      })
-      .eq("id", tokenData.id);
-
-    return newTokens.access_token;
-  }
-
-  return tokenData.access_token;
+  if (!parts.AccountName || !parts.AccountKey) return null;
+  return { accountName: parts.AccountName, accountKey: parts.AccountKey, containerName: "duncanstorage01" };
 }
 
-async function executeDriveTool(
+async function executeDocumentTool(
   toolName: string,
   args: any,
-  accessToken: string
+  supabaseUrl: string,
+  authHeader: string
 ): Promise<any> {
-  const headers = {
-    Authorization: `Bearer ${accessToken}`,
-    "Content-Type": "application/json",
-  };
-
   switch (toolName) {
-    case "search_drive": {
-      const query = args.query || "";
-      const limit = args.limit || 10;
-      
-      let q = `fullText contains '${query.replace(/'/g, "\\'")}'`;
-      q += " and trashed=false";
-
-      const url = new URL(`${GOOGLE_DRIVE_API}/files`);
-      url.searchParams.set("q", q);
-      url.searchParams.set("fields", "files(id,name,mimeType,modifiedTime,webViewLink,owners)");
-      url.searchParams.set("pageSize", String(limit));
-      url.searchParams.set("orderBy", "modifiedTime desc");
-
-      const response = await fetch(url.toString(), { headers });
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`Search failed: ${error}`);
+    case "search_documents": {
+      const res = await fetch(`${supabaseUrl}/functions/v1/azure-blob-api`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({ action: "search", query: args.query }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Document search failed");
       }
-      const data = await response.json();
-      
-      // Format results for the AI
-      const files = (data.files || []).map((f: any) => ({
-        id: f.id,
-        name: f.name,
-        type: f.mimeType,
-        modified: f.modifiedTime,
-        link: f.webViewLink,
-        owner: f.owners?.[0]?.displayName,
-      }));
-      
-      return { 
-        found: files.length,
-        files,
-        message: files.length === 0 ? "No documents found matching your query." : `Found ${files.length} document(s).`
+      const data = await res.json();
+      return {
+        found: data.found || 0,
+        files: (data.files || []).map((f: any) => ({
+          name: f.name,
+          blob_path: f.name,
+          size: f.size,
+          lastModified: f.lastModified,
+          url: f.url,
+        })),
+        message: (data.files || []).length === 0 
+          ? "No documents found matching your query." 
+          : `Found ${(data.files || []).length} document(s).`,
       };
     }
 
     case "read_document": {
-      const fileId = args.fileId;
-      if (!fileId) {
-        throw new Error("fileId is required");
-      }
+      const blobPath = args.blob_path;
+      if (!blobPath) throw new Error("blob_path is required");
 
-      // Get file metadata
-      const metaResponse = await fetch(
-        `${GOOGLE_DRIVE_API}/files/${fileId}?fields=id,name,mimeType,webViewLink`,
-        { headers }
-      );
-      if (!metaResponse.ok) {
-        throw new Error(`Failed to get file: ${await metaResponse.text()}`);
+      const res = await fetch(`${supabaseUrl}/functions/v1/azure-blob-api`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({ action: "get_content", blob_path: blobPath }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to read document");
       }
-      const meta = await metaResponse.json();
-
-      let content: string;
-      
-      if (meta.mimeType === "application/vnd.google-apps.document") {
-        const exportResponse = await fetch(
-          `${GOOGLE_DRIVE_API}/files/${fileId}/export?mimeType=text/plain`,
-          { headers }
-        );
-        if (!exportResponse.ok) {
-          throw new Error(`Export failed: ${await exportResponse.text()}`);
-        }
-        content = await exportResponse.text();
-      } else if (meta.mimeType === "application/vnd.google-apps.spreadsheet") {
-        const exportResponse = await fetch(
-          `${GOOGLE_DRIVE_API}/files/${fileId}/export?mimeType=text/csv`,
-          { headers }
-        );
-        if (!exportResponse.ok) {
-          throw new Error(`Export failed: ${await exportResponse.text()}`);
-        }
-        content = await exportResponse.text();
-      } else if (meta.mimeType === "application/vnd.google-apps.presentation") {
-        const exportResponse = await fetch(
-          `${GOOGLE_DRIVE_API}/files/${fileId}/export?mimeType=text/plain`,
-          { headers }
-        );
-        if (!exportResponse.ok) {
-          throw new Error(`Export failed: ${await exportResponse.text()}`);
-        }
-        content = await exportResponse.text();
-      } else if (meta.mimeType === "application/pdf") {
-        content = "[PDF file - text extraction not available directly. Please view the document using the link provided.]";
-      } else if (meta.mimeType.startsWith("text/") || meta.mimeType === "application/json") {
-        const downloadResponse = await fetch(
-          `${GOOGLE_DRIVE_API}/files/${fileId}?alt=media`,
-          { headers }
-        );
-        if (!downloadResponse.ok) {
-          throw new Error(`Download failed: ${await downloadResponse.text()}`);
-        }
-        content = await downloadResponse.text();
-      } else if (meta.mimeType.startsWith("image/")) {
-        content = "[Image file - cannot read text content]";
-      } else {
-        content = `[File type ${meta.mimeType} - content extraction not supported]`;
-      }
-
+      const data = await res.json();
       return {
-        name: meta.name,
-        type: meta.mimeType,
-        link: meta.webViewLink,
-        content: content.slice(0, 40000), // Limit content size for context window
+        name: data.name,
+        blob_path: data.blob_path,
+        url: data.url,
+        content: (data.content || "").slice(0, 40000),
+      };
+    }
+
+    case "list_documents": {
+      const res = await fetch(`${supabaseUrl}/functions/v1/azure-blob-api`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({ action: "list", path: args.path || "" }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to list documents");
+      }
+      const data = await res.json();
+      return {
+        files: (data.files || []).map((f: any) => ({
+          name: f.name,
+          blob_path: f.name,
+          size: f.size,
+          lastModified: f.lastModified,
+        })),
+        folders: data.folders || [],
       };
     }
 
     default:
-      throw new Error(`Unknown Drive tool: ${toolName}`);
+      throw new Error(`Unknown document tool: ${toolName}`);
   }
 }
 
@@ -1289,7 +1221,7 @@ serve(async (req) => {
     let userId: string | null = null;
     let userEmail: string = "";
     let calendarAccessToken: string | null = null;
-    let driveAccessToken: string | null = null;
+    let azureStorageAvailable = false;
     let notionToken: string | null = null;
     let basecampCreds: { accessToken: string; accountId: string } | null = null;
 
@@ -1307,8 +1239,8 @@ serve(async (req) => {
       }
     }
 
-    // Get Drive access token (company-wide, not per-user)
-    driveAccessToken = await getDriveAccessToken(supabaseAdmin);
+    // Check Azure Blob Storage availability
+    azureStorageAvailable = !!getAzureStorageConfig();
 
     // Get Notion token (company-wide)
     notionToken = await getNotionToken(supabaseAdmin);
@@ -1344,8 +1276,8 @@ serve(async (req) => {
       systemContent += "\n\nNote: Google Calendar is not connected for you. If the user asks about calendar operations, let them know they need to connect their Google Calendar first via the Integrations page.";
     }
 
-    if (!driveAccessToken) {
-      systemContent += "\n\nNote: Google Drive is not connected for the company. If the user asks about documents or company files, let them know an admin needs to connect Google Drive first via the Integrations page.";
+    if (!azureStorageAvailable) {
+      systemContent += "\n\nNote: Document storage is not configured. If the user asks about documents or company files, let them know the document storage system needs to be configured first.";
     }
 
     if (!notionToken) {
@@ -1392,8 +1324,8 @@ serve(async (req) => {
     if (calendarAccessToken) {
       tools.push(...CALENDAR_TOOLS);
     }
-    if (driveAccessToken) {
-      tools.push(...DRIVE_TOOLS);
+    if (azureStorageAvailable) {
+      tools.push(...DOCUMENT_TOOLS);
     }
     if (notionToken) {
       tools.push(...NOTION_TOOLS);
@@ -1499,7 +1431,7 @@ serve(async (req) => {
     // Helper to execute tool calls and return results
     async function executeToolCalls(toolCalls: any[]): Promise<any[]> {
       const calendarToolNames = ["list_calendar_events", "create_calendar_event", "update_calendar_event", "delete_calendar_event"];
-      const driveToolNames = ["search_drive", "read_document"];
+      const documentToolNames = ["search_documents", "read_document", "list_documents"];
       const notionToolNames = ["search_notion", "query_notion_database", "get_notion_page_content"];
       const googleFormsToolNames = ["list_google_forms", "submit_google_form", "parse_google_form", "save_parsed_google_form"];
       const ndaToolNames = ["generate_nda", "list_nda_submissions", "send_nda_for_signature"];
@@ -1517,11 +1449,11 @@ serve(async (req) => {
             } else {
               result = await executeCalendarTool(tc.function.name, args, calendarAccessToken);
             }
-          } else if (driveToolNames.includes(tc.function.name)) {
-            if (!driveAccessToken) {
-              result = { error: "Google Drive is not connected. An admin needs to connect it via the Integrations page." };
+          } else if (documentToolNames.includes(tc.function.name)) {
+            if (!azureStorageAvailable) {
+              result = { error: "Document storage is not configured. Please contact an admin." };
             } else {
-              result = await executeDriveTool(tc.function.name, args, driveAccessToken);
+              result = await executeDocumentTool(tc.function.name, args, supabaseUrl, authHeader || "");
             }
           } else if (notionToolNames.includes(tc.function.name)) {
             if (!notionToken) {
