@@ -82,23 +82,20 @@ async function uploadBlobBytes(
  * then reconstructing the runs.
  */
 async function generateDocxFromTemplate(
-  accountName: string,
-  accountKey: string,
+  connectionString: string,
   data: NDARequest,
   formattedDate: string
 ): Promise<Uint8Array> {
   // 1. Download the template
-  const templateRes = await azureRequest(
-    accountName, accountKey, "GET",
-    `/${CONTAINER_NAME}/${NDA_TEMPLATE_PATH}`
-  );
-
-  if (!templateRes.ok) {
-    const errText = await templateRes.text();
-    throw new Error(`Failed to download NDA template: ${errText}`);
+  let templateBytes: Uint8Array;
+  try {
+    templateBytes = await downloadBlobBytes(connectionString, NDA_TEMPLATE_PATH);
+  } catch (error) {
+    throw new Error(
+      `Failed to download NDA template from ${NDA_TEMPLATE_PATH}: ${error instanceof Error ? error.message : "Unknown error"}`
+    );
   }
 
-  const templateBytes = new Uint8Array(await templateRes.arrayBuffer());
   console.log(`Downloaded template: ${templateBytes.length} bytes`);
 
   // 2. Open with JSZip
