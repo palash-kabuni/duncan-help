@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import JSZip from "https://esm.sh/jszip@3.10.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -108,79 +109,123 @@ async function azureRequest(
 }
 
 /**
- * Generate a simple text-based NDA document with placeholders replaced.
- * Since we can't manipulate DOCX without a library in Deno, we generate
- * a well-formatted plain text NDA document.
+ * Download the Word template from Azure, replace placeholders, and return the modified docx bytes.
+ * 
+ * Word/OOXML stores text in <w:t> elements inside <w:r> (run) elements.
+ * Placeholders like {{Purpose}} may be split across multiple runs by Word.
+ * We handle this by concatenating all text in each paragraph, performing replacements,
+ * then reconstructing the runs.
  */
-function generateNdaContent(data: NDARequest, formattedDate: string): string {
+async function generateDocxFromTemplate(
+  accountName: string,
+  accountKey: string,
+  data: NDARequest,
+  formattedDate: string
+): Promise<Uint8Array> {
+  // 1. Download the template
+  const templateRes = await azureRequest(
+    accountName, accountKey, "GET",
+    `/${CONTAINER_NAME}/${NDA_TEMPLATE_PATH}`
+  );
+
+  if (!templateRes.ok) {
+    const errText = await templateRes.text();
+    throw new Error(`Failed to download NDA template: ${errText}`);
+  }
+
+  const templateBytes = new Uint8Array(await templateRes.arrayBuffer());
+  console.log(`Downloaded template: ${templateBytes.length} bytes`);
+
+  // 2. Open with JSZip
+  const zip = await JSZip.loadAsync(templateBytes);
+
+  // 3. Read word/document.xml
+  const docXmlFile = zip.file("word/document.xml");
+  if (!docXmlFile) throw new Error("Template is not a valid .docx — missing word/document.xml");
+
+  let docXml = await docXmlFile.async("string");
+
+  // 4. Build placeholder map
   const internalSigner = data.internal_signer_name || "Palash Soundarkar";
-  
-  return `NON-DISCLOSURE AGREEMENT
+  const internalSignerEmail = data.internal_signer_email || "palash@kabuni.com";
 
-Date of Agreement: ${formattedDate}
+  const replacements: Record<string, string> = {
+    "{{ReceivingPartyName}}": data.receiving_party_name,
+    "{{ReceivingPartyEntity}}": data.receiving_party_entity,
+    "{{DateOfAgreement}}": formattedDate,
+    "{{RegisteredAddress}}": data.registered_address,
+    "{{Purpose}}": data.purpose,
+    "{{RecipientName}}": data.recipient_name,
+    "{{RecipientEmail}}": data.recipient_email,
+    "{{InternalSignerName}}": internalSigner,
+    "{{InternalSignerEmail}}": internalSignerEmail,
+    "{{SubmitterEmail}}": data.submitter_email,
+    // Also handle alternate placeholder styles
+    "{{Receiving Party Name}}": data.receiving_party_name,
+    "{{Receiving Party Entity}}": data.receiving_party_entity,
+    "{{Date of Agreement}}": formattedDate,
+    "{{Registered Address}}": data.registered_address,
+    "{{Recipient Name}}": data.recipient_name,
+    "{{Recipient Email}}": data.recipient_email,
+    "{{Internal Signer Name}}": internalSigner,
+    "{{Internal Signer Email}}": internalSignerEmail,
+    "{{Submitter Email}}": data.submitter_email,
+  };
 
-BETWEEN:
+  // 5. Handle Word splitting placeholders across XML runs.
+  // First, try to clean up split placeholders by removing XML tags between {{ and }}
+  // This regex finds {{ followed by any mix of text and XML tags until }}
+  docXml = docXml.replace(
+    /\{\{((?:[^}]|\}(?!\}))*?)\}\}/g,
+    (match) => {
+      // Strip all XML tags from inside the placeholder to get the clean key
+      const cleanKey = match.replace(/<[^>]+>/g, "");
+      return cleanKey;
+    }
+  );
 
-(1) Kabuni Ltd ("Disclosing Party")
+  // 6. Now do simple string replacements
+  for (const [placeholder, value] of Object.entries(replacements)) {
+    // Escape XML special characters in the replacement value
+    const xmlSafe = value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
+    
+    docXml = docXml.split(placeholder).join(xmlSafe);
+  }
 
-AND
+  // 7. Write back and generate
+  zip.file("word/document.xml", docXml);
 
-(2) ${data.receiving_party_entity} ("Receiving Party")
-    Registered Address: ${data.registered_address}
+  // Also check headers and footers for placeholders
+  const headerFooterFiles = Object.keys(zip.files).filter(
+    (name) => name.startsWith("word/header") || name.startsWith("word/footer")
+  );
+  for (const hfFile of headerFooterFiles) {
+    let hfXml = await zip.file(hfFile)!.async("string");
+    // Clean split placeholders
+    hfXml = hfXml.replace(
+      /\{\{((?:[^}]|\}(?!\}))*?)\}\}/g,
+      (match) => match.replace(/<[^>]+>/g, "")
+    );
+    for (const [placeholder, value] of Object.entries(replacements)) {
+      const xmlSafe = value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+      hfXml = hfXml.split(placeholder).join(xmlSafe);
+    }
+    zip.file(hfFile, hfXml);
+  }
 
-PURPOSE: ${data.purpose}
-
----
-
-1. DEFINITIONS AND INTERPRETATION
-
-1.1 In this Agreement, "Confidential Information" means all information disclosed by the Disclosing Party to the Receiving Party, whether orally, in writing, or by any other means, that is designated as confidential or that reasonably should be understood to be confidential given the nature of the information and the circumstances of disclosure.
-
-2. OBLIGATIONS OF THE RECEIVING PARTY
-
-2.1 The Receiving Party shall keep the Confidential Information confidential and shall not disclose it to any third party without the prior written consent of the Disclosing Party.
-
-2.2 The Receiving Party shall use the Confidential Information solely for the Purpose stated above.
-
-2.3 The Receiving Party shall protect the Confidential Information using the same degree of care that it uses to protect its own confidential information, but in no event less than reasonable care.
-
-3. EXCEPTIONS
-
-3.1 The obligations in clause 2 shall not apply to information that:
-(a) is or becomes publicly available through no fault of the Receiving Party;
-(b) was already known to the Receiving Party prior to disclosure;
-(c) is independently developed by the Receiving Party; or
-(d) is required to be disclosed by law or regulation.
-
-4. TERM AND TERMINATION
-
-4.1 This Agreement shall remain in effect for a period of two (2) years from the Date of Agreement.
-
-4.2 The obligations of confidentiality shall survive termination of this Agreement for a period of five (5) years.
-
-5. GOVERNING LAW
-
-5.1 This Agreement shall be governed by and construed in accordance with the laws of England and Wales.
-
----
-
-SIGNED:
-
-For and on behalf of Kabuni Ltd:
-
-Name: ${internalSigner}
-Title: Authorised Signatory
-Date: _______________
-Signature: _______________
-
-
-For and on behalf of ${data.receiving_party_entity}:
-
-Name: ${data.recipient_name}
-Title: _______________
-Date: _______________
-Signature: _______________
-`;
+  const outputBytes = await zip.generateAsync({ type: "uint8array" });
+  console.log(`Generated .docx: ${outputBytes.length} bytes`);
+  return outputBytes;
 }
 
 async function getNotionToken(supabaseAdmin: any): Promise<string> {
@@ -349,18 +394,17 @@ serve(async (req) => {
       if (!connectionString) throw new Error("Azure Storage not configured");
       const { accountName, accountKey } = parseConnectionString(connectionString);
 
-      // Generate NDA content
-      const ndaContent = generateNdaContent(body, formattedDate);
-      const ndaBytes = new TextEncoder().encode(ndaContent);
+      // Generate .docx from template
+      const docxBytes = await generateDocxFromTemplate(accountName, accountKey, body, formattedDate);
 
-      // Upload NDA to Azure Blob Storage
+      // Upload NDA to Azure Blob Storage as .docx
       const sanitizedName = body.receiving_party_name.replace(/[^a-zA-Z0-9_\- ]/g, "_");
       const dateStr = body.date_of_agreement.replace(/-/g, "_");
-      const blobPath = `ndas/${sanitizedName}/NDA_${dateStr}.txt`;
+      const blobPath = `ndas/${sanitizedName}/NDA_${dateStr}.docx`;
 
       const uploadRes = await azureRequest(accountName, accountKey, "PUT", `/${CONTAINER_NAME}/${blobPath}`, {
-        body: ndaBytes,
-        contentType: "text/plain; charset=utf-8",
+        body: docxBytes,
+        contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         additionalHeaders: { "x-ms-blob-type": "BlockBlob" },
       });
 
@@ -377,7 +421,7 @@ serve(async (req) => {
         formattedDate
       );
 
-      // Update submission record — store blob path in google_doc_id field for backward compatibility
+      // Update submission record
       await supabaseAdmin
         .from("nda_submissions")
         .update({
@@ -400,7 +444,7 @@ serve(async (req) => {
         notion_page_id: notionPageId,
         notion_page_url: notionPageUrl,
         status: "generated",
-        message: `NDA for ${body.receiving_party_name} generated successfully. Document stored in Azure Blob Storage and logged in Notion.`,
+        message: `NDA for ${body.receiving_party_name} generated successfully as Word document. Stored in Azure Blob Storage and logged in Notion.`,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     } catch (genError) {
