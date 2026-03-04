@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import JSZip from "https://esm.sh/jszip@3.10.1";
-import { BlobServiceClient } from "https://esm.sh/@azure/storage-blob@12.26.0";
+import JSZip from "https://esm.sh/jszip@3.10.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -39,22 +39,143 @@ function formatDateLondon(isoDate: string): string {
   return formatter.format(date);
 }
 
-function getContainerClient(connectionString: string) {
-  const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
-  return blobServiceClient.getContainerClient(CONTAINER_NAME);
+function parseConnectionString(connStr: string): { accountName: string; accountKey: string } {
+  const parts: Record<string, string> = {};
+  for (const part of connStr.trim().split(";")) {
+    const [key, ...rest] = part.split("=");
+    if (!key || rest.length === 0) continue;
+    parts[key.trim()] = rest.join("=").trim();
+  }
+
+  if (!parts.AccountName || !parts.AccountKey) {
+    throw new Error("Invalid Azure Storage connection string: missing AccountName or AccountKey");
+  }
+
+  return { accountName: parts.AccountName, accountKey: parts.AccountKey };
+}
+
+async function createSharedKeySignature(
+  accountName: string,
+  accountKey: string,
+  method: string,
+  path: string,
+  headers: Record<string, string>,
+  queryParams?: URLSearchParams,
+): Promise<string> {
+  const contentLength = headers["Content-Length"] || "";
+  const contentType = headers["Content-Type"] || "";
+
+  const msHeaders: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase().startsWith("x-ms-")) {
+      msHeaders[k.toLowerCase()] = v.trim();
+    }
+  }
+
+  const canonicalizedHeaders = Object.keys(msHeaders)
+    .sort()
+    .map((k) => `${k}:${msHeaders[k]}`)
+    .join("\n");
+
+  let canonicalizedResource = `/${accountName}${path}`;
+  if (queryParams) {
+    const grouped: Record<string, string[]> = {};
+    for (const [k, v] of queryParams.entries()) {
+      const key = k.toLowerCase();
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(v);
+    }
+
+    for (const key of Object.keys(grouped).sort()) {
+      const joined = grouped[key].sort().join(",");
+      canonicalizedResource += `\n${key}:${joined}`;
+    }
+  }
+
+  const stringToSign = [
+    method,
+    "", // Content-Encoding
+    "", // Content-Language
+    contentLength,
+    "", // Content-MD5
+    contentType,
+    "", // Date
+    "", // If-Modified-Since
+    "", // If-Match
+    "", // If-None-Match
+    "", // If-Unmodified-Since
+    "", // Range
+    canonicalizedHeaders,
+    canonicalizedResource,
+  ].join("\n");
+
+  const keyBytes = Uint8Array.from(atob(accountKey), (c) => c.charCodeAt(0));
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+
+  const sigBytes = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(stringToSign));
+  const signature = btoa(String.fromCharCode(...new Uint8Array(sigBytes)));
+  return `SharedKey ${accountName}:${signature}`;
+}
+
+async function azureRequest(
+  accountName: string,
+  accountKey: string,
+  method: string,
+  path: string,
+  options: {
+    queryParams?: URLSearchParams;
+    body?: Uint8Array;
+    contentType?: string;
+    additionalHeaders?: Record<string, string>;
+  } = {},
+): Promise<Response> {
+  const headers: Record<string, string> = {
+    "x-ms-date": new Date().toUTCString(),
+    "x-ms-version": "2023-11-03",
+    ...(options.additionalHeaders || {}),
+  };
+
+  if (options.body) {
+    headers["Content-Length"] = String(options.body.length);
+    headers["Content-Type"] = options.contentType || "application/octet-stream";
+  }
+
+  headers.Authorization = await createSharedKeySignature(
+    accountName,
+    accountKey,
+    method,
+    path,
+    headers,
+    options.queryParams,
+  );
+
+  let url = `https://${accountName}.blob.core.windows.net${path}`;
+  if (options.queryParams && options.queryParams.toString()) {
+    url += `?${options.queryParams.toString()}`;
+  }
+
+  return fetch(url, {
+    method,
+    headers,
+    body: options.body,
+  });
 }
 
 async function downloadBlobBytes(connectionString: string, blobPath: string): Promise<Uint8Array> {
-  const containerClient = getContainerClient(connectionString);
-  const blobClient = containerClient.getBlobClient(blobPath);
+  const { accountName, accountKey } = parseConnectionString(connectionString);
+  const response = await azureRequest(accountName, accountKey, "GET", `/${CONTAINER_NAME}/${blobPath}`);
 
-  const downloadRes = await blobClient.download(0);
-  if (!downloadRes.readableStreamBody) {
-    throw new Error(`Failed to download blob stream: ${blobPath}`);
+  if (!response.ok) {
+    throw new Error(`Download failed (${response.status}): ${await response.text()}`);
   }
 
-  const arrayBuffer = await new Response(downloadRes.readableStreamBody).arrayBuffer();
-  return new Uint8Array(arrayBuffer);
+  return new Uint8Array(await response.arrayBuffer());
 }
 
 async function uploadBlobBytes(
@@ -63,14 +184,20 @@ async function uploadBlobBytes(
   bytes: Uint8Array,
   contentType: string,
 ): Promise<string> {
-  const containerClient = getContainerClient(connectionString);
-  const blockBlobClient = containerClient.getBlockBlobClient(blobPath);
-
-  await blockBlobClient.uploadData(bytes, {
-    blobHTTPHeaders: { blobContentType: contentType },
+  const { accountName, accountKey } = parseConnectionString(connectionString);
+  const response = await azureRequest(accountName, accountKey, "PUT", `/${CONTAINER_NAME}/${blobPath}`, {
+    body: bytes,
+    contentType,
+    additionalHeaders: {
+      "x-ms-blob-type": "BlockBlob",
+    },
   });
 
-  return blockBlobClient.url;
+  if (!response.ok) {
+    throw new Error(`Upload failed (${response.status}): ${await response.text()}`);
+  }
+
+  return `https://${accountName}.blob.core.windows.net/${CONTAINER_NAME}/${blobPath}`;
 }
 
 /**
