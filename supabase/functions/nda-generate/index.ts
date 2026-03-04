@@ -360,28 +360,23 @@ serve(async (req) => {
     const formattedDate = formatDateLondon(body.date_of_agreement);
 
     try {
-      // Parse Azure credentials
       const connectionString = Deno.env.get("AZURE_STORAGE_CONNECTION_STRING");
       if (!connectionString) throw new Error("Azure Storage not configured");
-      const { accountName, accountKey } = parseConnectionString(connectionString);
 
       // Generate .docx from template
-      const docxBytes = await generateDocxFromTemplate(accountName, accountKey, body, formattedDate);
+      const docxBytes = await generateDocxFromTemplate(connectionString, body, formattedDate);
 
       // Upload NDA to Azure Blob Storage as .docx
       const sanitizedName = body.receiving_party_name.replace(/[^a-zA-Z0-9_\- ]/g, "_");
       const dateStr = body.date_of_agreement.replace(/-/g, "_");
       const blobPath = `ndas/${sanitizedName}/NDA_${dateStr}.docx`;
 
-      const uploadRes = await azureRequest(accountName, accountKey, "PUT", `/${CONTAINER_NAME}/${blobPath}`, {
-        body: docxBytes,
-        contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        additionalHeaders: { "x-ms-blob-type": "BlockBlob" },
-      });
-
-      if (!uploadRes.ok) throw new Error(`Failed to upload NDA: ${await uploadRes.text()}`);
-
-      const docUrl = `https://${accountName}.blob.core.windows.net/${CONTAINER_NAME}/${blobPath}`;
+      const docUrl = await uploadBlobBytes(
+        connectionString,
+        blobPath,
+        docxBytes,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      );
 
       // Create Notion row
       const notionToken = await getNotionToken(supabaseAdmin);
