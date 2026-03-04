@@ -22,7 +22,6 @@ Your capabilities:
 - **Task Orchestration**: Break down complex requests into actionable steps and describe how they'd be executed across integrated systems.
 - **Calendar Management**: You have access to the user's Google Calendar. You can list events, create new events, update existing events, and delete events.
 - **Document Search**: You have access to the company's Google Drive. You can search for documents, read their content, and answer questions based on them.
-- **Azure Blob Storage**: You have access to the company's Azure Blob Storage with 'documents' and 'ndas' containers. You can list files, search by filename, and read text file content. Use list_azure_files, search_azure_files, and read_azure_file tools when users ask about documents stored in Azure or when they specifically mention Azure storage.
 - **Notion Access**: You have access to the company's Notion workspace. You can search for pages, query databases, and read page content. Use these tools when users ask about information stored in Notion.
 - **Basecamp Access**: You have access to the company's Basecamp. You can list projects, fetch to-do lists and individual to-dos, read messages from message boards, and fetch cards from Card Tables (Kanban boards). Use these tools when users ask about project status, tasks, to-dos, messages, or cards in Basecamp. When asked about a specific project, first use list_basecamp_projects to find it, then use the project ID and dock tool IDs to fetch to-dos, messages, or cards. For Card Tables, look for the 'kanban_board' dock item.
 - **Google Forms**: You can fill and submit pre-configured Google Forms on behalf of the user. You can also parse a Google Form URL to automatically extract its fields and save it as a new pre-configured form. When a user asks to fill a form, first list available forms, then ask each required field ONE AT A TIME as a conversational question. Wait for the user to answer each question before asking the next. After collecting all answers, confirm the details and submit. When a user provides a Google Form URL, use parse_google_form to extract the fields, show the parsed result to the user for confirmation, then save it with save_parsed_google_form.
@@ -427,54 +426,6 @@ const GOOGLE_FORMS_TOOLS = [
           },
         },
         required: ["title", "form_url", "form_action_url", "fields"],
-      },
-    },
-  },
-];
-
-const AZURE_BLOB_TOOLS = [
-  {
-    type: "function",
-    function: {
-      name: "list_azure_files",
-      description: "List files in Azure Blob Storage. Use when the user asks to browse company documents stored in Azure.",
-      parameters: {
-        type: "object",
-        properties: {
-          container: { type: "string", description: "Container name: 'documents' or 'ndas'" },
-          path: { type: "string", description: "Optional folder path prefix to filter by" },
-        },
-        required: ["container"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "search_azure_files",
-      description: "Search for files in Azure Blob Storage by filename keyword. Use when the user asks to find a specific document in Azure.",
-      parameters: {
-        type: "object",
-        properties: {
-          container: { type: "string", description: "Container name: 'documents' or 'ndas'" },
-          query: { type: "string", description: "Search keyword to match against filenames" },
-        },
-        required: ["container", "query"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "read_azure_file",
-      description: "Read the content of a file from Azure Blob Storage. Use after finding a file with list_azure_files or search_azure_files to get its content for analysis.",
-      parameters: {
-        type: "object",
-        properties: {
-          container: { type: "string", description: "Container name: 'documents' or 'ndas'" },
-          blob_path: { type: "string", description: "Full blob path (e.g. 'policies/handbook.txt')" },
-        },
-        required: ["container", "blob_path"],
       },
     },
   },
@@ -981,48 +932,6 @@ async function executeNotionTool(toolName: string, args: any, token: string): Pr
   }
 }
 
-async function executeAzureBlobTool(
-  toolName: string,
-  args: any,
-  authHeader: string
-): Promise<any> {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const body: any = { container: args.container };
-
-  switch (toolName) {
-    case "list_azure_files":
-      body.action = "list";
-      if (args.path) body.path = args.path;
-      break;
-    case "search_azure_files":
-      body.action = "search";
-      body.query = args.query;
-      break;
-    case "read_azure_file":
-      body.action = "get_content";
-      body.blob_path = args.blob_path;
-      break;
-    default:
-      throw new Error(`Unknown Azure tool: ${toolName}`);
-  }
-
-  const res = await fetch(`${supabaseUrl}/functions/v1/azure-blob-api`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: authHeader,
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Azure API failed (${res.status})`);
-  }
-
-  return await res.json();
-}
-
 async function getDriveAccessToken(supabaseAdmin: any): Promise<string | null> {
   const clientId = Deno.env.get("GOOGLE_CALENDAR_CLIENT_ID");
   const clientSecret = Deno.env.get("GOOGLE_CALENDAR_CLIENT_SECRET");
@@ -1492,8 +1401,6 @@ serve(async (req) => {
     if (basecampCreds) {
       tools.push(...BASECAMP_TOOLS);
     }
-    // Azure Blob is always available (credentials are server-side)
-    tools.push(...AZURE_BLOB_TOOLS);
     if (tools.length > 0) {
       requestBody.tools = tools;
     }
@@ -1597,7 +1504,6 @@ serve(async (req) => {
       const googleFormsToolNames = ["list_google_forms", "submit_google_form", "parse_google_form", "save_parsed_google_form"];
       const ndaToolNames = ["generate_nda", "list_nda_submissions", "send_nda_for_signature"];
       const basecampToolNames = ["list_basecamp_projects", "get_basecamp_todolists", "get_basecamp_todos", "get_basecamp_messages", "get_basecamp_card_table_cards"];
-      const azureBlobToolNames = ["list_azure_files", "search_azure_files", "read_azure_file"];
       const toolResults: any[] = [];
 
       for (const tc of toolCalls) {
@@ -1634,8 +1540,6 @@ serve(async (req) => {
               result = await executeBasecampTool(tc.function.name, args, basecampCreds.accessToken, basecampCreds.accountId);
               console.log(`Basecamp tool ${tc.function.name} result preview:`, JSON.stringify(result).slice(0, 500));
             }
-          } else if (azureBlobToolNames.includes(tc.function.name)) {
-            result = await executeAzureBlobTool(tc.function.name, args, authHeader || "");
           } else {
           }
           

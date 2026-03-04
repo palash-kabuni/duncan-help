@@ -159,21 +159,6 @@ const integrations: Integration[] = [
       "Duncan can then fetch projects, to-dos, and messages",
     ],
   },
-  {
-    id: "azure-blob",
-    name: "Azure Blob Storage",
-    description: "Company-wide document storage. Duncan can browse, search, upload, and read files from Azure containers.",
-    icon: Database,
-    category: "Knowledge",
-    services: ["Documents", "NDAs", "File Upload", "Content Retrieval"],
-    type: "company",
-    setupSteps: [
-      "Azure Storage account and connection string are pre-configured",
-      "Files are organized into 'documents' and 'ndas' containers",
-      "All users can browse and upload files",
-      "Duncan can retrieve file content for AI-powered analysis",
-    ],
-  },
 ];
 
 const statusConfig = {
@@ -484,15 +469,12 @@ const IntegrationDetail = ({
   const isGoogleDrive = integration.id === "google-drive";
   const isBasecamp = integration.id === "basecamp";
   const isGmail = integration.id === "gmail";
-  const isAzureBlob = integration.id === "azure-blob";
   const isGoogleOAuth = isGoogleCalendar || isGoogleDrive;
   const isOAuthFlow = isGoogleOAuth || isBasecamp || isGmail;
   
   // Determine status based on integration type
   let status: IntegrationStatus;
-  if (isAzureBlob) {
-    status = "connected"; // Always connected via server-side credentials
-  } else if (isGoogleCalendar) {
+  if (isGoogleCalendar) {
     status = isCalendarConnected ? "connected" : "disconnected";
   } else if (isGoogleDrive) {
     status = isDriveConnected ? "connected" : "disconnected";
