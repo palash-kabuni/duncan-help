@@ -13,11 +13,14 @@ const CONTAINER_NAME = "duncanstorage01";
  * Parse the Azure Storage connection string into account name and key.
  */
 function parseConnectionString(connStr: string): { accountName: string; accountKey: string } {
+  const trimmed = connStr.trim();
   const parts: Record<string, string> = {};
-  for (const part of connStr.split(";")) {
-    const idx = part.indexOf("=");
+  for (const part of trimmed.split(";")) {
+    const segment = part.trim();
+    if (!segment) continue;
+    const idx = segment.indexOf("=");
     if (idx > 0) {
-      parts[part.slice(0, idx)] = part.slice(idx + 1);
+      parts[segment.slice(0, idx).trim()] = segment.slice(idx + 1).trim();
     }
   }
   if (!parts.AccountName || !parts.AccountKey) {
@@ -186,8 +189,7 @@ serve(async (req) => {
       );
     }
     const { accountName, accountKey } = parseConnectionString(connectionString);
-
-    // Check content type — multipart for upload, JSON for everything else
+    console.log(`Azure connection: account=${accountName}, keyLength=${accountKey.length}, container=${CONTAINER_NAME}`);
     const contentType = req.headers.get("content-type") || "";
     let action: string;
     let params: any = {};
