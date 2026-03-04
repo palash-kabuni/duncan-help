@@ -150,17 +150,26 @@ async function generateDocxFromTemplate(
   const internalSignerEmail = data.internal_signer_email || "palash@kabuni.com";
 
   const replacements: Record<string, string> = {
+    // Template uses underscore-style placeholders
+    "{{Receiving_Party_Legal_Entity_Name}}": data.receiving_party_entity,
+    "{{Date_of_Agreement}}": formattedDate,
+    "{{Registered_Address_of_Receiving_Party_Legal_Entity}}": data.registered_address,
+    "{{Purpose}}": data.purpose,
+    "{{Recipient_Name_for_Signature}}": data.recipient_name,
+    "{{Recipient_Email}}": data.recipient_email,
+    "{{Internal_Signer_Name}}": internalSigner,
+    "{{Internal_Signer_Email}}": internalSignerEmail,
+    "{{Submitter_Email}}": data.submitter_email,
+    // Also handle alternate styles (camelCase, spaces)
     "{{ReceivingPartyName}}": data.receiving_party_name,
     "{{ReceivingPartyEntity}}": data.receiving_party_entity,
     "{{DateOfAgreement}}": formattedDate,
     "{{RegisteredAddress}}": data.registered_address,
-    "{{Purpose}}": data.purpose,
     "{{RecipientName}}": data.recipient_name,
     "{{RecipientEmail}}": data.recipient_email,
     "{{InternalSignerName}}": internalSigner,
     "{{InternalSignerEmail}}": internalSignerEmail,
     "{{SubmitterEmail}}": data.submitter_email,
-    // Also handle alternate placeholder styles
     "{{Receiving Party Name}}": data.receiving_party_name,
     "{{Receiving Party Entity}}": data.receiving_party_entity,
     "{{Date of Agreement}}": formattedDate,
