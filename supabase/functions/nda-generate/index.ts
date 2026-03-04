@@ -38,10 +38,13 @@ function formatDateLondon(isoDate: string): string {
 }
 
 function parseConnectionString(connStr: string): { accountName: string; accountKey: string } {
+  const trimmed = connStr.trim();
   const parts: Record<string, string> = {};
-  for (const part of connStr.split(";")) {
-    const idx = part.indexOf("=");
-    if (idx > 0) parts[part.slice(0, idx)] = part.slice(idx + 1);
+  for (const part of trimmed.split(";")) {
+    const segment = part.trim();
+    if (!segment) continue;
+    const idx = segment.indexOf("=");
+    if (idx > 0) parts[segment.slice(0, idx).trim()] = segment.slice(idx + 1).trim();
   }
   if (!parts.AccountName || !parts.AccountKey) throw new Error("Invalid Azure Storage connection string");
   return { accountName: parts.AccountName, accountKey: parts.AccountKey };
