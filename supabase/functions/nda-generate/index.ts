@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import JSZip from "https://esm.sh/jszip@3.10.1";
+import { BlobServiceClient } from "https://esm.sh/@azure/storage-blob@12.26.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -38,74 +39,38 @@ function formatDateLondon(isoDate: string): string {
   return formatter.format(date);
 }
 
-function parseConnectionString(connStr: string): { accountName: string; accountKey: string } {
-  const trimmed = connStr.trim();
-  const parts: Record<string, string> = {};
-  for (const part of trimmed.split(";")) {
-    const segment = part.trim();
-    if (!segment) continue;
-    const idx = segment.indexOf("=");
-    if (idx > 0) parts[segment.slice(0, idx).trim()] = segment.slice(idx + 1).trim();
-  }
-  if (!parts.AccountName || !parts.AccountKey) throw new Error("Invalid Azure Storage connection string");
-  return { accountName: parts.AccountName, accountKey: parts.AccountKey };
+function getContainerClient(connectionString: string) {
+  const blobServiceClient = BlobServiceClient.fromConnectionString(connectionString);
+  return blobServiceClient.getContainerClient(CONTAINER_NAME);
 }
 
-async function createSharedKeySignature(
-  accountName: string,
-  accountKey: string,
-  method: string,
-  path: string,
-  headers: Record<string, string>,
-  queryParams?: URLSearchParams
+async function downloadBlobBytes(connectionString: string, blobPath: string): Promise<Uint8Array> {
+  const containerClient = getContainerClient(connectionString);
+  const blobClient = containerClient.getBlobClient(blobPath);
+
+  const downloadRes = await blobClient.download(0);
+  if (!downloadRes.readableStreamBody) {
+    throw new Error(`Failed to download blob stream: ${blobPath}`);
+  }
+
+  const arrayBuffer = await new Response(downloadRes.readableStreamBody).arrayBuffer();
+  return new Uint8Array(arrayBuffer);
+}
+
+async function uploadBlobBytes(
+  connectionString: string,
+  blobPath: string,
+  bytes: Uint8Array,
+  contentType: string,
 ): Promise<string> {
-  const contentLength = headers["Content-Length"] || "";
-  const contentType = headers["Content-Type"] || "";
+  const containerClient = getContainerClient(connectionString);
+  const blockBlobClient = containerClient.getBlockBlobClient(blobPath);
 
-  const msHeaders: Record<string, string> = {};
-  for (const [k, v] of Object.entries(headers)) {
-    if (k.toLowerCase().startsWith("x-ms-")) msHeaders[k.toLowerCase()] = v;
-  }
-  const canonicalizedHeaders = Object.keys(msHeaders).sort().map((k) => `${k}:${msHeaders[k]}`).join("\n");
+  await blockBlobClient.uploadData(bytes, {
+    blobHTTPHeaders: { blobContentType: contentType },
+  });
 
-  let canonicalizedResource = `/${accountName}${path}`;
-  if (queryParams) {
-    const sortedParams = [...queryParams.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-    for (const [key, value] of sortedParams) {
-      canonicalizedResource += `\n${key}:${value}`;
-    }
-  }
-
-  const stringToSign = [
-    method, "", "", contentLength, "", contentType, "", "", "", "", "", "",
-    canonicalizedHeaders, canonicalizedResource,
-  ].join("\n");
-
-  const keyBytes = Uint8Array.from(atob(accountKey), (c) => c.charCodeAt(0));
-  const cryptoKey = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const signatureBytes = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(stringToSign));
-  return `SharedKey ${accountName}:${btoa(String.fromCharCode(...new Uint8Array(signatureBytes)))}`;
-}
-
-async function azureRequest(
-  accountName: string, accountKey: string, method: string, path: string,
-  options: { queryParams?: URLSearchParams; body?: Uint8Array | string; contentType?: string; additionalHeaders?: Record<string, string> } = {}
-): Promise<Response> {
-  const now = new Date().toUTCString();
-  const headers: Record<string, string> = { "x-ms-date": now, "x-ms-version": "2023-11-03", ...(options.additionalHeaders || {}) };
-
-  if (options.body) {
-    const bodyLength = typeof options.body === "string" ? new TextEncoder().encode(options.body).length : options.body.length;
-    headers["Content-Length"] = String(bodyLength);
-    if (options.contentType) headers["Content-Type"] = options.contentType;
-  }
-
-  headers["Authorization"] = await createSharedKeySignature(accountName, accountKey, method, path, headers, options.queryParams);
-
-  let url = `https://${accountName}.blob.core.windows.net${path}`;
-  if (options.queryParams?.toString()) url += `?${options.queryParams.toString()}`;
-
-  return fetch(url, { method, headers, body: options.body || undefined });
+  return blockBlobClient.url;
 }
 
 /**
