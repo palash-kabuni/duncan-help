@@ -15,6 +15,7 @@ import Settings from "./pages/Settings";
 import Wiki from "./pages/Wiki";
 import PurchaseOrders from "./pages/PurchaseOrders";
 import Recruitment from "./pages/Recruitment";
+import Documents from "./pages/Documents";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -37,6 +38,7 @@ const App = () => (
             <Route path="/wiki" element={<ProtectedRoute><Wiki /></ProtectedRoute>} />
             <Route path="/purchase-orders" element={<ProtectedRoute><PurchaseOrders /></ProtectedRoute>} />
             <Route path="/recruitment" element={<ProtectedRoute><Recruitment /></ProtectedRoute>} />
+            <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
