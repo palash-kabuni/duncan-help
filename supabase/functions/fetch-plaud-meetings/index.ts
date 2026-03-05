@@ -71,6 +71,19 @@ function base64UrlDecode(data: string): Uint8Array {
   return bytes;
 }
 
+function extractHtmlBody(payload: any): string {
+  if (payload.mimeType === "text/html" && payload.body?.data) {
+    return new TextDecoder().decode(base64UrlDecode(payload.body.data));
+  }
+  if (payload.parts) {
+    for (const part of payload.parts) {
+      const html = extractHtmlBody(part);
+      if (html) return html;
+    }
+  }
+  return "";
+}
+
 function extractPlainTextBody(payload: any): string {
   // Recursively search for text/plain parts
   if (payload.mimeType === "text/plain" && payload.body?.data) {
@@ -89,6 +102,121 @@ function extractPlainTextBody(payload: any): string {
     return decoded.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   }
   return "";
+}
+
+function extractPlaudLinks(text: string, html: string): string[] {
+  const urls = new Set<string>();
+  // Match Plaud-related URLs from both plain text and HTML
+  const patterns = [
+    /https?:\/\/[^\s"'<>]*plaud\.[^\s"'<>]*/gi,
+    /https?:\/\/[^\s"'<>]*plaud[^\s"'<>]*/gi,
+    /href=["'](https?:\/\/[^"']*plaud[^"']*)/gi,
+  ];
+  const combined = text + " " + html;
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(combined)) !== null) {
+      const url = match[1] || match[0];
+      // Clean up trailing punctuation
+      const cleaned = url.replace(/[)}\].,;!?]+$/, "");
+      if (cleaned.startsWith("http")) {
+        urls.add(cleaned);
+      }
+    }
+  }
+  return Array.from(urls);
+}
+
+async function fetchPlaudWebpage(url: string): Promise<{ transcript: string; title?: string } | null> {
+  try {
+    console.log(`Fetching Plaud webpage: ${url}`);
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; DuncanBot/1.0)",
+        "Accept": "text/html,application/xhtml+xml",
+      },
+      redirect: "follow",
+    });
+    if (!res.ok) {
+      console.error(`Plaud page fetch failed (${res.status}): ${url}`);
+      return null;
+    }
+    const html = await res.text();
+
+    // Extract title
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const title = titleMatch ? titleMatch[1].trim() : undefined;
+
+    // Try to extract transcript content from common patterns
+    // Plaud pages typically have transcript in specific divs/sections
+    let transcript = "";
+
+    // Strategy 1: Look for transcript/content sections by common class/id patterns
+    const sectionPatterns = [
+      /<div[^>]*(?:class|id)="[^"]*transcript[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
+      /<div[^>]*(?:class|id)="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
+      /<div[^>]*(?:class|id)="[^"]*meeting[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
+      /<div[^>]*(?:class|id)="[^"]*note[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
+      /<article[^>]*>([\s\S]*?)<\/article>/gi,
+      /<main[^>]*>([\s\S]*?)<\/main>/gi,
+      /<section[^>]*(?:class|id)="[^"]*detail[^"]*"[^>]*>([\s\S]*?)<\/section>/gi,
+    ];
+
+    for (const pattern of sectionPatterns) {
+      let match;
+      while ((match = pattern.exec(html)) !== null) {
+        const stripped = match[1]
+          .replace(/<script[\s\S]*?<\/script>/gi, "")
+          .replace(/<style[\s\S]*?<\/style>/gi, "")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/&nbsp;/g, " ")
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .replace(/&#\d+;/g, "")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (stripped.length > transcript.length && stripped.length > 50) {
+          transcript = stripped;
+        }
+      }
+    }
+
+    // Strategy 2: Fallback - extract all meaningful text from body
+    if (!transcript || transcript.length < 100) {
+      const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+      if (bodyMatch) {
+        const bodyText = bodyMatch[1]
+          .replace(/<script[\s\S]*?<\/script>/gi, "")
+          .replace(/<style[\s\S]*?<\/style>/gi, "")
+          .replace(/<nav[\s\S]*?<\/nav>/gi, "")
+          .replace(/<header[\s\S]*?<\/header>/gi, "")
+          .replace(/<footer[\s\S]*?<\/footer>/gi, "")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/&nbsp;/g, " ")
+          .replace(/&amp;/g, "&")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (bodyText.length > 100) {
+          transcript = bodyText.slice(0, 60000);
+        }
+      }
+    }
+
+    // Strategy 3: Check for downloadable audio/transcript links on the page
+    // (We extract the text content; audio download would need separate handling)
+
+    if (!transcript || transcript.length < 50) {
+      console.log(`No meaningful content extracted from ${url}`);
+      return null;
+    }
+
+    console.log(`Extracted ${transcript.length} chars from Plaud page`);
+    return { transcript, title };
+  } catch (e) {
+    console.error(`Error fetching Plaud webpage ${url}:`, e);
+    return null;
+  }
 }
 
 interface Attachment {
@@ -239,7 +367,23 @@ serve(async (req) => {
         }
       }
 
-      // If no transcript from attachments, use email body
+      // If no transcript from attachments, try Plaud webpage links
+      if (!transcriptText && transcriptAttachments.length === 0 && audioAttachments.length === 0) {
+        const htmlBody = extractHtmlBody(msgData.payload);
+        const plaudLinks = extractPlaudLinks(bodyText, htmlBody);
+        console.log(`No attachments found. Detected ${plaudLinks.length} Plaud link(s):`, plaudLinks);
+
+        for (const link of plaudLinks) {
+          const pageData = await fetchPlaudWebpage(link);
+          if (pageData?.transcript) {
+            transcriptText = pageData.transcript;
+            console.log(`Got transcript from Plaud page: ${link} (${transcriptText.length} chars)`);
+            break;
+          }
+        }
+      }
+
+      // If still no transcript, use email body
       if (!transcriptText && bodyText.length > 100) {
         transcriptText = bodyText;
       }
