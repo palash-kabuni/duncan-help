@@ -65,3 +65,9 @@ verify_jwt = false
 
 [functions.hireflix-sync-interviews]
 verify_jwt = false
+
+[functions.fetch-plaud-meetings]
+verify_jwt = false
+
+[functions.analyze-meeting]
+verify_jwt = false
