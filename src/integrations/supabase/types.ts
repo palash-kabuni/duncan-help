@@ -405,6 +405,66 @@ export type Database = {
         }
         Relationships: []
       }
+      meetings: {
+        Row: {
+          action_items: Json | null
+          analysis: Json | null
+          audio_storage_path: string | null
+          created_at: string
+          email_subject: string | null
+          fetched_by: string | null
+          gmail_message_id: string | null
+          id: string
+          meeting_date: string | null
+          participants: string[] | null
+          sender_email: string | null
+          source: string
+          status: string
+          summary: string | null
+          title: string
+          transcript: string | null
+          updated_at: string
+        }
+        Insert: {
+          action_items?: Json | null
+          analysis?: Json | null
+          audio_storage_path?: string | null
+          created_at?: string
+          email_subject?: string | null
+          fetched_by?: string | null
+          gmail_message_id?: string | null
+          id?: string
+          meeting_date?: string | null
+          participants?: string[] | null
+          sender_email?: string | null
+          source?: string
+          status?: string
+          summary?: string | null
+          title: string
+          transcript?: string | null
+          updated_at?: string
+        }
+        Update: {
+          action_items?: Json | null
+          analysis?: Json | null
+          audio_storage_path?: string | null
+          created_at?: string
+          email_subject?: string | null
+          fetched_by?: string | null
+          gmail_message_id?: string | null
+          id?: string
+          meeting_date?: string | null
+          participants?: string[] | null
+          sender_email?: string | null
+          source?: string
+          status?: string
+          summary?: string | null
+          title?: string
+          transcript?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       nda_submissions: {
         Row: {
           created_at: string

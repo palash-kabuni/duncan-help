@@ -23,6 +23,7 @@ Your capabilities:
 - **Document Search**: You have access to the company's document storage. You can search for documents, read their content, list folders, and answer questions based on them. Documents are organized in folders: documents/, ndas/, and templates/.
 - **Notion Access**: You have access to the company's Notion workspace. You can search for pages, query databases, and read page content. Use these tools when users ask about information stored in Notion.
 - **Basecamp Access**: You have access to the company's Basecamp. You can list projects, fetch to-do lists and individual to-dos, read messages from message boards, and fetch cards from Card Tables (Kanban boards). Use these tools when users ask about project status, tasks, to-dos, messages, or cards in Basecamp. When asked about a specific project, first use list_basecamp_projects to find it, then use the project ID and dock tool IDs to fetch to-dos, messages, or cards. For Card Tables, look for the 'kanban_board' dock item.
+- **Meeting Intelligence**: You can fetch and analyze meeting recordings from Plaud AI. Use fetch_plaud_meetings to pull new recordings from email, list_meetings to browse stored meetings, get_meeting to view a specific meeting's transcript and analysis, and analyze_meetings to run AI analysis on meetings. When users ask about meetings, what was discussed, action items, or meeting insights, use these tools. You can search across all meeting transcripts to answer questions like "What did we decide about X?".
 - **Google Forms**: You can fill and submit pre-configured Google Forms on behalf of the user. You can also parse a Google Form URL to automatically extract its fields and save it as a new pre-configured form. When a user asks to fill a form, first list available forms, then ask each required field ONE AT A TIME as a conversational question. Wait for the user to answer each question before asking the next. After collecting all answers, confirm the details and submit. When a user provides a Google Form URL, use parse_google_form to extract the fields, show the parsed result to the user for confirmation, then save it with save_parsed_google_form.
 
 Your personality:
@@ -511,6 +512,181 @@ const BASECAMP_TOOLS = [
     },
   },
 ];
+
+const MEETING_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "fetch_plaud_meetings",
+      description: "Fetch new Plaud AI meeting recordings and transcripts from Gmail. Pulls emails from Plaud, extracts transcripts and audio files, and stores them in the meetings database. Use this when the user wants to sync or import new meetings.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_meetings",
+      description: "List stored meetings with optional filters. Use this to browse meetings, find specific ones, or check status.",
+      parameters: {
+        type: "object",
+        properties: {
+          status: { type: "string", description: "Filter by status: pending, transcribed, audio_only, analyzed" },
+          limit: { type: "number", description: "Max results (default 20)" },
+          search: { type: "string", description: "Search meetings by title or transcript content" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_meeting",
+      description: "Get full details of a specific meeting including transcript, analysis, action items, and participants. Use this after listing meetings to dive into a specific one.",
+      parameters: {
+        type: "object",
+        properties: {
+          meeting_id: { type: "string", description: "The meeting UUID" },
+        },
+        required: ["meeting_id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "analyze_meetings",
+      description: "Run AI analysis on meetings that have transcripts but haven't been analyzed yet. Can also re-analyze specific meetings. Extracts summary, action items, decisions, participants, sentiment, risks, and follow-ups.",
+      parameters: {
+        type: "object",
+        properties: {
+          meeting_id: { type: "string", description: "Specific meeting ID to analyze (optional — omit to auto-analyze all pending)" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_meeting_transcripts",
+      description: "Search across all meeting transcripts to find discussions about a specific topic. Use this when the user asks 'What did we discuss about X?' or 'When did we talk about Y?'",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "The topic or keyword to search for across meeting transcripts" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+];
+
+async function executeMeetingTool(
+  toolName: string,
+  args: any,
+  supabaseAdmin: any,
+  supabaseUrl: string,
+  authHeader: string
+): Promise<any> {
+  switch (toolName) {
+    case "fetch_plaud_meetings": {
+      const res = await fetch(`${supabaseUrl}/functions/v1/fetch-plaud-meetings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({}),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "Failed to fetch Plaud meetings");
+      return result;
+    }
+
+    case "list_meetings": {
+      let query = supabaseAdmin
+        .from("meetings")
+        .select("id, title, meeting_date, status, source, summary, participants, sender_email, created_at")
+        .order("meeting_date", { ascending: false })
+        .limit(args.limit || 20);
+
+      if (args.status) query = query.eq("status", args.status);
+      if (args.search) query = query.or(`title.ilike.%${args.search}%,transcript.ilike.%${args.search}%`);
+
+      const { data, error } = await query;
+      if (error) throw new Error(`Failed to list meetings: ${error.message}`);
+      return { count: (data || []).length, meetings: data || [] };
+    }
+
+    case "get_meeting": {
+      const { data, error } = await supabaseAdmin
+        .from("meetings")
+        .select("*")
+        .eq("id", args.meeting_id)
+        .single();
+      if (error) throw new Error(`Meeting not found: ${error.message}`);
+      return {
+        ...data,
+        transcript: data.transcript ? data.transcript.slice(0, 40000) : null,
+      };
+    }
+
+    case "analyze_meetings": {
+      const res = await fetch(`${supabaseUrl}/functions/v1/analyze-meeting`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify(args.meeting_id ? { meeting_id: args.meeting_id } : {}),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "Failed to analyze meetings");
+      return result;
+    }
+
+    case "search_meeting_transcripts": {
+      const searchTerm = args.query;
+      const { data, error } = await supabaseAdmin
+        .from("meetings")
+        .select("id, title, meeting_date, transcript, summary, analysis, status")
+        .not("transcript", "is", null)
+        .ilike("transcript", `%${searchTerm}%`)
+        .order("meeting_date", { ascending: false })
+        .limit(10);
+
+      if (error) throw new Error(`Search failed: ${error.message}`);
+
+      // Extract relevant snippets around the search term
+      const results = (data || []).map((m: any) => {
+        const transcript = m.transcript || "";
+        const lowerTranscript = transcript.toLowerCase();
+        const lowerQuery = searchTerm.toLowerCase();
+        const idx = lowerTranscript.indexOf(lowerQuery);
+        let snippet = "";
+        if (idx >= 0) {
+          const start = Math.max(0, idx - 200);
+          const end = Math.min(transcript.length, idx + searchTerm.length + 200);
+          snippet = (start > 0 ? "..." : "") + transcript.slice(start, end) + (end < transcript.length ? "..." : "");
+        }
+        return {
+          id: m.id,
+          title: m.title,
+          meeting_date: m.meeting_date,
+          status: m.status,
+          summary: m.summary,
+          relevant_snippet: snippet,
+        };
+      });
+
+      return { query: searchTerm, found: results.length, meetings: results };
+    }
+
+    default:
+      throw new Error(`Unknown meeting tool: ${toolName}`);
+  }
+}
 
 async function executeGoogleFormsTool(toolName: string, args: any, supabaseAdmin: any): Promise<any> {
   switch (toolName) {
@@ -1333,6 +1509,8 @@ serve(async (req) => {
     if (basecampCreds) {
       tools.push(...BASECAMP_TOOLS);
     }
+    // Meeting tools always available (Gmail connection checked at execution time)
+    tools.push(...MEETING_TOOLS);
     if (tools.length > 0) {
       requestBody.tools = tools;
     }
@@ -1436,6 +1614,7 @@ serve(async (req) => {
       const googleFormsToolNames = ["list_google_forms", "submit_google_form", "parse_google_form", "save_parsed_google_form"];
       const ndaToolNames = ["generate_nda", "list_nda_submissions", "send_nda_for_signature"];
       const basecampToolNames = ["list_basecamp_projects", "get_basecamp_todolists", "get_basecamp_todos", "get_basecamp_messages", "get_basecamp_card_table_cards"];
+      const meetingToolNames = ["fetch_plaud_meetings", "list_meetings", "get_meeting", "analyze_meetings", "search_meeting_transcripts"];
       const toolResults: any[] = [];
 
       for (const tc of toolCalls) {
@@ -1472,6 +1651,8 @@ serve(async (req) => {
               result = await executeBasecampTool(tc.function.name, args, basecampCreds.accessToken, basecampCreds.accountId);
               console.log(`Basecamp tool ${tc.function.name} result preview:`, JSON.stringify(result).slice(0, 500));
             }
+          } else if (meetingToolNames.includes(tc.function.name)) {
+              result = await executeMeetingTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
           } else {
           }
           
