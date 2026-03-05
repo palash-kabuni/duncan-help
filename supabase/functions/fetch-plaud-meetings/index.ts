@@ -262,9 +262,8 @@ serve(async (req) => {
 
     const headers = { Authorization: `Bearer ${gmailToken}` };
 
-    // Search for Plaud AI emails - they come from noreply@plaud.ai or similar
-    // Also search for common patterns in Plaud emails
-    const query = `from:plaud OR subject:"plaud" OR subject:"meeting recording" OR subject:"voice note" OR subject:"transcript" from:noreply@plaud.ai`;
+    // Search for Plaud AI emails by subject or sender
+    const query = `subject:plaud OR from:plaud OR from:noreply@plaud.ai`;
     console.log("Gmail search query for Plaud:", query);
 
     const searchUrl = new URL(`${GMAIL_API}/messages`);
