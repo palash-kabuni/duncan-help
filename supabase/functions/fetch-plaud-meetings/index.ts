@@ -129,8 +129,16 @@ function extractPlaudLinks(text: string, html: string): string[] {
 
 async function fetchPlaudWebpage(url: string): Promise<{ transcript: string; title?: string } | null> {
   try {
-    console.log(`Fetching Plaud webpage: ${url}`);
-    const res = await fetch(url, {
+    // Convert /s/ URLs to /nshare/ URLs — the nshare variant returns server-rendered content
+    // while /s/ is a SPA shell that yields nothing useful via fetch
+    let fetchUrl = url;
+    if (url.includes("/s/")) {
+      fetchUrl = url.replace("/s/", "/nshare/");
+      console.log(`Converted Plaud URL to nshare: ${fetchUrl}`);
+    }
+
+    console.log(`Fetching Plaud webpage: ${fetchUrl}`);
+    const res = await fetch(fetchUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; DuncanBot/1.0)",
         "Accept": "text/html,application/xhtml+xml",
@@ -138,7 +146,7 @@ async function fetchPlaudWebpage(url: string): Promise<{ transcript: string; tit
       redirect: "follow",
     });
     if (!res.ok) {
-      console.error(`Plaud page fetch failed (${res.status}): ${url}`);
+      console.error(`Plaud page fetch failed (${res.status}): ${fetchUrl}`);
       return null;
     }
     const html = await res.text();
@@ -147,70 +155,33 @@ async function fetchPlaudWebpage(url: string): Promise<{ transcript: string; tit
     const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
     const title = titleMatch ? titleMatch[1].trim() : undefined;
 
-    // Try to extract transcript content from common patterns
-    // Plaud pages typically have transcript in specific divs/sections
+    // Extract transcript from the page body — strip scripts/styles/nav and get text
     let transcript = "";
-
-    // Strategy 1: Look for transcript/content sections by common class/id patterns
-    const sectionPatterns = [
-      /<div[^>]*(?:class|id)="[^"]*transcript[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
-      /<div[^>]*(?:class|id)="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
-      /<div[^>]*(?:class|id)="[^"]*meeting[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
-      /<div[^>]*(?:class|id)="[^"]*note[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
-      /<article[^>]*>([\s\S]*?)<\/article>/gi,
-      /<main[^>]*>([\s\S]*?)<\/main>/gi,
-      /<section[^>]*(?:class|id)="[^"]*detail[^"]*"[^>]*>([\s\S]*?)<\/section>/gi,
-    ];
-
-    for (const pattern of sectionPatterns) {
-      let match;
-      while ((match = pattern.exec(html)) !== null) {
-        const stripped = match[1]
-          .replace(/<script[\s\S]*?<\/script>/gi, "")
-          .replace(/<style[\s\S]*?<\/style>/gi, "")
-          .replace(/<[^>]+>/g, " ")
-          .replace(/&nbsp;/g, " ")
-          .replace(/&amp;/g, "&")
-          .replace(/&lt;/g, "<")
-          .replace(/&gt;/g, ">")
-          .replace(/&#\d+;/g, "")
-          .replace(/\s+/g, " ")
-          .trim();
-        if (stripped.length > transcript.length && stripped.length > 50) {
-          transcript = stripped;
-        }
-      }
+    const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    if (bodyMatch) {
+      transcript = bodyMatch[1]
+        .replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<nav[\s\S]*?<\/nav>/gi, "")
+        .replace(/<header[\s\S]*?<\/header>/gi, "")
+        .replace(/<footer[\s\S]*?<\/footer>/gi, "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&#\d+;/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
     }
-
-    // Strategy 2: Fallback - extract all meaningful text from body
-    if (!transcript || transcript.length < 100) {
-      const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-      if (bodyMatch) {
-        const bodyText = bodyMatch[1]
-          .replace(/<script[\s\S]*?<\/script>/gi, "")
-          .replace(/<style[\s\S]*?<\/style>/gi, "")
-          .replace(/<nav[\s\S]*?<\/nav>/gi, "")
-          .replace(/<header[\s\S]*?<\/header>/gi, "")
-          .replace(/<footer[\s\S]*?<\/footer>/gi, "")
-          .replace(/<[^>]+>/g, " ")
-          .replace(/&nbsp;/g, " ")
-          .replace(/&amp;/g, "&")
-          .replace(/\s+/g, " ")
-          .trim();
-        if (bodyText.length > 100) {
-          transcript = bodyText.slice(0, 60000);
-        }
-      }
-    }
-
-    // Strategy 3: Check for downloadable audio/transcript links on the page
-    // (We extract the text content; audio download would need separate handling)
 
     if (!transcript || transcript.length < 50) {
-      console.log(`No meaningful content extracted from ${url}`);
+      console.log(`No meaningful content extracted from ${fetchUrl}`);
       return null;
     }
 
+    // Trim to reasonable size
+    transcript = transcript.slice(0, 60000);
     console.log(`Extracted ${transcript.length} chars from Plaud page`);
     return { transcript, title };
   } catch (e) {
