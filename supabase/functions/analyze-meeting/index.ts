@@ -99,7 +99,7 @@ For key_topics, list the main subjects discussed.`;
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "google/gemini-3-flash-preview",
+            model: "openai/gpt-5-mini",
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: `Meeting: "${meeting.title}" (${meeting.meeting_date || "date unknown"})\n\nTRANSCRIPT:\n${meeting.transcript.slice(0, 60000)}` },
