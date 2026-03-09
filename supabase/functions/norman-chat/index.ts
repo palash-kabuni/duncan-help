@@ -1487,7 +1487,7 @@ serve(async (req) => {
 
     // First call to AI with tools if calendar is connected
     const requestBody: any = {
-      model: "google/gemini-3-flash-preview",
+      model: "openai/gpt-5-mini",
       messages: [
         { role: "system", content: systemContent },
         ...messages,
