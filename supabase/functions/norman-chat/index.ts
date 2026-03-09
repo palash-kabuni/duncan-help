@@ -1384,12 +1384,12 @@ serve(async (req) => {
 
   try {
     const { messages, mode, userProfile } = await req.json();
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    if (!OPENAI_API_KEY) {
-      throw new Error("OPENAI_API_KEY is not configured");
+    if (!LOVABLE_API_KEY) {
+      throw new Error("LOVABLE_API_KEY is not configured");
     }
 
     // Get user from auth header
@@ -1487,7 +1487,7 @@ serve(async (req) => {
 
     // First call to AI with tools if calendar is connected
     const requestBody: any = {
-      model: "gpt-4o",
+      model: "google/gemini-3-flash-preview",
       messages: [
         { role: "system", content: systemContent },
         ...messages,
@@ -1516,11 +1516,11 @@ serve(async (req) => {
     }
 
     const response = await fetch(
-      "https://api.openai.com/v1/chat/completions",
+      "https://ai.gateway.lovable.dev/v1/chat/completions",
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(requestBody),
@@ -1709,15 +1709,15 @@ serve(async (req) => {
 
       // Make follow-up request
       const followUpResponse = await fetch(
-        "https://api.openai.com/v1/chat/completions",
+        "https://ai.gateway.lovable.dev/v1/chat/completions",
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "gpt-4o",
+            model: "google/gemini-3-flash-preview",
             messages: conversationMessages,
             stream: true,
             ...(isLastRound ? {} : { tools }),
