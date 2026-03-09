@@ -256,7 +256,7 @@ You MUST call the score_values function with your assessment.`;
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "google/gemini-3-flash-preview",
+            model: "openai/gpt-5-mini",
             messages: [{ role: "system", content: systemPrompt }, ...cvContent.messages],
             tools: [toolDef],
             tool_choice: { type: "function", function: { name: "score_values" } },

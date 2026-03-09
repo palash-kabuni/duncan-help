@@ -168,7 +168,7 @@ Call score_competencies with your assessment. Use keys competency_0, competency_
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "google/gemini-3-flash-preview",
+            model: "openai/gpt-5-mini",
             messages: [{ role: "system", content: systemPrompt }, ...cvMessages],
             tools: [{
               type: "function",

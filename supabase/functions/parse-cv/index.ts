@@ -153,7 +153,7 @@ Always return the result by calling the extract_candidate_info function.`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "openai/gpt-5-mini",
         messages: aiMessages,
         tools: [
           {
