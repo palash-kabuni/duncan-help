@@ -19,6 +19,7 @@ function uint8ToBase64(bytes: Uint8Array): string {
 }
 
 // Extract text content from a DOCX file (ZIP of XML)
+// Note: For PDFs we do best-effort text extraction since OpenAI API doesn't accept PDF files directly
 async function extractDocxText(bytes: Uint8Array): Promise<string> {
   const blob = new Blob([bytes]);
   const reader = new ZipReader(new BlobReader(blob));
