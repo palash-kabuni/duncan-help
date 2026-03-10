@@ -246,14 +246,14 @@ You MUST call the score_values function with your assessment.`;
           continue;
         }
 
-        const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+        const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "gpt-4o-mini",
+            model: "google/gemini-3-flash-preview",
             messages: [{ role: "system", content: systemPrompt }, ...cvContent.messages],
             tools: [toolDef],
             tool_choice: { type: "function", function: { name: "score_values" } },
