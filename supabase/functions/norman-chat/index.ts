@@ -1730,23 +1730,13 @@ serve(async (req) => {
       // Check if this is the last allowed round - if so, stream the response
       const isLastRound = round >= MAX_TOOL_ROUNDS;
 
-      // Make follow-up request
-      const followUpResponse = await fetch(
-        "https://api.openai.com/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "gpt-4o-mini",
-            messages: conversationMessages,
-            stream: true,
-            ...(isLastRound ? {} : { tools }),
-          }),
-        }
-      );
+      // Make follow-up request with retry
+      const followUpResponse = await fetchOpenAIWithRetry({
+        model: "gpt-4o-mini",
+        messages: conversationMessages,
+        stream: true,
+        ...(isLastRound ? {} : { tools }),
+      });
 
       if (!followUpResponse.ok) {
         const text = await followUpResponse.text();
