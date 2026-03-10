@@ -1563,7 +1563,7 @@ serve(async (req) => {
         );
       }
       const text = await response.text();
-      console.error("OpenAI API error:", response.status, text);
+      console.error("AI gateway error:", response.status, text);
       return new Response(
         JSON.stringify({ error: "AI gateway error" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
