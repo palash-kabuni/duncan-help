@@ -235,24 +235,30 @@ serve(async (req) => {
 
     // Search 1: Plaud AI emails - sharing invites, plaud sender
     const plaudQuery = `subject:"invited you to view" OR subject:plaud OR from:plaud OR from:noreply@plaud.ai`;
-    // Search 2: Emails with subjects starting with DD-MM date pattern (e.g. "15-03 Team Standup")
-    // Gmail doesn't support regex, so we do a broad search and filter in code
-    const dateQuery = `newer_than:30d`;
+    // Search 2: Emails from known meeting-note senders (Nimesh Patel, Palash) — filter by DD-MM subject pattern in code
+    const nimeshQuery = `from:nimesh patel newer_than:60d`;
+    // Search 3: Broader DD-MM pattern check on forwarded meeting emails
+    const forwardedQuery = `from:palash subject:fwd newer_than:60d`;
 
-    console.log("Gmail search queries - Plaud:", plaudQuery, "| Date pattern:", dateQuery);
+    console.log("Gmail search queries - Plaud:", plaudQuery, "| Nimesh:", nimeshQuery, "| Forwarded:", forwardedQuery);
 
     const plaudSearchUrl = new URL(`${GMAIL_API}/messages`);
     plaudSearchUrl.searchParams.set("q", plaudQuery);
     plaudSearchUrl.searchParams.set("maxResults", "30");
 
-    const dateSearchUrl = new URL(`${GMAIL_API}/messages`);
-    dateSearchUrl.searchParams.set("q", dateQuery);
-    dateSearchUrl.searchParams.set("maxResults", "50");
+    const nimeshSearchUrl = new URL(`${GMAIL_API}/messages`);
+    nimeshSearchUrl.searchParams.set("q", nimeshQuery);
+    nimeshSearchUrl.searchParams.set("maxResults", "50");
 
-    // Fetch both searches in parallel
-    const [plaudSearchRes, dateSearchRes] = await Promise.all([
+    const fwdSearchUrl = new URL(`${GMAIL_API}/messages`);
+    fwdSearchUrl.searchParams.set("q", forwardedQuery);
+    fwdSearchUrl.searchParams.set("maxResults", "50");
+
+    // Fetch all three searches in parallel
+    const [plaudSearchRes, nimeshSearchRes, fwdSearchRes] = await Promise.all([
       fetch(plaudSearchUrl.toString(), { headers }),
-      fetch(dateSearchUrl.toString(), { headers }),
+      fetch(nimeshSearchUrl.toString(), { headers }),
+      fetch(fwdSearchUrl.toString(), { headers }),
     ]);
 
     if (!plaudSearchRes.ok) {
@@ -263,42 +269,62 @@ serve(async (req) => {
     const plaudMessages = plaudSearchData.messages || [];
     console.log(`Found ${plaudMessages.length} Plaud-related emails`);
 
-    // For date search, we need to fetch headers and filter by DD-MM pattern
-    let dateMessages: any[] = [];
-    if (dateSearchRes.ok) {
-      const dateSearchData = await dateSearchRes.json();
-      const candidateMsgs = dateSearchData.messages || [];
-      console.log(`Found ${candidateMsgs.length} recent emails to check for DD-MM pattern`);
+    // Collect candidate messages from Nimesh and forwarded searches, then filter by DD-MM pattern
+    const allCandidateMsgs: any[] = [];
+    const plaudIds = new Set(plaudMessages.map((m: any) => m.id));
 
-      // Check each candidate for DD-MM subject pattern
-      const DD_MM_PATTERN = /^\d{2}-\d{2}/;
-      for (const candidate of candidateMsgs) {
-        // Skip if already in plaud results
-        if (plaudMessages.some((m: any) => m.id === candidate.id)) continue;
-
-        try {
-          const metaRes = await fetch(
-            `${GMAIL_API}/messages/${candidate.id}?format=metadata&metadataHeaders=Subject`,
-            { headers }
-          );
-          if (!metaRes.ok) continue;
-          const metaData = await metaRes.json();
-          const subjectHeader = (metaData.payload?.headers || []).find(
-            (h: any) => h.name.toLowerCase() === "subject"
-          );
-          const subjectVal = subjectHeader?.value || "";
-          if (DD_MM_PATTERN.test(subjectVal.trim())) {
-            dateMessages.push(candidate);
-            console.log(`DD-MM match: "${subjectVal}"`);
+    for (const [label, res] of [["Nimesh", nimeshSearchRes], ["Forwarded", fwdSearchRes]] as const) {
+      if (res.ok) {
+        const data = await res.json();
+        const msgs = data.messages || [];
+        console.log(`Found ${msgs.length} emails from ${label} search`);
+        for (const m of msgs) {
+          if (!plaudIds.has(m.id)) {
+            allCandidateMsgs.push(m);
           }
-        } catch (e) {
-          console.error(`Failed to check subject for ${candidate.id}:`, e);
         }
       }
-      console.log(`Found ${dateMessages.length} emails matching DD-MM pattern`);
     }
 
-    // Merge and deduplicate
+    // Deduplicate candidates
+    const candidateIds = new Set<string>();
+    const uniqueCandidates = allCandidateMsgs.filter((m) => {
+      if (candidateIds.has(m.id)) return false;
+      candidateIds.add(m.id);
+      return true;
+    });
+    console.log(`${uniqueCandidates.length} unique candidate emails to check for DD-MM pattern`);
+
+    // Check each candidate for DD-MM subject pattern
+    const DD_MM_PATTERN = /^\d{2}-\d{2}/;
+    // Also match DD-MM inside forwarded subjects like: Fwd: Nimesh Patel has invited you to view "02-19 Meeting..."
+    const DD_MM_QUOTED_PATTERN = /["']\d{2}-\d{2}/;
+    let dateMessages: any[] = [];
+
+    for (const candidate of uniqueCandidates) {
+      try {
+        const metaRes = await fetch(
+          `${GMAIL_API}/messages/${candidate.id}?format=metadata&metadataHeaders=Subject`,
+          { headers }
+        );
+        if (!metaRes.ok) continue;
+        const metaData = await metaRes.json();
+        const subjectHeader = (metaData.payload?.headers || []).find(
+          (h: any) => h.name.toLowerCase() === "subject"
+        );
+        const subjectVal = subjectHeader?.value || "";
+        const trimmed = subjectVal.trim();
+        if (DD_MM_PATTERN.test(trimmed) || DD_MM_QUOTED_PATTERN.test(trimmed)) {
+          dateMessages.push(candidate);
+          console.log(`DD-MM match: "${subjectVal}"`);
+        }
+      } catch (e) {
+        console.error(`Failed to check subject for ${candidate.id}:`, e);
+      }
+    }
+    console.log(`Found ${dateMessages.length} emails matching DD-MM pattern`);
+
+    // Merge and deduplicate all results
     const seenIds = new Set<string>();
     const messages: any[] = [];
     for (const msg of [...plaudMessages, ...dateMessages]) {
