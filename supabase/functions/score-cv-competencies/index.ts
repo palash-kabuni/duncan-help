@@ -39,14 +39,11 @@ async function getCvContent(supabaseAdmin: any, storagePath: string): Promise<an
   const ext = storagePath.split(".").pop()?.toLowerCase();
 
   if (ext === "pdf") {
-    const base64 = uint8ToBase64(bytes);
-    return [{
-      role: "user",
-      content: [
-        { type: "file", file: { filename: storagePath.split("/").pop() || "cv.pdf", file_data: `data:application/pdf;base64,${base64}` } },
-        { type: "text", text: "Score this candidate's CV against the competencies listed in the system prompt." },
-      ],
-    }];
+    // Extract text from PDF (OpenAI API doesn't accept PDF files directly)
+    const textContent = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    const cleanText = textContent.replace(/[^\x20-\x7E\n\r\t]/g, " ").replace(/\s{3,}/g, " ").slice(0, 15000);
+    if (!cleanText || cleanText.length < 20) return null;
+    return [{ role: "user", content: `Score this candidate's CV against the competencies listed in the system prompt.\n\nCV TEXT:\n${cleanText}` }];
   }
 
   let text = "";
@@ -67,10 +64,10 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 
-    if (!LOVABLE_API_KEY) {
-      return new Response(JSON.stringify({ error: "LOVABLE_API_KEY not configured" }), {
+    if (!OPENAI_API_KEY) {
+      return new Response(JSON.stringify({ error: "OPENAI_API_KEY not configured" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -161,14 +158,14 @@ ${competencyList}
 
 Call score_competencies with your assessment. Use keys competency_0, competency_1, etc. matching the order above.`;
 
-        const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "openai/gpt-5-mini",
+            model: "gpt-4o-mini",
             messages: [{ role: "system", content: systemPrompt }, ...cvMessages],
             tools: [{
               type: "function",

@@ -19,6 +19,7 @@ function uint8ToBase64(bytes: Uint8Array): string {
 }
 
 // Extract text content from a DOCX file (ZIP of XML)
+// Note: For PDFs we do best-effort text extraction since OpenAI API doesn't accept PDF files directly
 async function extractDocxText(bytes: Uint8Array): Promise<string> {
   const blob = new Blob([bytes]);
   const reader = new ZipReader(new BlobReader(blob));
@@ -55,11 +56,11 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 
-    if (!LOVABLE_API_KEY) {
+    if (!OPENAI_API_KEY) {
       return new Response(
-        JSON.stringify({ error: "LOVABLE_API_KEY not configured" }),
+        JSON.stringify({ error: "OPENAI_API_KEY not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -97,25 +98,20 @@ Always return the result by calling the extract_candidate_info function.`,
     let aiMessages: any[];
 
     if (isPdf) {
-      // PDFs: send as file attachment (Gemini supports PDF natively)
-      const base64 = uint8ToBase64(bytes);
+      // PDFs: extract text via best-effort decoding (OpenAI API doesn't accept PDF files directly)
+      const textContent = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+      const cleanText = textContent.replace(/[^\x20-\x7E\n\r\t]/g, " ").replace(/\s{3,}/g, " ").slice(0, 15000);
+      if (cleanText.length < 20) {
+        return new Response(
+          JSON.stringify({ error: "Could not extract text from PDF", candidate_id }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
       aiMessages = [
         systemMsg,
         {
           role: "user",
-          content: [
-            {
-              type: "file",
-              file: {
-                filename: storage_path.split("/").pop() || "cv.pdf",
-                file_data: `data:application/pdf;base64,${base64}`,
-              },
-            },
-            {
-              type: "text",
-              text: "Extract the candidate's full name and email address from this CV/resume document.",
-            },
-          ],
+          content: `Extract the candidate's full name and email address from this CV/resume document.\n\n${cleanText}`,
         },
       ];
     } else if (isDocx) {
@@ -146,14 +142,14 @@ Always return the result by calling the extract_candidate_info function.`,
         },
       ];
     }
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "openai/gpt-5-mini",
+        model: "gpt-4o-mini",
         messages: aiMessages,
         tools: [
           {
