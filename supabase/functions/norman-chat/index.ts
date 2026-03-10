@@ -1487,7 +1487,7 @@ serve(async (req) => {
 
     // First call to AI with tools if calendar is connected
     const requestBody: any = {
-      model: "openai/gpt-5-mini",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemContent },
         ...messages,
