@@ -38,18 +38,30 @@ export function useNormanChat() {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-        const resp = await fetch(CHAT_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ messages: newMessages, mode, userProfile: profile ?? undefined }),
-        });
+        const fetchChat = async (): Promise<Response> =>
+          fetch(CHAT_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ messages: newMessages, mode, userProfile: profile ?? undefined }),
+          });
+
+        let resp = await fetchChat();
+        if (resp.status === 429) {
+          await new Promise((r) => setTimeout(r, 1500));
+          resp = await fetchChat();
+        }
 
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
-          throw new Error(err.error || `Request failed (${resp.status})`);
+          throw new Error(
+            err.error ||
+              (resp.status === 429
+                ? "Rate limit exceeded. Please wait a few seconds and try again."
+                : `Request failed (${resp.status})`)
+          );
         }
 
         if (!resp.body) throw new Error("No response body");
