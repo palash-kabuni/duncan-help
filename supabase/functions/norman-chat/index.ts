@@ -1384,12 +1384,12 @@ serve(async (req) => {
 
   try {
     const { messages, mode, userProfile } = await req.json();
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    if (!OPENAI_API_KEY) {
-      throw new Error("OPENAI_API_KEY is not configured");
+    if (!LOVABLE_API_KEY) {
+      throw new Error("LOVABLE_API_KEY is not configured");
     }
 
     // Get user from auth header
@@ -1487,7 +1487,7 @@ serve(async (req) => {
 
     // First call to AI with tools if calendar is connected
     const requestBody: any = {
-      model: "gpt-4o-mini",
+      model: "google/gemini-3-flash-preview",
       messages: [
         { role: "system", content: systemContent },
         ...messages,
@@ -1515,14 +1515,14 @@ serve(async (req) => {
       requestBody.tools = tools;
     }
 
-    // Helper to call OpenAI with retry on 429
+    // Helper to call Lovable AI with retry on 429
     const MAX_RETRIES = 3;
-    async function fetchOpenAIWithRetry(body: any): Promise<Response> {
+    async function fetchAIWithRetry(body: any): Promise<Response> {
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-        const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify(body),
@@ -1530,28 +1530,27 @@ serve(async (req) => {
         if (resp.status === 429 && attempt < MAX_RETRIES - 1) {
           const retryAfter = parseInt(resp.headers.get("retry-after") || "0", 10);
           const delay = retryAfter > 0 ? retryAfter * 1000 : Math.pow(2, attempt + 1) * 1000;
-          console.log(`OpenAI 429, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+          console.log(`AI 429, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
           await new Promise((r) => setTimeout(r, delay));
           continue;
         }
         return resp;
       }
-      // Should not reach here, but just in case
-      return await fetch("https://api.openai.com/v1/chat/completions", {
+      return await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
       });
     }
 
-    const response = await fetchOpenAIWithRetry(requestBody);
+    const response = await fetchAIWithRetry(requestBody);
 
     if (!response.ok) {
       if (response.status === 429) {
-        console.error("OpenAI rate limit exceeded after retries");
+        console.error("AI rate limit exceeded after retries");
         return new Response(
           JSON.stringify({ error: "Rate limit exceeded. Please try again shortly." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -1564,7 +1563,7 @@ serve(async (req) => {
         );
       }
       const text = await response.text();
-      console.error("OpenAI API error:", response.status, text);
+      console.error("AI gateway error:", response.status, text);
       return new Response(
         JSON.stringify({ error: "AI gateway error" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -1731,8 +1730,8 @@ serve(async (req) => {
       const isLastRound = round >= MAX_TOOL_ROUNDS;
 
       // Make follow-up request with retry
-      const followUpResponse = await fetchOpenAIWithRetry({
-        model: "gpt-4o-mini",
+      const followUpResponse = await fetchAIWithRetry({
+        model: "google/gemini-3-flash-preview",
         messages: conversationMessages,
         stream: true,
         ...(isLastRound ? {} : { tools }),
