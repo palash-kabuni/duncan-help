@@ -1546,7 +1546,7 @@ serve(async (req) => {
       });
     }
 
-    const response = await fetchOpenAIWithRetry(requestBody);
+    const response = await fetchAIWithRetry(requestBody);
 
     if (!response.ok) {
       if (response.status === 429) {
