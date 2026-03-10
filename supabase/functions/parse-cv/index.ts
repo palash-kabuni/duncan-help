@@ -98,25 +98,20 @@ Always return the result by calling the extract_candidate_info function.`,
     let aiMessages: any[];
 
     if (isPdf) {
-      // PDFs: send as file attachment (Gemini supports PDF natively)
-      const base64 = uint8ToBase64(bytes);
+      // PDFs: extract text via best-effort decoding (OpenAI API doesn't accept PDF files directly)
+      const textContent = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+      const cleanText = textContent.replace(/[^\x20-\x7E\n\r\t]/g, " ").replace(/\s{3,}/g, " ").slice(0, 15000);
+      if (cleanText.length < 20) {
+        return new Response(
+          JSON.stringify({ error: "Could not extract text from PDF", candidate_id }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
       aiMessages = [
         systemMsg,
         {
           role: "user",
-          content: [
-            {
-              type: "file",
-              file: {
-                filename: storage_path.split("/").pop() || "cv.pdf",
-                file_data: `data:application/pdf;base64,${base64}`,
-              },
-            },
-            {
-              type: "text",
-              text: "Extract the candidate's full name and email address from this CV/resume document.",
-            },
-          ],
+          content: `Extract the candidate's full name and email address from this CV/resume document.\n\n${cleanText}`,
         },
       ];
     } else if (isDocx) {

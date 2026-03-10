@@ -39,14 +39,11 @@ async function getCvContent(supabaseAdmin: any, storagePath: string): Promise<an
   const ext = storagePath.split(".").pop()?.toLowerCase();
 
   if (ext === "pdf") {
-    const base64 = uint8ToBase64(bytes);
-    return [{
-      role: "user",
-      content: [
-        { type: "file", file: { filename: storagePath.split("/").pop() || "cv.pdf", file_data: `data:application/pdf;base64,${base64}` } },
-        { type: "text", text: "Score this candidate's CV against the competencies listed in the system prompt." },
-      ],
-    }];
+    // Extract text from PDF (OpenAI API doesn't accept PDF files directly)
+    const textContent = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    const cleanText = textContent.replace(/[^\x20-\x7E\n\r\t]/g, " ").replace(/\s{3,}/g, " ").slice(0, 15000);
+    if (!cleanText || cleanText.length < 20) return null;
+    return [{ role: "user", content: `Score this candidate's CV against the competencies listed in the system prompt.\n\nCV TEXT:\n${cleanText}` }];
   }
 
   let text = "";

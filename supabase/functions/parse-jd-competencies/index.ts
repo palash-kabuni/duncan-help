@@ -66,11 +66,15 @@ serve(async (req) => {
 
     let userContent: any;
     if (ext === "pdf") {
-      const base64 = uint8ToBase64(bytes);
-      userContent = [
-        { type: "file", file: { filename: storage_path.split("/").pop() || "jd.pdf", file_data: `data:application/pdf;base64,${base64}` } },
-        { type: "text", text: "Extract all required competencies from this job description." },
-      ];
+      // Extract text from PDF (OpenAI API doesn't accept PDF files directly)
+      const textContent = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+      const cleanText = textContent.replace(/[^\x20-\x7E\n\r\t]/g, " ").replace(/\s{3,}/g, " ").slice(0, 15000);
+      if (!cleanText || cleanText.length < 20) {
+        return new Response(JSON.stringify({ error: "Could not extract text from PDF" }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      userContent = `Extract all required competencies from this job description:\n\n${cleanText}`;
     } else {
       let text = "";
       if (ext === "docx") {
