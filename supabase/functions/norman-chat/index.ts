@@ -1515,27 +1515,44 @@ serve(async (req) => {
       requestBody.tools = tools;
     }
 
-    // Helper to call Lovable AI with retry on 429
-    const MAX_RETRIES = 3;
+    // Helper to call Lovable AI with retry on 429 + fallback model
+    const MAX_RETRIES = 4;
+    const FALLBACK_MODEL = "google/gemini-2.5-flash-lite";
+
     async function fetchAIWithRetry(body: any): Promise<Response> {
-      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-        const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-        });
-        if (resp.status === 429 && attempt < MAX_RETRIES - 1) {
-          const retryAfter = parseInt(resp.headers.get("retry-after") || "0", 10);
-          const delay = retryAfter > 0 ? retryAfter * 1000 : Math.pow(2, attempt + 1) * 1000;
-          console.log(`AI 429, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
-          await new Promise((r) => setTimeout(r, delay));
-          continue;
+      const modelsToTry = body?.model === FALLBACK_MODEL
+        ? [body.model]
+        : [body.model, FALLBACK_MODEL];
+
+      for (const model of modelsToTry) {
+        const requestBody = { ...body, model };
+
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+          const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${LOVABLE_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(requestBody),
+          });
+
+          if (resp.status === 429 && attempt < MAX_RETRIES - 1) {
+            const retryAfter = parseInt(resp.headers.get("retry-after") || "0", 10);
+            const baseDelay = retryAfter > 0 ? retryAfter * 1000 : Math.pow(2, attempt + 1) * 1000;
+            const jitter = Math.floor(Math.random() * 400);
+            const delay = baseDelay + jitter;
+            console.log(`AI 429 on ${model}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+            await new Promise((r) => setTimeout(r, delay));
+            continue;
+          }
+
+          if (resp.status !== 429) return resp;
+          break;
         }
-        return resp;
       }
+
+      // Final attempt response (429) for caller handling
       return await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
