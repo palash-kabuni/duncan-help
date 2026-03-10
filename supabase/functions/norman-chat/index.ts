@@ -1730,8 +1730,8 @@ serve(async (req) => {
       const isLastRound = round >= MAX_TOOL_ROUNDS;
 
       // Make follow-up request with retry
-      const followUpResponse = await fetchOpenAIWithRetry({
-        model: "gpt-4o-mini",
+      const followUpResponse = await fetchAIWithRetry({
+        model: "google/gemini-3-flash-preview",
         messages: conversationMessages,
         stream: true,
         ...(isLastRound ? {} : { tools }),
