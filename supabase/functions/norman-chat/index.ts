@@ -1515,20 +1515,43 @@ serve(async (req) => {
       requestBody.tools = tools;
     }
 
-    const response = await fetch(
-      "https://api.openai.com/v1/chat/completions",
-      {
+    // Helper to call OpenAI with retry on 429
+    const MAX_RETRIES = 3;
+    async function fetchOpenAIWithRetry(body: any): Promise<Response> {
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+        if (resp.status === 429 && attempt < MAX_RETRIES - 1) {
+          const retryAfter = parseInt(resp.headers.get("retry-after") || "0", 10);
+          const delay = retryAfter > 0 ? retryAfter * 1000 : Math.pow(2, attempt + 1) * 1000;
+          console.log(`OpenAI 429, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        return resp;
+      }
+      // Should not reach here, but just in case
+      return await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${OPENAI_API_KEY}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(requestBody),
-      }
-    );
+        body: JSON.stringify(body),
+      });
+    }
+
+    const response = await fetchOpenAIWithRetry(requestBody);
 
     if (!response.ok) {
       if (response.status === 429) {
+        console.error("OpenAI rate limit exceeded after retries");
         return new Response(
           JSON.stringify({ error: "Rate limit exceeded. Please try again shortly." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -1541,7 +1564,7 @@ serve(async (req) => {
         );
       }
       const text = await response.text();
-      console.error("AI gateway error:", response.status, text);
+      console.error("OpenAI API error:", response.status, text);
       return new Response(
         JSON.stringify({ error: "AI gateway error" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
