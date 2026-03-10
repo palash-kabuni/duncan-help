@@ -233,22 +233,81 @@ serve(async (req) => {
 
     const headers = { Authorization: `Bearer ${gmailToken}` };
 
-    // Search for Plaud AI emails - sharing invites, plaud sender, or subjects starting with DD-MM date pattern
-    const query = `subject:"invited you to view" OR subject:plaud OR from:plaud OR from:noreply@plaud.ai`;
-    console.log("Gmail search query for Plaud:", query);
+    // Search 1: Plaud AI emails - sharing invites, plaud sender
+    const plaudQuery = `subject:"invited you to view" OR subject:plaud OR from:plaud OR from:noreply@plaud.ai`;
+    // Search 2: Emails with subjects starting with DD-MM date pattern (e.g. "15-03 Team Standup")
+    // Gmail doesn't support regex, so we do a broad search and filter in code
+    const dateQuery = `newer_than:30d`;
 
-    const searchUrl = new URL(`${GMAIL_API}/messages`);
-    searchUrl.searchParams.set("q", query);
-    searchUrl.searchParams.set("maxResults", "30");
+    console.log("Gmail search queries - Plaud:", plaudQuery, "| Date pattern:", dateQuery);
 
-    const searchRes = await fetch(searchUrl.toString(), { headers });
-    if (!searchRes.ok) {
-      throw new Error(`Gmail search failed: ${await searchRes.text()}`);
+    const plaudSearchUrl = new URL(`${GMAIL_API}/messages`);
+    plaudSearchUrl.searchParams.set("q", plaudQuery);
+    plaudSearchUrl.searchParams.set("maxResults", "30");
+
+    const dateSearchUrl = new URL(`${GMAIL_API}/messages`);
+    dateSearchUrl.searchParams.set("q", dateQuery);
+    dateSearchUrl.searchParams.set("maxResults", "50");
+
+    // Fetch both searches in parallel
+    const [plaudSearchRes, dateSearchRes] = await Promise.all([
+      fetch(plaudSearchUrl.toString(), { headers }),
+      fetch(dateSearchUrl.toString(), { headers }),
+    ]);
+
+    if (!plaudSearchRes.ok) {
+      throw new Error(`Gmail plaud search failed: ${await plaudSearchRes.text()}`);
     }
 
-    const searchData = await searchRes.json();
-    const messages = searchData.messages || [];
-    console.log(`Found ${messages.length} Plaud-related emails`);
+    const plaudSearchData = await plaudSearchRes.json();
+    const plaudMessages = plaudSearchData.messages || [];
+    console.log(`Found ${plaudMessages.length} Plaud-related emails`);
+
+    // For date search, we need to fetch headers and filter by DD-MM pattern
+    let dateMessages: any[] = [];
+    if (dateSearchRes.ok) {
+      const dateSearchData = await dateSearchRes.json();
+      const candidateMsgs = dateSearchData.messages || [];
+      console.log(`Found ${candidateMsgs.length} recent emails to check for DD-MM pattern`);
+
+      // Check each candidate for DD-MM subject pattern
+      const DD_MM_PATTERN = /^\d{2}-\d{2}/;
+      for (const candidate of candidateMsgs) {
+        // Skip if already in plaud results
+        if (plaudMessages.some((m: any) => m.id === candidate.id)) continue;
+
+        try {
+          const metaRes = await fetch(
+            `${GMAIL_API}/messages/${candidate.id}?format=metadata&metadataHeaders=Subject`,
+            { headers }
+          );
+          if (!metaRes.ok) continue;
+          const metaData = await metaRes.json();
+          const subjectHeader = (metaData.payload?.headers || []).find(
+            (h: any) => h.name.toLowerCase() === "subject"
+          );
+          const subjectVal = subjectHeader?.value || "";
+          if (DD_MM_PATTERN.test(subjectVal.trim())) {
+            dateMessages.push(candidate);
+            console.log(`DD-MM match: "${subjectVal}"`);
+          }
+        } catch (e) {
+          console.error(`Failed to check subject for ${candidate.id}:`, e);
+        }
+      }
+      console.log(`Found ${dateMessages.length} emails matching DD-MM pattern`);
+    }
+
+    // Merge and deduplicate
+    const seenIds = new Set<string>();
+    const messages: any[] = [];
+    for (const msg of [...plaudMessages, ...dateMessages]) {
+      if (!seenIds.has(msg.id)) {
+        seenIds.add(msg.id);
+        messages.push(msg);
+      }
+    }
+    console.log(`Total unique emails to process: ${messages.length}`);
 
     let fetched = 0;
     let skipped = 0;
