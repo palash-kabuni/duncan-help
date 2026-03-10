@@ -1550,7 +1550,7 @@ serve(async (req) => {
 
     if (!response.ok) {
       if (response.status === 429) {
-        console.error("OpenAI rate limit exceeded after retries");
+        console.error("AI rate limit exceeded after retries");
         return new Response(
           JSON.stringify({ error: "Rate limit exceeded. Please try again shortly." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
