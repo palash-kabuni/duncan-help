@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Database, Plug, Mail, FileText, Calendar, MessageSquare, FolderOpen, Zap } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
-import CommandBar from "@/components/CommandBar";
+
 import StatusCard from "@/components/StatusCard";
 import IntegrationCard from "@/components/IntegrationCard";
 import WelcomeModal from "@/components/WelcomeModal";
