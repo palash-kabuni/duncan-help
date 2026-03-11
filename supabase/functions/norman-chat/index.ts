@@ -1515,9 +1515,9 @@ serve(async (req) => {
       requestBody.tools = tools;
     }
 
-    // Helper to call Lovable AI with retry on 429 + fallback model
+    // Helper to call OpenAI with retry on 429 + fallback model
     const MAX_RETRIES = 4;
-    const FALLBACK_MODEL = "google/gemini-2.5-flash-lite";
+    const FALLBACK_MODEL = "gpt-4.1-mini";
 
     async function fetchAIWithRetry(body: any): Promise<Response> {
       const modelsToTry = body?.model === FALLBACK_MODEL
