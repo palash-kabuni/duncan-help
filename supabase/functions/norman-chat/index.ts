@@ -1528,10 +1528,10 @@ serve(async (req) => {
         const requestBody = { ...body, model };
 
         for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-          const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          const resp = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${LOVABLE_API_KEY}`,
+              Authorization: `Bearer ${OPENAI_API_KEY}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify(requestBody),
