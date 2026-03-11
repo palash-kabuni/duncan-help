@@ -1429,7 +1429,7 @@ serve(async (req) => {
       .select("id, name, description, fields");
 
     // Adjust system prompt based on mode and integration availability
-    let systemContent = SYSTEM_PROMPT;
+    let systemContent = SYSTEM_PROMPT + `\n\nCurrent date and time: ${new Date().toISOString()} (UTC).`;
 
     // Always inject available forms into the system prompt so the model has field data across all turns
     if (googleForms && googleForms.length > 0) {
