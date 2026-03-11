@@ -1384,12 +1384,12 @@ serve(async (req) => {
 
   try {
     const { messages, mode, userProfile } = await req.json();
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+    if (!OPENAI_API_KEY) {
+      throw new Error("OPENAI_API_KEY is not configured");
     }
 
     // Get user from auth header
@@ -1487,7 +1487,7 @@ serve(async (req) => {
 
     // First call to AI with tools if calendar is connected
     const requestBody: any = {
-      model: "google/gemini-3-flash-preview",
+      model: "gpt-4.1",
       messages: [
         { role: "system", content: systemContent },
         ...messages,
@@ -1515,9 +1515,9 @@ serve(async (req) => {
       requestBody.tools = tools;
     }
 
-    // Helper to call Lovable AI with retry on 429 + fallback model
+    // Helper to call OpenAI with retry on 429 + fallback model
     const MAX_RETRIES = 4;
-    const FALLBACK_MODEL = "google/gemini-2.5-flash-lite";
+    const FALLBACK_MODEL = "gpt-4.1-mini";
 
     async function fetchAIWithRetry(body: any): Promise<Response> {
       const modelsToTry = body?.model === FALLBACK_MODEL
@@ -1528,10 +1528,10 @@ serve(async (req) => {
         const requestBody = { ...body, model };
 
         for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-          const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          const resp = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${LOVABLE_API_KEY}`,
+              Authorization: `Bearer ${OPENAI_API_KEY}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify(requestBody),
@@ -1553,10 +1553,10 @@ serve(async (req) => {
       }
 
       // Final attempt response (429) for caller handling
-      return await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      return await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
@@ -1748,7 +1748,7 @@ serve(async (req) => {
 
       // Make follow-up request with retry
       const followUpResponse = await fetchAIWithRetry({
-        model: "google/gemini-3-flash-preview",
+        model: "gpt-4.1",
         messages: conversationMessages,
         stream: true,
         ...(isLastRound ? {} : { tools }),
