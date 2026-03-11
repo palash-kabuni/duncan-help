@@ -102,10 +102,7 @@ const Index = () => {
             </h2>
           </motion.div>
 
-          {/* Command Bar */}
-          <div className="mt-6 mb-8">
-            <CommandBar />
-          </div>
+          <div className="mt-6 mb-8" />
 
           {/* Status Cards */}
           <div className="grid grid-cols-2 gap-4 mb-8">
