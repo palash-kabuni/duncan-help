@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Database, Plug, Mail, FileText, Calendar, MessageSquare, FolderOpen, Zap } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
-import CommandBar from "@/components/CommandBar";
+
 import StatusCard from "@/components/StatusCard";
 import IntegrationCard from "@/components/IntegrationCard";
 import WelcomeModal from "@/components/WelcomeModal";
@@ -102,10 +102,7 @@ const Index = () => {
             </h2>
           </motion.div>
 
-          {/* Command Bar */}
-          <div className="mt-6 mb-8">
-            <CommandBar />
-          </div>
+          <div className="mt-6 mb-8" />
 
           {/* Status Cards */}
           <div className="grid grid-cols-2 gap-4 mb-8">
