@@ -1748,7 +1748,7 @@ serve(async (req) => {
 
       // Make follow-up request with retry
       const followUpResponse = await fetchAIWithRetry({
-        model: "google/gemini-3-flash-preview",
+        model: "gpt-4.1",
         messages: conversationMessages,
         stream: true,
         ...(isLastRound ? {} : { tools }),
