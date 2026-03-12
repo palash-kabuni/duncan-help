@@ -325,6 +325,22 @@ serve(async (req) => {
           continue;
         }
 
+        // Also upload to Azure Blob Storage (non-blocking, best-effort)
+        try {
+          const azureConnStr = Deno.env.get("AZURE_STORAGE_CONNECTION_STRING");
+          if (azureConnStr) {
+            const { accountName, accountKey } = parseAzureConnectionString(azureConnStr);
+            const azureBlobPath = `${AZURE_CV_FOLDER}/${storagePath}`;
+            const azureUrl = await uploadToAzureBlob(
+              accountName, accountKey, azureBlobPath, bytes,
+              cv.mimeType || "application/octet-stream"
+            );
+            console.log(`CV also uploaded to Azure: ${azureUrl}`);
+          }
+        } catch (azureErr) {
+          console.warn("Azure Blob upload failed (non-blocking):", azureErr);
+        }
+
         // Use filename as temporary candidate name
         const candidateName = candidateNameFromFilename(cv.filename);
 
