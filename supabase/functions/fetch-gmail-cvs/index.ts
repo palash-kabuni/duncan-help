@@ -1,6 +1,67 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const AZURE_CONTAINER = "duncanstorage01";
+const AZURE_CV_FOLDER = "cvs";
+
+function parseAzureConnectionString(connStr: string): { accountName: string; accountKey: string } {
+  const parts: Record<string, string> = {};
+  for (const part of connStr.trim().split(";")) {
+    const seg = part.trim();
+    if (!seg) continue;
+    const idx = seg.indexOf("=");
+    if (idx > 0) parts[seg.slice(0, idx).trim()] = seg.slice(idx + 1).trim();
+  }
+  if (!parts.AccountName || !parts.AccountKey) throw new Error("Invalid Azure connection string");
+  return { accountName: parts.AccountName, accountKey: parts.AccountKey };
+}
+
+async function uploadToAzureBlob(
+  accountName: string,
+  accountKey: string,
+  blobPath: string,
+  data: Uint8Array,
+  contentType: string
+): Promise<string> {
+  const now = new Date().toUTCString();
+  const fullPath = `/${AZURE_CONTAINER}/${blobPath}`;
+  const headers: Record<string, string> = {
+    "x-ms-date": now,
+    "x-ms-version": "2023-11-03",
+    "x-ms-blob-type": "BlockBlob",
+    "Content-Length": String(data.length),
+    "Content-Type": contentType,
+  };
+
+  const msHeaders = Object.entries(headers)
+    .filter(([k]) => k.toLowerCase().startsWith("x-ms-"))
+    .sort(([a], [b]) => a.toLowerCase().localeCompare(b.toLowerCase()))
+    .map(([k, v]) => `${k.toLowerCase()}:${v}`)
+    .join("\n");
+
+  const stringToSign = [
+    "PUT", "", "", String(data.length), "", contentType,
+    "", "", "", "", "", "",
+    msHeaders,
+    `/${accountName}${fullPath}`,
+  ].join("\n");
+
+  const keyBytes = Uint8Array.from(atob(accountKey), (c) => c.charCodeAt(0));
+  const cryptoKey = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(stringToSign));
+  const signature = btoa(String.fromCharCode(...new Uint8Array(sig)));
+
+  headers["Authorization"] = `SharedKey ${accountName}:${signature}`;
+
+  const url = `https://${accountName}.blob.core.windows.net${fullPath}`;
+  const res = await fetch(url, { method: "PUT", headers, body: data });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Azure upload failed (${res.status}): ${errText}`);
+  }
+  return url;
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
