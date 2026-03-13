@@ -348,6 +348,8 @@ const Integrations = () => {
     checkAzureBlobConnection();
     checkBasecampConnection();
     checkGmailConnection();
+    checkAzureDevOpsConnection();
+    checkXeroConnection();
   }, [checkCalendarConnection]);
 
   const isLoading = userLoading || companyLoading;
