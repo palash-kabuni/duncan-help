@@ -527,6 +527,8 @@ const IntegrationDetail = ({
   isAzureBlobConnected,
   isBasecampConnected,
   isGmailConnected,
+  isAzureDevOpsConnected,
+  isXeroConnected,
   onClose,
 }: {
   integration: Integration;
@@ -537,14 +539,18 @@ const IntegrationDetail = ({
   isAzureBlobConnected: boolean | null;
   isBasecampConnected: boolean | null;
   isGmailConnected: boolean | null;
+  isAzureDevOpsConnected: boolean | null;
+  isXeroConnected: boolean | null;
   onClose: () => void;
 }) => {
   const isGoogleCalendar = integration.id === "google-calendar";
   const isAzureBlob = integration.id === "azure-blob";
   const isBasecamp = integration.id === "basecamp";
   const isGmail = integration.id === "gmail";
+  const isAzureDevOps = integration.id === "azure-devops";
+  const isXero = integration.id === "xero";
   const isGoogleOAuth = isGoogleCalendar;
-  const isOAuthFlow = isGoogleOAuth || isBasecamp || isGmail;
+  const isOAuthFlow = isGoogleOAuth || isBasecamp || isGmail || isAzureDevOps || isXero;
   
   // Determine status based on integration type
   let status: IntegrationStatus;
@@ -556,6 +562,10 @@ const IntegrationDetail = ({
     status = isBasecampConnected ? "connected" : "disconnected";
   } else if (isGmail) {
     status = isGmailConnected ? "connected" : "disconnected";
+  } else if (isAzureDevOps) {
+    status = isAzureDevOpsConnected ? "connected" : "disconnected";
+  } else if (isXero) {
+    status = isXeroConnected ? "connected" : "disconnected";
   } else {
     status = getStatus(integration, userIntegrations, companyIntegrations);
   }
