@@ -190,6 +190,44 @@ serve(async (req) => {
     }
     const { accountName, accountKey } = parseConnectionString(connectionString);
     console.log(`Azure connection: account=${accountName}, keyLength=${accountKey.length}, container=${CONTAINER_NAME}`);
+
+    // Handle GET requests for direct file download
+    if (req.method === "GET") {
+      const url = new URL(req.url);
+      const blobPath = url.searchParams.get("blob_path");
+      if (!blobPath) {
+        return new Response(JSON.stringify({ error: "blob_path query parameter is required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const encodedPath = blobPath.split("/").map((s) => encodeURIComponent(s)).join("/");
+      const response = await azureRequest(
+        accountName,
+        accountKey,
+        "GET",
+        `/${CONTAINER_NAME}/${encodedPath}`
+      );
+
+      if (!response.ok) {
+        return new Response(JSON.stringify({ error: `File not found: ${blobPath}` }), {
+          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const fileName = blobPath.split("/").pop() || "download";
+      const blobContentType = response.headers.get("content-type") || "application/octet-stream";
+      const blobBody = await response.arrayBuffer();
+
+      return new Response(blobBody, {
+        headers: {
+          ...corsHeaders,
+          "Content-Type": blobContentType,
+          "Content-Disposition": `attachment; filename="${fileName}"`,
+        },
+      });
+    }
+
     const contentType = req.headers.get("content-type") || "";
     let action: string;
     let params: any = {};
