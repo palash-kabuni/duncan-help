@@ -235,6 +235,8 @@ const Integrations = () => {
   const [isAzureBlobConnected, setIsAzureBlobConnected] = useState<boolean | null>(null);
   const [isBasecampConnected, setIsBasecampConnected] = useState<boolean | null>(null);
   const [isGmailConnected, setIsGmailConnected] = useState<boolean | null>(null);
+  const [isAzureDevOpsConnected, setIsAzureDevOpsConnected] = useState<boolean | null>(null);
+  const [isXeroConnected, setIsXeroConnected] = useState<boolean | null>(null);
   const checkAzureBlobConnection = async () => {
     try {
       const { supabase } = await import("@/integrations/supabase/client");
