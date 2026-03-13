@@ -786,22 +786,19 @@ const IntegrationDetail = ({
                 <div className="space-y-4">
                   <div className="rounded-lg border border-border bg-secondary/20 p-4 space-y-2">
                     <p className="text-sm text-foreground">
-                      {isBasecamp 
+                      {isAzureDevOps
+                        ? "Click below to authorize Duncan to access your Azure DevOps work items and boards."
+                        : isXero
+                        ? "Click below to authorize Duncan to access your Xero invoices, contacts, and reports."
+                        : isBasecamp 
                         ? "Click below to authorize Duncan to access your Basecamp projects, to-dos, and messages."
                         : isGmail
                         ? "Click below to sign in with Google and grant Duncan read-only access to your Gmail for CV ingestion."
-                        : `Click below to sign in with Google and grant Duncan access to your calendar.`}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {isGoogleCalendar 
-                         ? "Duncan will be able to read your events and create/update/delete events on your behalf."
-                         : isGmail
-                         ? "Duncan will scan emails for CV attachments matching active job role titles in the subject line."
-                         : "Duncan will be able to read projects, to-dos, messages, and schedules from your Basecamp account."}
+                        : "Click below to sign in with Google and grant Duncan access to your calendar."}
                     </p>
                   </div>
                   <button
-                    onClick={handleGoogleOAuthConnect}
+                    onClick={handleOAuthConnect}
                     disabled={isPending}
                     className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-3 text-sm font-medium hover:bg-primary/90 transition-all disabled:opacity-50"
                   >
@@ -813,7 +810,7 @@ const IntegrationDetail = ({
                     ) : (
                       <>
                         <ExternalLink className="h-4 w-4" />
-                        {isBasecamp ? "Connect with Basecamp" : isGmail ? "Connect Gmail" : "Sign in with Google"}
+                        {isAzureDevOps ? "Connect Azure DevOps" : isXero ? "Connect Xero" : isBasecamp ? "Connect with Basecamp" : isGmail ? "Connect Gmail" : "Sign in with Google"}
                       </>
                     )}
                   </button>
