@@ -134,6 +134,9 @@ async function azureRequest(
     additionalHeaders?: Record<string, string>;
   } = {},
 ): Promise<Response> {
+  // Encode each path segment individually to match what the server sees
+  const encodedPath = path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+
   const headers: Record<string, string> = {
     "x-ms-date": new Date().toUTCString(),
     "x-ms-version": "2023-11-03",
@@ -145,16 +148,17 @@ async function azureRequest(
     headers["Content-Type"] = options.contentType || "application/octet-stream";
   }
 
+  // Sign using the encoded path so it matches the server's canonicalized resource
   headers.Authorization = await createSharedKeySignature(
     accountName,
     accountKey,
     method,
-    path,
+    encodedPath,
     headers,
     options.queryParams,
   );
 
-  let url = `https://${accountName}.blob.core.windows.net${path}`;
+  let url = `https://${accountName}.blob.core.windows.net${encodedPath}`;
   if (options.queryParams && options.queryParams.toString()) {
     url += `?${options.queryParams.toString()}`;
   }
