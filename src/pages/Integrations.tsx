@@ -304,6 +304,14 @@ const Integrations = () => {
       toast.success("Basecamp connected successfully!");
       checkBasecampConnection();
       setSearchParams({});
+    } else if (success === "azure_devops") {
+      toast.success("Azure DevOps connected successfully!");
+      checkAzureDevOpsConnection();
+      setSearchParams({});
+    } else if (success === "xero") {
+      toast.success("Xero connected successfully!");
+      checkXeroConnection();
+      setSearchParams({});
     } else if (searchParams.get("gmail_connected") === "true") {
       toast.success("Gmail connected successfully!");
       checkGmailConnection();
