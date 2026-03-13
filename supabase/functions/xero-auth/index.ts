@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
     }
 
     const redirectUri = `${supabaseUrl}/functions/v1/xero-callback`;
-    const scope = "openid profile email accounting.transactions accounting.contacts accounting.reports offline_access";
+    const scope = "openid profile email accounting.transactions.read accounting.contacts.read accounting.reports.read offline_access";
     const state = crypto.randomUUID();
 
     const authUrl = new URL("https://login.xero.com/identity/connect/authorize");
