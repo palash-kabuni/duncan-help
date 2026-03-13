@@ -507,6 +507,8 @@ const Integrations = () => {
               isAzureBlobConnected={isAzureBlobConnected}
               isBasecampConnected={isBasecampConnected}
               isGmailConnected={isGmailConnected}
+              isAzureDevOpsConnected={isAzureDevOpsConnected}
+              isXeroConnected={isXeroConnected}
               onClose={() => setSelectedIntegration(null)}
             />
           )}
