@@ -532,10 +532,14 @@ serve(async (req) => {
 
       console.log(`NDA generated successfully: blob=${blobPath}, notion=${notionPageId}`);
 
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const downloadUrl = `${supabaseUrl}/functions/v1/azure-blob-api?blob_path=${encodeURIComponent(blobPath)}`;
+
       return new Response(JSON.stringify({
         success: true,
         submission_id: submissionId,
         document_url: docUrl,
+        download_url: downloadUrl,
         blob_path: blobPath,
         notion_page_id: notionPageId,
         notion_page_url: notionPageUrl,
