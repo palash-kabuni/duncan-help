@@ -14,6 +14,102 @@ export type Database = {
   }
   public: {
     Tables: {
+      azure_devops_tokens: {
+        Row: {
+          access_token: string
+          connected_by: string
+          created_at: string
+          id: string
+          org_url: string | null
+          refresh_token: string
+          token_expiry: string
+          updated_at: string
+        }
+        Insert: {
+          access_token: string
+          connected_by: string
+          created_at?: string
+          id?: string
+          org_url?: string | null
+          refresh_token: string
+          token_expiry: string
+          updated_at?: string
+        }
+        Update: {
+          access_token?: string
+          connected_by?: string
+          created_at?: string
+          id?: string
+          org_url?: string | null
+          refresh_token?: string
+          token_expiry?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      azure_work_items: {
+        Row: {
+          area_path: string | null
+          assigned_to: string | null
+          changed_date: string | null
+          created_at: string
+          created_date: string | null
+          description: string | null
+          external_id: number
+          id: string
+          iteration_path: string | null
+          priority: number | null
+          project_name: string | null
+          raw_data: Json | null
+          state: string | null
+          synced_at: string
+          tags: string | null
+          title: string
+          updated_at: string
+          work_item_type: string | null
+        }
+        Insert: {
+          area_path?: string | null
+          assigned_to?: string | null
+          changed_date?: string | null
+          created_at?: string
+          created_date?: string | null
+          description?: string | null
+          external_id: number
+          id?: string
+          iteration_path?: string | null
+          priority?: number | null
+          project_name?: string | null
+          raw_data?: Json | null
+          state?: string | null
+          synced_at?: string
+          tags?: string | null
+          title: string
+          updated_at?: string
+          work_item_type?: string | null
+        }
+        Update: {
+          area_path?: string | null
+          assigned_to?: string | null
+          changed_date?: string | null
+          created_at?: string
+          created_date?: string | null
+          description?: string | null
+          external_id?: number
+          id?: string
+          iteration_path?: string | null
+          priority?: number | null
+          project_name?: string | null
+          raw_data?: Json | null
+          state?: string | null
+          synced_at?: string
+          tags?: string | null
+          title?: string
+          updated_at?: string
+          work_item_type?: string | null
+        }
+        Relationships: []
+      }
       basecamp_tokens: {
         Row: {
           access_token: string
@@ -363,6 +459,33 @@ export type Database = {
         }
         Relationships: []
       }
+      integration_audit_logs: {
+        Row: {
+          action: string
+          actor_id: string | null
+          created_at: string
+          details: Json | null
+          id: string
+          integration: string
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          created_at?: string
+          details?: Json | null
+          id?: string
+          integration: string
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          created_at?: string
+          details?: Json | null
+          id?: string
+          integration?: string
+        }
+        Relationships: []
+      }
       job_roles: {
         Row: {
           company_values: Json
@@ -656,6 +779,45 @@ export type Database = {
           },
         ]
       }
+      sync_logs: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          integration: string
+          records_synced: number | null
+          started_at: string
+          status: string
+          sync_type: string
+          triggered_by: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          integration: string
+          records_synced?: number | null
+          started_at?: string
+          status?: string
+          sync_type: string
+          triggered_by?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          integration?: string
+          records_synced?: number | null
+          started_at?: string
+          status?: string
+          sync_type?: string
+          triggered_by?: string | null
+        }
+        Relationships: []
+      }
       user_integrations: {
         Row: {
           created_at: string
@@ -798,6 +960,153 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      xero_contacts: {
+        Row: {
+          contact_status: string | null
+          created_at: string
+          email: string | null
+          external_id: string
+          id: string
+          is_customer: boolean | null
+          is_supplier: boolean | null
+          name: string
+          outstanding_balance: number | null
+          overdue_balance: number | null
+          phone: string | null
+          raw_data: Json | null
+          synced_at: string
+          updated_at: string
+        }
+        Insert: {
+          contact_status?: string | null
+          created_at?: string
+          email?: string | null
+          external_id: string
+          id?: string
+          is_customer?: boolean | null
+          is_supplier?: boolean | null
+          name: string
+          outstanding_balance?: number | null
+          overdue_balance?: number | null
+          phone?: string | null
+          raw_data?: Json | null
+          synced_at?: string
+          updated_at?: string
+        }
+        Update: {
+          contact_status?: string | null
+          created_at?: string
+          email?: string | null
+          external_id?: string
+          id?: string
+          is_customer?: boolean | null
+          is_supplier?: boolean | null
+          name?: string
+          outstanding_balance?: number | null
+          overdue_balance?: number | null
+          phone?: string | null
+          raw_data?: Json | null
+          synced_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      xero_invoices: {
+        Row: {
+          amount_due: number | null
+          amount_paid: number | null
+          contact_id: string | null
+          contact_name: string | null
+          created_at: string
+          currency_code: string | null
+          date: string | null
+          due_date: string | null
+          external_id: string
+          id: string
+          invoice_number: string | null
+          line_items: Json | null
+          raw_data: Json | null
+          status: string | null
+          synced_at: string
+          total: number | null
+          type: string | null
+          updated_at: string
+        }
+        Insert: {
+          amount_due?: number | null
+          amount_paid?: number | null
+          contact_id?: string | null
+          contact_name?: string | null
+          created_at?: string
+          currency_code?: string | null
+          date?: string | null
+          due_date?: string | null
+          external_id: string
+          id?: string
+          invoice_number?: string | null
+          line_items?: Json | null
+          raw_data?: Json | null
+          status?: string | null
+          synced_at?: string
+          total?: number | null
+          type?: string | null
+          updated_at?: string
+        }
+        Update: {
+          amount_due?: number | null
+          amount_paid?: number | null
+          contact_id?: string | null
+          contact_name?: string | null
+          created_at?: string
+          currency_code?: string | null
+          date?: string | null
+          due_date?: string | null
+          external_id?: string
+          id?: string
+          invoice_number?: string | null
+          line_items?: Json | null
+          raw_data?: Json | null
+          status?: string | null
+          synced_at?: string
+          total?: number | null
+          type?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      xero_tokens: {
+        Row: {
+          access_token: string
+          connected_by: string
+          created_at: string
+          id: string
+          refresh_token: string
+          tenant_id: string | null
+          token_expiry: string
+          updated_at: string
+        }
+        Insert: {
+          access_token: string
+          connected_by: string
+          created_at?: string
+          id?: string
+          refresh_token: string
+          tenant_id?: string | null
+          token_expiry: string
+          updated_at?: string
+        }
+        Update: {
+          access_token?: string
+          connected_by?: string
+          created_at?: string
+          id?: string
+          refresh_token?: string
+          tenant_id?: string | null
+          token_expiry?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
     }
     Views: {
