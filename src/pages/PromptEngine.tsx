@@ -1,11 +1,12 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Brain, Zap, BarChart3, Sparkles, Trash2, Loader2 } from "lucide-react";
+import { Send, Brain, Zap, BarChart3, Sparkles, Trash2, Loader2, Download } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useLocation } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import { useNormanChat } from "@/hooks/useNormanChat";
+import { supabase } from "@/integrations/supabase/client";
 
 type Mode = "general" | "reason" | "automate" | "analyze";
 
