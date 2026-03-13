@@ -151,7 +151,34 @@ const PromptEngine = () => {
                     >
                       {msg.role === "assistant" ? (
                         <div className="max-w-none leading-7 text-sm [&_h1]:text-lg [&_h1]:font-bold [&_h1]:mt-8 [&_h1]:mb-4 [&_h1]:pb-2 [&_h1]:border-b [&_h1]:border-border/60 [&_h1]:text-foreground [&_h2]:text-base [&_h2]:font-bold [&_h2]:mt-8 [&_h2]:mb-4 [&_h2]:pb-2 [&_h2]:border-b [&_h2]:border-border/60 [&_h2]:text-foreground [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-6 [&_h3]:mb-3 [&_h3]:text-foreground [&_p]:text-foreground/90 [&_p]:mb-4 [&_p]:leading-7 [&_strong]:text-foreground [&_strong]:font-semibold [&_code]:text-primary [&_code]:bg-secondary [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded-md [&_code]:text-xs [&_pre]:bg-secondary [&_pre]:border [&_pre]:border-border [&_pre]:rounded-lg [&_pre]:my-5 [&_pre]:p-4 [&_li]:text-foreground/90 [&_li]:mb-2 [&_li]:leading-7 [&_ul]:my-4 [&_ul]:pl-5 [&_ul]:list-disc [&_ol]:my-4 [&_ol]:pl-5 [&_ol]:list-decimal [&_hr]:my-8 [&_hr]:border-border/60 [&_blockquote]:border-l-2 [&_blockquote]:border-primary/30 [&_blockquote]:pl-4 [&_blockquote]:my-5 [&_blockquote]:bg-primary/5 [&_blockquote]:py-2 [&_blockquote]:pr-4 [&_blockquote]:rounded-r-lg [&_table]:my-5 [&_table]:w-full [&_table]:border-collapse [&_table]:border [&_table]:border-border [&_table]:rounded-lg [&_table]:overflow-hidden [&_thead]:bg-secondary/60 [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-2 [&_th]:text-xs [&_th]:font-semibold [&_th]:text-foreground [&_th]:text-left [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_td]:text-xs [&_td]:text-foreground/90 [&_tr]:border-b [&_tr]:border-border/30">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              a: ({ href, children }) => {
+                                const isDownloadLink = href?.includes("azure-blob-api") && href?.includes("blob_path");
+                                if (isDownloadLink && href) {
+                                  const isDownloading = downloadingUrl === href;
+                                  return (
+                                    <button
+                                      onClick={() => handleAuthenticatedDownload(href)}
+                                      disabled={isDownloading}
+                                      className="inline-flex items-center gap-1.5 text-primary hover:text-primary/80 underline underline-offset-2 font-medium disabled:opacity-50"
+                                    >
+                                      {isDownloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                                      {children}
+                                    </button>
+                                  );
+                                }
+                                return (
+                                  <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80 underline underline-offset-2">
+                                    {children}
+                                  </a>
+                                );
+                              },
+                            }}
+                          >
+                            {msg.content}
+                          </ReactMarkdown>
                         </div>
                       ) : (
                         msg.content
