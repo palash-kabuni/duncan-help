@@ -99,9 +99,6 @@ verify_jwt = false
 [functions.xero-webhook]
 verify_jwt = false
 
-[functions.sync-xero-data]
-verify_jwt = false
-
 [functions.docusign-webhook]
 verify_jwt = false
 
@@ -109,10 +106,4 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.nda-send-signature]
-verify_jwt = false
-
-[functions.manage-company-integration]
-verify_jwt = false
-
-[functions.xero-webhook]
 verify_jwt = false
