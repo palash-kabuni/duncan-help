@@ -24,6 +24,10 @@ const navItems = [{
   label: "Recruitment",
   to: "/recruitment"
 }, {
+  icon: Activity,
+  label: "Operations",
+  to: "/operations"
+}, {
   icon: Plug,
   label: "Integrations",
   to: "/integrations"
