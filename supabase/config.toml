@@ -71,3 +71,39 @@ verify_jwt = false
 
 [functions.analyze-meeting]
 verify_jwt = false
+
+[functions.azure-devops-auth]
+verify_jwt = false
+
+[functions.azure-devops-callback]
+verify_jwt = false
+
+[functions.azure-devops-api]
+verify_jwt = false
+
+[functions.azure-devops-webhook]
+verify_jwt = false
+
+[functions.sync-azure-work-items]
+verify_jwt = false
+
+[functions.xero-auth]
+verify_jwt = false
+
+[functions.xero-callback]
+verify_jwt = false
+
+[functions.xero-api]
+verify_jwt = false
+
+[functions.xero-webhook]
+verify_jwt = false
+
+[functions.docusign-webhook]
+verify_jwt = false
+
+[functions.nda-generate]
+verify_jwt = false
+
+[functions.nda-send-signature]
+verify_jwt = false
