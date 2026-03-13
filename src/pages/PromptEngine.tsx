@@ -21,9 +21,44 @@ const PromptEngine = () => {
   const { messages, isLoading, send, clearMessages } = useNormanChat();
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<Mode>("general");
+  const [downloadingUrl, setDownloadingUrl] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
   const initialSent = useRef(false);
+
+  const handleAuthenticatedDownload = useCallback(async (url: string) => {
+    try {
+      setDownloadingUrl(url);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Not authenticated");
+
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+      });
+
+      if (!response.ok) throw new Error("Download failed");
+
+      const blob = await response.blob();
+      const contentDisposition = response.headers.get("Content-Disposition");
+      const filenameMatch = contentDisposition?.match(/filename="?([^"]+)"?/);
+      const filename = filenameMatch?.[1] || "download";
+
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      URL.revokeObjectURL(a.href);
+      a.remove();
+    } catch (err) {
+      console.error("Download error:", err);
+    } finally {
+      setDownloadingUrl(null);
+    }
+  }, []);
 
   // Handle initial message from dashboard CommandBar
   useEffect(() => {
