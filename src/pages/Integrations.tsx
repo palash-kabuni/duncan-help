@@ -586,6 +586,8 @@ const IntegrationDetail = ({
   const { initiateOAuth: initiateCalendarOAuth, disconnect: disconnectCalendar, isLoading: calendarLoading } = useGoogleCalendar();
   const [basecampLoading, setBasecampLoading] = useState(false);
   const [gmailLoading, setGmailLoading] = useState(false);
+  const [azureDevOpsLoading, setAzureDevOpsLoading] = useState(false);
+  const [xeroLoading, setXeroLoading] = useState(false);
 
   const handleConnect = async () => {
     if (!apiKey.trim()) {
@@ -625,7 +627,7 @@ const IntegrationDetail = ({
     }
   };
 
-  const handleGoogleOAuthConnect = async () => {
+  const handleOAuthConnect = async () => {
     try {
       if (isGoogleCalendar) {
         await initiateCalendarOAuth();
@@ -634,33 +636,45 @@ const IntegrationDetail = ({
         const { supabase } = await import("@/integrations/supabase/client");
         const { data, error } = await supabase.functions.invoke("basecamp-auth");
         if (error) throw error;
-        if (data?.url) {
-          window.location.href = data.url;
-        } else {
-          throw new Error("No auth URL returned");
-        }
+        if (data?.url) window.location.href = data.url;
+        else throw new Error("No auth URL returned");
         setBasecampLoading(false);
       } else if (isGmail) {
         setGmailLoading(true);
         const { supabase } = await import("@/integrations/supabase/client");
         const { data, error } = await supabase.functions.invoke("gmail-auth");
         if (error) throw error;
-        if (data?.url) {
-          window.location.href = data.url;
-        } else {
-          throw new Error("No auth URL returned");
-        }
+        if (data?.url) window.location.href = data.url;
+        else throw new Error("No auth URL returned");
         setGmailLoading(false);
+      } else if (isAzureDevOps) {
+        setAzureDevOpsLoading(true);
+        const { supabase } = await import("@/integrations/supabase/client");
+        const { data, error } = await supabase.functions.invoke("azure-devops-auth");
+        if (error) throw error;
+        if (data?.url) window.location.href = data.url;
+        else throw new Error("No auth URL returned");
+        setAzureDevOpsLoading(false);
+      } else if (isXero) {
+        setXeroLoading(true);
+        const { supabase } = await import("@/integrations/supabase/client");
+        const { data, error } = await supabase.functions.invoke("xero-auth");
+        if (error) throw error;
+        if (data?.url) window.location.href = data.url;
+        else throw new Error("No auth URL returned");
+        setXeroLoading(false);
       }
     } catch (err: any) {
       setBasecampLoading(false);
       setGmailLoading(false);
+      setAzureDevOpsLoading(false);
+      setXeroLoading(false);
       toast.error(err.message || "Failed to start OAuth flow");
     }
   };
 
-  const googleOAuthLoading = isGoogleCalendar ? calendarLoading : (isBasecamp ? basecampLoading : gmailLoading);
-  const isPending = isOAuthFlow ? googleOAuthLoading : (isCompany ? companyMutation.isPending : (connectMutation.isPending || disconnectMutation.isPending));
+  const oauthLoading = isGoogleCalendar ? calendarLoading : isBasecamp ? basecampLoading : isGmail ? gmailLoading : isAzureDevOps ? azureDevOpsLoading : xeroLoading;
+  const isPending = isOAuthFlow ? oauthLoading : (isCompany ? companyMutation.isPending : (connectMutation.isPending || disconnectMutation.isPending));
   const canEdit = !isCompany || isAdmin;
 
   return (
