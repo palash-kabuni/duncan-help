@@ -160,6 +160,36 @@ const integrations: Integration[] = [
       "Duncan can then fetch projects, to-dos, and messages",
     ],
   },
+  {
+    id: "azure-devops",
+    name: "Azure DevOps",
+    description: "Sync work items from Azure Boards. Duncan reasons over project tickets, delivery status, and operational risks.",
+    icon: GitBranch,
+    category: "Operations",
+    services: ["Work Items", "Boards", "Sprints", "Queries"],
+    type: "company",
+    setupSteps: [
+      "Register an app in Azure Portal → App registrations",
+      "Add redirect URI: your backend callback URL",
+      "Add API permission: Azure DevOps → user_impersonation",
+      "An admin connects via OAuth to authorize access",
+    ],
+  },
+  {
+    id: "xero",
+    name: "Xero",
+    description: "Sync invoices, bills, contacts, and financial reports. Duncan cross-references finance with operations data.",
+    icon: Receipt,
+    category: "Finance",
+    services: ["Invoices", "Bills", "Contacts", "Reports"],
+    type: "company",
+    setupSteps: [
+      "Create a Xero app at developer.xero.com",
+      "Set redirect URI to your backend callback URL",
+      "Add scopes: accounting.transactions, contacts, reports",
+      "An admin connects via OAuth to authorize access",
+    ],
+  },
 ];
 
 const statusConfig = {
