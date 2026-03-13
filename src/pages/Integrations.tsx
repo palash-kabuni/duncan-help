@@ -267,6 +267,26 @@ const Integrations = () => {
     }
   };
 
+  const checkAzureDevOpsConnection = async () => {
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      const { data } = await supabase.from("company_integrations").select("status").eq("integration_id", "azure-devops").maybeSingle();
+      setIsAzureDevOpsConnected(data?.status === "connected");
+    } catch {
+      setIsAzureDevOpsConnected(false);
+    }
+  };
+
+  const checkXeroConnection = async () => {
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      const { data } = await supabase.from("company_integrations").select("status").eq("integration_id", "xero").maybeSingle();
+      setIsXeroConnected(data?.status === "connected");
+    } catch {
+      setIsXeroConnected(false);
+    }
+  };
+
   // Handle OAuth callback
   useEffect(() => {
     const success = searchParams.get("success");
