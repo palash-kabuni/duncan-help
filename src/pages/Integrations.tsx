@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Mail, FileText, MessageSquare, Calendar, FolderOpen,
   CheckCircle2, AlertCircle, ArrowRight, X, Plug, Shield,
-  Clock, Database, Zap, Loader2, Lock, ExternalLink
+  Clock, Database, Zap, Loader2, Lock, ExternalLink,
+  GitBranch, Receipt
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
@@ -159,6 +160,36 @@ const integrations: Integration[] = [
       "Duncan can then fetch projects, to-dos, and messages",
     ],
   },
+  {
+    id: "azure-devops",
+    name: "Azure DevOps",
+    description: "Sync work items from Azure Boards. Duncan reasons over project tickets, delivery status, and operational risks.",
+    icon: GitBranch,
+    category: "Operations",
+    services: ["Work Items", "Boards", "Sprints", "Queries"],
+    type: "company",
+    setupSteps: [
+      "Register an app in Azure Portal → App registrations",
+      "Add redirect URI: your backend callback URL",
+      "Add API permission: Azure DevOps → user_impersonation",
+      "An admin connects via OAuth to authorize access",
+    ],
+  },
+  {
+    id: "xero",
+    name: "Xero",
+    description: "Sync invoices, bills, contacts, and financial reports. Duncan cross-references finance with operations data.",
+    icon: Receipt,
+    category: "Finance",
+    services: ["Invoices", "Bills", "Contacts", "Reports"],
+    type: "company",
+    setupSteps: [
+      "Create a Xero app at developer.xero.com",
+      "Set redirect URI to your backend callback URL",
+      "Add scopes: accounting.transactions, contacts, reports",
+      "An admin connects via OAuth to authorize access",
+    ],
+  },
 ];
 
 const statusConfig = {
@@ -204,6 +235,8 @@ const Integrations = () => {
   const [isAzureBlobConnected, setIsAzureBlobConnected] = useState<boolean | null>(null);
   const [isBasecampConnected, setIsBasecampConnected] = useState<boolean | null>(null);
   const [isGmailConnected, setIsGmailConnected] = useState<boolean | null>(null);
+  const [isAzureDevOpsConnected, setIsAzureDevOpsConnected] = useState<boolean | null>(null);
+  const [isXeroConnected, setIsXeroConnected] = useState<boolean | null>(null);
   const checkAzureBlobConnection = async () => {
     try {
       const { supabase } = await import("@/integrations/supabase/client");
@@ -234,6 +267,26 @@ const Integrations = () => {
     }
   };
 
+  const checkAzureDevOpsConnection = async () => {
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      const { data } = await supabase.from("company_integrations").select("status").eq("integration_id", "azure-devops").maybeSingle();
+      setIsAzureDevOpsConnected(data?.status === "connected");
+    } catch {
+      setIsAzureDevOpsConnected(false);
+    }
+  };
+
+  const checkXeroConnection = async () => {
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      const { data } = await supabase.from("company_integrations").select("status").eq("integration_id", "xero").maybeSingle();
+      setIsXeroConnected(data?.status === "connected");
+    } catch {
+      setIsXeroConnected(false);
+    }
+  };
+
   // Handle OAuth callback
   useEffect(() => {
     const success = searchParams.get("success");
@@ -250,6 +303,14 @@ const Integrations = () => {
     } else if (success === "basecamp") {
       toast.success("Basecamp connected successfully!");
       checkBasecampConnection();
+      setSearchParams({});
+    } else if (success === "azure_devops") {
+      toast.success("Azure DevOps connected successfully!");
+      checkAzureDevOpsConnection();
+      setSearchParams({});
+    } else if (success === "xero") {
+      toast.success("Xero connected successfully!");
+      checkXeroConnection();
       setSearchParams({});
     } else if (searchParams.get("gmail_connected") === "true") {
       toast.success("Gmail connected successfully!");
@@ -287,6 +348,8 @@ const Integrations = () => {
     checkAzureBlobConnection();
     checkBasecampConnection();
     checkGmailConnection();
+    checkAzureDevOpsConnection();
+    checkXeroConnection();
   }, [checkCalendarConnection]);
 
   const isLoading = userLoading || companyLoading;
@@ -444,6 +507,8 @@ const Integrations = () => {
               isAzureBlobConnected={isAzureBlobConnected}
               isBasecampConnected={isBasecampConnected}
               isGmailConnected={isGmailConnected}
+              isAzureDevOpsConnected={isAzureDevOpsConnected}
+              isXeroConnected={isXeroConnected}
               onClose={() => setSelectedIntegration(null)}
             />
           )}
@@ -462,6 +527,8 @@ const IntegrationDetail = ({
   isAzureBlobConnected,
   isBasecampConnected,
   isGmailConnected,
+  isAzureDevOpsConnected,
+  isXeroConnected,
   onClose,
 }: {
   integration: Integration;
@@ -472,14 +539,18 @@ const IntegrationDetail = ({
   isAzureBlobConnected: boolean | null;
   isBasecampConnected: boolean | null;
   isGmailConnected: boolean | null;
+  isAzureDevOpsConnected: boolean | null;
+  isXeroConnected: boolean | null;
   onClose: () => void;
 }) => {
   const isGoogleCalendar = integration.id === "google-calendar";
   const isAzureBlob = integration.id === "azure-blob";
   const isBasecamp = integration.id === "basecamp";
   const isGmail = integration.id === "gmail";
+  const isAzureDevOps = integration.id === "azure-devops";
+  const isXero = integration.id === "xero";
   const isGoogleOAuth = isGoogleCalendar;
-  const isOAuthFlow = isGoogleOAuth || isBasecamp || isGmail;
+  const isOAuthFlow = isGoogleOAuth || isBasecamp || isGmail || isAzureDevOps || isXero;
   
   // Determine status based on integration type
   let status: IntegrationStatus;
@@ -491,6 +562,10 @@ const IntegrationDetail = ({
     status = isBasecampConnected ? "connected" : "disconnected";
   } else if (isGmail) {
     status = isGmailConnected ? "connected" : "disconnected";
+  } else if (isAzureDevOps) {
+    status = isAzureDevOpsConnected ? "connected" : "disconnected";
+  } else if (isXero) {
+    status = isXeroConnected ? "connected" : "disconnected";
   } else {
     status = getStatus(integration, userIntegrations, companyIntegrations);
   }
@@ -511,6 +586,8 @@ const IntegrationDetail = ({
   const { initiateOAuth: initiateCalendarOAuth, disconnect: disconnectCalendar, isLoading: calendarLoading } = useGoogleCalendar();
   const [basecampLoading, setBasecampLoading] = useState(false);
   const [gmailLoading, setGmailLoading] = useState(false);
+  const [azureDevOpsLoading, setAzureDevOpsLoading] = useState(false);
+  const [xeroLoading, setXeroLoading] = useState(false);
 
   const handleConnect = async () => {
     if (!apiKey.trim()) {
@@ -550,7 +627,7 @@ const IntegrationDetail = ({
     }
   };
 
-  const handleGoogleOAuthConnect = async () => {
+  const handleOAuthConnect = async () => {
     try {
       if (isGoogleCalendar) {
         await initiateCalendarOAuth();
@@ -559,33 +636,45 @@ const IntegrationDetail = ({
         const { supabase } = await import("@/integrations/supabase/client");
         const { data, error } = await supabase.functions.invoke("basecamp-auth");
         if (error) throw error;
-        if (data?.url) {
-          window.location.href = data.url;
-        } else {
-          throw new Error("No auth URL returned");
-        }
+        if (data?.url) window.location.href = data.url;
+        else throw new Error("No auth URL returned");
         setBasecampLoading(false);
       } else if (isGmail) {
         setGmailLoading(true);
         const { supabase } = await import("@/integrations/supabase/client");
         const { data, error } = await supabase.functions.invoke("gmail-auth");
         if (error) throw error;
-        if (data?.url) {
-          window.location.href = data.url;
-        } else {
-          throw new Error("No auth URL returned");
-        }
+        if (data?.url) window.location.href = data.url;
+        else throw new Error("No auth URL returned");
         setGmailLoading(false);
+      } else if (isAzureDevOps) {
+        setAzureDevOpsLoading(true);
+        const { supabase } = await import("@/integrations/supabase/client");
+        const { data, error } = await supabase.functions.invoke("azure-devops-auth");
+        if (error) throw error;
+        if (data?.url) window.location.href = data.url;
+        else throw new Error("No auth URL returned");
+        setAzureDevOpsLoading(false);
+      } else if (isXero) {
+        setXeroLoading(true);
+        const { supabase } = await import("@/integrations/supabase/client");
+        const { data, error } = await supabase.functions.invoke("xero-auth");
+        if (error) throw error;
+        if (data?.url) window.location.href = data.url;
+        else throw new Error("No auth URL returned");
+        setXeroLoading(false);
       }
     } catch (err: any) {
       setBasecampLoading(false);
       setGmailLoading(false);
+      setAzureDevOpsLoading(false);
+      setXeroLoading(false);
       toast.error(err.message || "Failed to start OAuth flow");
     }
   };
 
-  const googleOAuthLoading = isGoogleCalendar ? calendarLoading : (isBasecamp ? basecampLoading : gmailLoading);
-  const isPending = isOAuthFlow ? googleOAuthLoading : (isCompany ? companyMutation.isPending : (connectMutation.isPending || disconnectMutation.isPending));
+  const oauthLoading = isGoogleCalendar ? calendarLoading : isBasecamp ? basecampLoading : isGmail ? gmailLoading : isAzureDevOps ? azureDevOpsLoading : xeroLoading;
+  const isPending = isOAuthFlow ? oauthLoading : (isCompany ? companyMutation.isPending : (connectMutation.isPending || disconnectMutation.isPending));
   const canEdit = !isCompany || isAdmin;
 
   return (
@@ -697,22 +786,19 @@ const IntegrationDetail = ({
                 <div className="space-y-4">
                   <div className="rounded-lg border border-border bg-secondary/20 p-4 space-y-2">
                     <p className="text-sm text-foreground">
-                      {isBasecamp 
+                      {isAzureDevOps
+                        ? "Click below to authorize Duncan to access your Azure DevOps work items and boards."
+                        : isXero
+                        ? "Click below to authorize Duncan to access your Xero invoices, contacts, and reports."
+                        : isBasecamp 
                         ? "Click below to authorize Duncan to access your Basecamp projects, to-dos, and messages."
                         : isGmail
                         ? "Click below to sign in with Google and grant Duncan read-only access to your Gmail for CV ingestion."
-                        : `Click below to sign in with Google and grant Duncan access to your calendar.`}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {isGoogleCalendar 
-                         ? "Duncan will be able to read your events and create/update/delete events on your behalf."
-                         : isGmail
-                         ? "Duncan will scan emails for CV attachments matching active job role titles in the subject line."
-                         : "Duncan will be able to read projects, to-dos, messages, and schedules from your Basecamp account."}
+                        : "Click below to sign in with Google and grant Duncan access to your calendar."}
                     </p>
                   </div>
                   <button
-                    onClick={handleGoogleOAuthConnect}
+                    onClick={handleOAuthConnect}
                     disabled={isPending}
                     className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-3 text-sm font-medium hover:bg-primary/90 transition-all disabled:opacity-50"
                   >
@@ -724,7 +810,7 @@ const IntegrationDetail = ({
                     ) : (
                       <>
                         <ExternalLink className="h-4 w-4" />
-                        {isBasecamp ? "Connect with Basecamp" : isGmail ? "Connect Gmail" : "Sign in with Google"}
+                        {isAzureDevOps ? "Connect Azure DevOps" : isXero ? "Connect Xero" : isBasecamp ? "Connect with Basecamp" : isGmail ? "Connect Gmail" : "Sign in with Google"}
                       </>
                     )}
                   </button>

@@ -1,4 +1,4 @@
-import { Brain, LayoutDashboard, Plug, Terminal, Settings, LogOut, UserCircle, BookOpen, ShoppingCart, Users } from "lucide-react";
+import { Brain, LayoutDashboard, Plug, Terminal, Settings, LogOut, UserCircle, BookOpen, ShoppingCart, Users, Activity } from "lucide-react";
 import { NavLink as RouterNavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -23,6 +23,10 @@ const navItems = [{
   icon: Users,
   label: "Recruitment",
   to: "/recruitment"
+}, {
+  icon: Activity,
+  label: "Operations",
+  to: "/operations"
 }, {
   icon: Plug,
   label: "Integrations",
