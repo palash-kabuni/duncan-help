@@ -1,12 +1,31 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const DEFAULT_APP_URL = "https://duncan-help.lovable.app";
+
+function getAppUrl() {
+  const rawAppUrl = (Deno.env.get("APP_URL") || "").trim();
+  if (!rawAppUrl) return DEFAULT_APP_URL;
+
+  const normalized = rawAppUrl.startsWith("http://") || rawAppUrl.startsWith("https://")
+    ? rawAppUrl
+    : `https://${rawAppUrl}`;
+
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.hostname.endsWith("supabase.co")) return DEFAULT_APP_URL;
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return DEFAULT_APP_URL;
+  }
+}
+
 Deno.serve(async (req) => {
   try {
     const url = new URL(req.url);
     const code = url.searchParams.get("code");
     const error = url.searchParams.get("error");
 
-    const appUrl = Deno.env.get("APP_URL") || "https://duncan-help.lovable.app";
+    const appUrl = getAppUrl();
 
     if (error || !code) {
       return new Response(null, {
