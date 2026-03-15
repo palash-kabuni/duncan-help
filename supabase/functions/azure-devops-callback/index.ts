@@ -45,10 +45,8 @@ Deno.serve(async (req) => {
 
     const clientId = Deno.env.get("AZURE_DEVOPS_CLIENT_ID")!;
     const clientSecret = Deno.env.get("AZURE_DEVOPS_CLIENT_SECRET")!;
-    const orgUrl = Deno.env.get("AZURE_DEVOPS_ORG_URL") || "";
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const redirectUri = `${supabaseUrl}/functions/v1/azure-devops-callback/`;
+    console.log("Token exchange config:", { clientId, redirectUri, orgUrl, hasSecret: !!clientSecret });
 
     // Exchange code for tokens
     const tokenResponse = await fetch("https://login.microsoftonline.com/common/oauth2/v2.0/token", {
