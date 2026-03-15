@@ -66,7 +66,8 @@ Deno.serve(async (req) => {
     // Azure AD OAuth 2.0 authorization URL
     // Scope: Azure DevOps user_impersonation
     const scope = "499b84ac-1321-427f-aa17-267ca6975798/user_impersonation offline_access";
-    const authUrl = new URL("https://login.microsoftonline.com/common/oauth2/v2.0/authorize");
+    const tenantId = Deno.env.get("AZURE_TENANT_ID") || "53e795b0-6f86-4e93-b619-32b5f5850f07";
+    const authUrl = new URL(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`);
     authUrl.searchParams.set("client_id", clientId);
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("redirect_uri", redirectUri);
