@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const redirectUri = `${supabaseUrl}/functions/v1/azure-devops-callback`;
+    const redirectUri = `${supabaseUrl}/functions/v1/azure-devops-callback/`;
     const state = crypto.randomUUID();
 
     // Azure AD OAuth 2.0 authorization URL
