@@ -43,6 +43,9 @@ Deno.serve(async (req) => {
       });
     }
 
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const orgUrl = Deno.env.get("AZURE_DEVOPS_ORG_URL") || "";
     const clientId = Deno.env.get("AZURE_DEVOPS_CLIENT_ID")!;
     const clientSecret = Deno.env.get("AZURE_DEVOPS_CLIENT_SECRET")!;
     const redirectUri = `${supabaseUrl}/functions/v1/azure-devops-callback/`;
