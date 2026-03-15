@@ -24,22 +24,29 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const code = url.searchParams.get("code");
     const error = url.searchParams.get("error");
+    const errorDescription = url.searchParams.get("error_description");
+
+    console.log("Azure DevOps callback params:", { 
+      hasCode: !!code, 
+      error, 
+      errorDescription,
+      fullUrl: req.url 
+    });
 
     const appUrl = getAppUrl();
 
     if (error || !code) {
+      console.error("Azure DevOps OAuth error:", { error, errorDescription });
       return new Response(null, {
         status: 302,
-        headers: { Location: `${appUrl}/integrations?error=${error || "no_code"}` },
+        headers: { Location: `${appUrl}/integrations?error=${error || "no_code"}&error_description=${encodeURIComponent(errorDescription || "")}` },
       });
     }
 
     const clientId = Deno.env.get("AZURE_DEVOPS_CLIENT_ID")!;
     const clientSecret = Deno.env.get("AZURE_DEVOPS_CLIENT_SECRET")!;
-    const orgUrl = Deno.env.get("AZURE_DEVOPS_ORG_URL") || "";
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const redirectUri = `${supabaseUrl}/functions/v1/azure-devops-callback/`;
+    console.log("Token exchange config:", { clientId, redirectUri, orgUrl, hasSecret: !!clientSecret });
 
     // Exchange code for tokens
     const tokenResponse = await fetch("https://login.microsoftonline.com/common/oauth2/v2.0/token", {
