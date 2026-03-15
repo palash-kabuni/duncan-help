@@ -24,13 +24,22 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const code = url.searchParams.get("code");
     const error = url.searchParams.get("error");
+    const errorDescription = url.searchParams.get("error_description");
+
+    console.log("Azure DevOps callback params:", { 
+      hasCode: !!code, 
+      error, 
+      errorDescription,
+      fullUrl: req.url 
+    });
 
     const appUrl = getAppUrl();
 
     if (error || !code) {
+      console.error("Azure DevOps OAuth error:", { error, errorDescription });
       return new Response(null, {
         status: 302,
-        headers: { Location: `${appUrl}/integrations?error=${error || "no_code"}` },
+        headers: { Location: `${appUrl}/integrations?error=${error || "no_code"}&error_description=${encodeURIComponent(errorDescription || "")}` },
       });
     }
 
