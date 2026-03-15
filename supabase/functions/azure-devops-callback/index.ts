@@ -111,7 +111,7 @@ Deno.serve(async (req) => {
     });
   } catch (error) {
     console.error("Azure DevOps callback error:", error);
-    const appUrl = Deno.env.get("APP_URL") || "https://duncan-help.lovable.app";
+    const appUrl = getAppUrl();
     return new Response(null, {
       status: 302,
       headers: { Location: `${appUrl}/integrations?error=unexpected` },
