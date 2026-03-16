@@ -583,7 +583,189 @@ const MEETING_TOOLS = [
   },
 ];
 
-async function executeMeetingTool(
+const AZURE_DEVOPS_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "list_azure_devops_projects",
+      description: "List all projects in Azure DevOps. Use this to discover available projects before querying work items.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_azure_work_items",
+      description: "Query Azure DevOps work items using WIQL (Work Item Query Language) for real-time data from Azure DevOps API. Use for complex or live queries. Example WIQL: SELECT [System.Id], [System.Title], [System.State] FROM workitems WHERE [System.State] = 'Active' AND [System.AssignedTo] = 'John' ORDER BY [System.ChangedDate] DESC",
+      parameters: {
+        type: "object",
+        properties: {
+          project: { type: "string", description: "Project name to query within (optional, queries across all if omitted)" },
+          wiql: { type: "string", description: "WIQL query string" },
+        },
+        required: ["wiql"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_azure_work_item",
+      description: "Get full details of a specific Azure DevOps work item by its ID.",
+      parameters: {
+        type: "object",
+        properties: {
+          work_item_id: { type: "number", description: "The work item ID (external_id)" },
+        },
+        required: ["work_item_id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_synced_work_items",
+      description: "Search previously synced Azure DevOps work items from the local database. Faster than live queries. Supports filtering by state, type, assignee, project, and text search in title/tags.",
+      parameters: {
+        type: "object",
+        properties: {
+          state: { type: "string", description: "Filter by state: New, Active, Resolved, Closed, Removed" },
+          work_item_type: { type: "string", description: "Filter by type: Bug, Task, User Story, Feature, Epic, etc." },
+          assigned_to: { type: "string", description: "Filter by assignee name (partial match)" },
+          project_name: { type: "string", description: "Filter by project name" },
+          search: { type: "string", description: "Search in title and tags" },
+          limit: { type: "number", description: "Max results (default 25)" },
+        },
+        required: [],
+      },
+    },
+  },
+];
+
+async function executeAzureDevOpsTool(
+  toolName: string,
+  args: any,
+  supabaseAdmin: any,
+  supabaseUrl: string,
+  authHeader: string
+): Promise<any> {
+  switch (toolName) {
+    case "list_azure_devops_projects": {
+      const res = await fetch(`${supabaseUrl}/functions/v1/azure-devops-api`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({ action: "list_projects" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to list projects");
+      const projects = (data.value || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        state: p.state,
+        description: p.description,
+      }));
+      return { count: projects.length, projects };
+    }
+
+    case "query_azure_work_items": {
+      // First get IDs via WIQL
+      const wiqlRes = await fetch(`${supabaseUrl}/functions/v1/azure-devops-api`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({ action: "query_work_items", project: args.project, wiql: args.wiql }),
+      });
+      const wiqlData = await wiqlRes.json();
+      if (!wiqlRes.ok) throw new Error(wiqlData.error || "WIQL query failed");
+
+      const ids = (wiqlData.workItems || []).map((w: any) => w.id).slice(0, 50);
+      if (ids.length === 0) return { count: 0, work_items: [] };
+
+      // Fetch details from local DB first (faster)
+      const { data: localItems } = await supabaseAdmin
+        .from("azure_work_items")
+        .select("external_id, title, state, work_item_type, assigned_to, priority, tags, project_name, iteration_path, changed_date")
+        .in("external_id", ids);
+
+      const localMap = new Map((localItems || []).map((i: any) => [i.external_id, i]));
+      const results = ids.map((id: number) => localMap.get(id) || { external_id: id, title: "(not synced locally)" });
+
+      return { count: results.length, total_matched: (wiqlData.workItems || []).length, work_items: results };
+    }
+
+    case "get_azure_work_item": {
+      // Try local DB first
+      const { data: localItem } = await supabaseAdmin
+        .from("azure_work_items")
+        .select("*")
+        .eq("external_id", args.work_item_id)
+        .maybeSingle();
+
+      if (localItem) {
+        return {
+          ...localItem,
+          description: localItem.description ? localItem.description.slice(0, 3000) : null,
+          raw_data: undefined, // too large for context
+        };
+      }
+
+      // Fallback to live API
+      const res = await fetch(`${supabaseUrl}/functions/v1/azure-devops-api`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({ action: "get_work_item", workItemId: args.work_item_id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to get work item");
+      const fields = data.fields || {};
+      return {
+        id: data.id,
+        title: fields["System.Title"],
+        state: fields["System.State"],
+        work_item_type: fields["System.WorkItemType"],
+        assigned_to: fields["System.AssignedTo"]?.displayName,
+        priority: fields["Microsoft.VSTS.Common.Priority"],
+        tags: fields["System.Tags"],
+        area_path: fields["System.AreaPath"],
+        iteration_path: fields["System.IterationPath"],
+        description: (fields["System.Description"] || "").slice(0, 3000),
+        created_date: fields["System.CreatedDate"],
+        changed_date: fields["System.ChangedDate"],
+      };
+    }
+
+    case "search_synced_work_items": {
+      let query = supabaseAdmin
+        .from("azure_work_items")
+        .select("external_id, title, state, work_item_type, assigned_to, priority, tags, project_name, iteration_path, area_path, changed_date")
+        .order("changed_date", { ascending: false })
+        .limit(args.limit || 25);
+
+      if (args.state) query = query.eq("state", args.state);
+      if (args.work_item_type) query = query.eq("work_item_type", args.work_item_type);
+      if (args.project_name) query = query.eq("project_name", args.project_name);
+      if (args.assigned_to) query = query.ilike("assigned_to", `%${args.assigned_to}%`);
+      if (args.search) query = query.or(`title.ilike.%${args.search}%,tags.ilike.%${args.search}%`);
+
+      const { data, error } = await query;
+      if (error) throw new Error(`Search failed: ${error.message}`);
+      return { count: (data || []).length, work_items: data || [] };
+    }
+
+    default:
+      throw new Error(`Unknown Azure DevOps tool: ${toolName}`);
+  }
+}
+
+
   toolName: string,
   args: any,
   supabaseAdmin: any,
