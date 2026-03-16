@@ -1877,6 +1877,8 @@ serve(async (req) => {
             }
           } else if (meetingToolNames.includes(tc.function.name)) {
               result = await executeMeetingTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
+          } else if (azureDevOpsToolNames.includes(tc.function.name)) {
+              result = await executeAzureDevOpsTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
           } else {
           }
           
