@@ -1694,6 +1694,8 @@ serve(async (req) => {
     }
     // Meeting tools always available (Gmail connection checked at execution time)
     tools.push(...MEETING_TOOLS);
+    // Azure DevOps tools always available (connection checked at execution time)
+    tools.push(...AZURE_DEVOPS_TOOLS);
     if (tools.length > 0) {
       requestBody.tools = tools;
     }
