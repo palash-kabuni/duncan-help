@@ -36,6 +36,10 @@ const navItems = [{
   label: "Profile",
   to: "/profile"
 }, {
+  icon: MessageSquareWarning,
+  label: "Feedback / Issues",
+  to: "/feedback"
+}, {
   icon: Settings,
   label: "Settings",
   to: "/settings"
