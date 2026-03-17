@@ -1,4 +1,4 @@
-import { Brain, LayoutDashboard, Plug, Terminal, Settings, LogOut, UserCircle, BookOpen, ShoppingCart, Users, Activity } from "lucide-react";
+import { Brain, LayoutDashboard, Plug, Terminal, Settings, LogOut, UserCircle, BookOpen, ShoppingCart, Users, Activity, MessageSquareWarning } from "lucide-react";
 import { NavLink as RouterNavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -35,6 +35,10 @@ const navItems = [{
   icon: UserCircle,
   label: "Profile",
   to: "/profile"
+}, {
+  icon: MessageSquareWarning,
+  label: "Feedback / Issues",
+  to: "/feedback"
 }, {
   icon: Settings,
   label: "Settings",

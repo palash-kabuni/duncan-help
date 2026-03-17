@@ -486,6 +486,66 @@ export type Database = {
         }
         Relationships: []
       }
+      issues: {
+        Row: {
+          actual_behavior: string | null
+          affected_area: string | null
+          attachment_paths: string[] | null
+          confidence_score: number | null
+          created_at: string
+          description: string
+          expected_behavior: string | null
+          frequency: string
+          id: string
+          issue_type: string
+          retrieval_relevant: string | null
+          severity: string
+          steps_to_reproduce: string | null
+          title: string
+          updated_at: string
+          user_email: string | null
+          user_id: string
+        }
+        Insert: {
+          actual_behavior?: string | null
+          affected_area?: string | null
+          attachment_paths?: string[] | null
+          confidence_score?: number | null
+          created_at?: string
+          description?: string
+          expected_behavior?: string | null
+          frequency?: string
+          id?: string
+          issue_type?: string
+          retrieval_relevant?: string | null
+          severity?: string
+          steps_to_reproduce?: string | null
+          title: string
+          updated_at?: string
+          user_email?: string | null
+          user_id: string
+        }
+        Update: {
+          actual_behavior?: string | null
+          affected_area?: string | null
+          attachment_paths?: string[] | null
+          confidence_score?: number | null
+          created_at?: string
+          description?: string
+          expected_behavior?: string | null
+          frequency?: string
+          id?: string
+          issue_type?: string
+          retrieval_relevant?: string | null
+          severity?: string
+          steps_to_reproduce?: string | null
+          title?: string
+          updated_at?: string
+          user_email?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       job_roles: {
         Row: {
           company_values: Json
