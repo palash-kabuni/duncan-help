@@ -16,6 +16,7 @@ import Wiki from "./pages/Wiki";
 import PurchaseOrders from "./pages/PurchaseOrders";
 import Recruitment from "./pages/Recruitment";
 import Operations from "./pages/Operations";
+import FeedbackIssues from "./pages/FeedbackIssues";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
