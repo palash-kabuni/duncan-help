@@ -90,8 +90,6 @@ const FeedbackIssues = () => {
     setForm({
       title: "", issue_type: "Bug", description: "", steps_to_reproduce: "",
       expected_behavior: "", actual_behavior: "", affected_area: "",
-      severity: "Medium", frequency: "Sometimes", retrieval_relevant: "Not Applicable",
-      confidence_score: 3,
     });
     setFiles([]);
     setSubmitted(false);
