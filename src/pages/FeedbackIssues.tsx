@@ -29,7 +29,6 @@ const FeedbackIssues = () => {
     title: "",
     issue_type: "Bug",
     description: "",
-    steps_to_reproduce: "",
     expected_behavior: "",
     actual_behavior: "",
     affected_area: "",
