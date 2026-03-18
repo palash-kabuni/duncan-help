@@ -67,7 +67,7 @@ const FeedbackIssues = () => {
         title: form.title.trim(),
         issue_type: form.issue_type,
         description: form.description.trim(),
-        steps_to_reproduce: form.steps_to_reproduce.trim(),
+        
         expected_behavior: form.expected_behavior.trim(),
         actual_behavior: form.actual_behavior.trim(),
         affected_area: form.affected_area.trim(),
