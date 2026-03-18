@@ -148,11 +148,6 @@ const FeedbackIssues = () => {
               <Textarea id="description" placeholder="Describe the issue in detail" rows={4} value={form.description} onChange={(e) => updateField("description", e.target.value)} />
             </div>
 
-            {/* Steps to Reproduce */}
-            <div className="space-y-2">
-              <Label htmlFor="steps">Steps to Reproduce</Label>
-              <Textarea id="steps" placeholder="1. Go to...\n2. Click on...\n3. Observe..." rows={3} value={form.steps_to_reproduce} onChange={(e) => updateField("steps_to_reproduce", e.target.value)} />
-            </div>
 
             {/* Expected / Actual */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
