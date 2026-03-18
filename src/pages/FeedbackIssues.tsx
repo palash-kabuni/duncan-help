@@ -173,51 +173,6 @@ const FeedbackIssues = () => {
               <Input id="area" placeholder="e.g. Prompt Engine, Recruitment, Wiki..." value={form.affected_area} onChange={(e) => updateField("affected_area", e.target.value)} />
             </div>
 
-            {/* Severity & Frequency */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Severity</Label>
-                <Select value={form.severity} onValueChange={(v) => updateField("severity", v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {SEVERITIES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Frequency</Label>
-                <Select value={form.frequency} onValueChange={(v) => updateField("frequency", v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {FREQUENCIES.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {/* Retrieval Relevant */}
-            <div className="space-y-2">
-              <Label>Was the retrieved information relevant?</Label>
-              <Select value={form.retrieval_relevant} onValueChange={(v) => updateField("retrieval_relevant", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {RELEVANCE_OPTIONS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Confidence Score */}
-            <div className="space-y-2">
-              <Label>Confidence in system response (1–5)</Label>
-              <div className="flex gap-2">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <button key={n} type="button" onClick={() => updateField("confidence_score", n)}
-                    className={`h-10 w-10 rounded-md border text-sm font-medium transition-colors ${form.confidence_score === n ? "bg-primary text-primary-foreground border-primary" : "bg-background text-foreground border-input hover:bg-accent"}`}>
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
 
             {/* Attachments */}
             <div className="space-y-2">
