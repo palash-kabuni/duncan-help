@@ -60,6 +60,53 @@ const PromptEngine = () => {
   const location = useLocation();
   const initialSent = useRef(false);
 
+  // Sanitize copy to strip dark-theme styles for external editors
+  useEffect(() => {
+    const handler = (e: ClipboardEvent) => {
+      const chatArea = scrollRef.current;
+      if (!chatArea) return;
+
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed) return;
+
+      // Only intercept if selection is within the chat area
+      const anchorNode = selection.anchorNode;
+      if (!anchorNode || !chatArea.contains(anchorNode)) return;
+
+      const range = selection.getRangeAt(0);
+      const cloned = range.cloneContents();
+
+      // Recursively strip style attributes and class names
+      const sanitize = (node: Node) => {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const el = node as HTMLElement;
+          el.removeAttribute("style");
+          el.removeAttribute("class");
+          // Remove data attributes
+          Array.from(el.attributes)
+            .filter((a) => a.name.startsWith("data-"))
+            .forEach((a) => el.removeAttribute(a.name));
+        }
+        node.childNodes.forEach(sanitize);
+      };
+
+      sanitize(cloned);
+
+      const wrapper = document.createElement("div");
+      wrapper.appendChild(cloned);
+
+      const cleanHTML = wrapper.innerHTML;
+      const plainText = selection.toString();
+
+      e.clipboardData?.setData("text/html", cleanHTML);
+      e.clipboardData?.setData("text/plain", plainText);
+      e.preventDefault();
+    };
+
+    document.addEventListener("copy", handler);
+    return () => document.removeEventListener("copy", handler);
+  }, []);
+
   const handleAuthenticatedDownload = useCallback(async (url: string) => {
     try {
       setDownloadingUrl(url);
