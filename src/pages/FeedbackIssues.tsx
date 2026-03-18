@@ -72,10 +72,6 @@ const FeedbackIssues = () => {
         expected_behavior: form.expected_behavior.trim(),
         actual_behavior: form.actual_behavior.trim(),
         affected_area: form.affected_area.trim(),
-        severity: form.severity,
-        frequency: form.frequency,
-        retrieval_relevant: form.retrieval_relevant,
-        confidence_score: form.confidence_score,
         attachment_paths: attachmentPaths,
       } as any);
 
