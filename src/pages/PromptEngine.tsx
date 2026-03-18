@@ -17,15 +17,65 @@ const modes = [
   { id: "analyze" as Mode, icon: BarChart3, label: "Analyze" },
 ];
 
+const inlineStyles = (source: Element, clone: Element) => {
+  const computed = window.getComputedStyle(source);
+  const el = clone as HTMLElement;
+  const stylesToCopy = [
+    "color", "background-color", "font-family", "font-size", "font-weight",
+    "font-style", "line-height", "letter-spacing", "text-decoration",
+    "margin-top", "margin-bottom", "margin-left", "margin-right",
+    "padding-top", "padding-bottom", "padding-left", "padding-right",
+    "border-left", "border-bottom", "list-style-type",
+  ];
+  for (const prop of stylesToCopy) {
+    el.style.setProperty(prop, computed.getPropertyValue(prop));
+  }
+  // Force readable colors on light backgrounds
+  const color = computed.getPropertyValue("color");
+  if (color) {
+    const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+      const [, r, g, b] = match.map(Number);
+      // If text is very light (designed for dark bg), darken it
+      if (r > 180 && g > 180 && b > 180) {
+        el.style.setProperty("color", "#1a1a1a");
+      }
+    }
+  }
+  // Remove dark background colors
+  const bg = computed.getPropertyValue("background-color");
+  if (bg && bg !== "rgba(0, 0, 0, 0)") {
+    const bgMatch = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    if (bgMatch) {
+      const [, r, g, b] = bgMatch.map(Number);
+      if (r < 60 && g < 60 && b < 60) {
+        el.style.setProperty("background-color", "transparent");
+      }
+    }
+  }
+  const sourceChildren = source.children;
+  const cloneChildren = clone.children;
+  for (let i = 0; i < sourceChildren.length; i++) {
+    if (cloneChildren[i]) inlineStyles(sourceChildren[i], cloneChildren[i]);
+  }
+};
+
 const CopyButton = ({ content, messageRef }: { content: string; messageRef: React.RefObject<HTMLDivElement> }) => {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
     try {
-      const htmlContent = messageRef.current?.innerHTML || content;
+      const source = messageRef.current;
+      let styledHTML = content;
+      if (source) {
+        const clone = source.cloneNode(true) as HTMLElement;
+        inlineStyles(source, clone);
+        // Wrap in a div with sensible defaults for light-bg paste targets
+        styledHTML = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.7; color: #1a1a1a;">${clone.innerHTML}</div>`;
+      }
       await navigator.clipboard.write([
         new ClipboardItem({
-          "text/html": new Blob([htmlContent], { type: "text/html" }),
+          "text/html": new Blob([styledHTML], { type: "text/html" }),
           "text/plain": new Blob([content], { type: "text/plain" }),
         }),
       ]);
