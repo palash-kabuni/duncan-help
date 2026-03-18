@@ -36,10 +36,6 @@ const FeedbackIssues = () => {
     expected_behavior: "",
     actual_behavior: "",
     affected_area: "",
-    severity: "Medium",
-    frequency: "Sometimes",
-    retrieval_relevant: "Not Applicable",
-    confidence_score: 3,
   });
 
   const updateField = (field: string, value: string | number) =>
