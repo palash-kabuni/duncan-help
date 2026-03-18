@@ -17,47 +17,113 @@ const modes = [
   { id: "analyze" as Mode, icon: BarChart3, label: "Analyze" },
 ];
 
-const inlineStyles = (source: Element, clone: Element) => {
-  const computed = window.getComputedStyle(source);
-  const el = clone as HTMLElement;
-  const stylesToCopy = [
-    "color", "background-color", "font-family", "font-size", "font-weight",
-    "font-style", "line-height", "letter-spacing", "text-decoration",
-    "margin-top", "margin-bottom", "margin-left", "margin-right",
-    "padding-top", "padding-bottom", "padding-left", "padding-right",
-    "border-left", "border-bottom", "list-style-type",
-  ];
-  for (const prop of stylesToCopy) {
-    el.style.setProperty(prop, computed.getPropertyValue(prop));
-  }
-  // Force readable colors on light backgrounds
-  const color = computed.getPropertyValue("color");
-  if (color) {
-    const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-    if (match) {
-      const [, r, g, b] = match.map(Number);
-      // If text is very light (designed for dark bg), darken it
-      if (r > 180 && g > 180 && b > 180) {
-        el.style.setProperty("color", "#1a1a1a");
-      }
-    }
-  }
-  // Remove dark background colors
-  const bg = computed.getPropertyValue("background-color");
-  if (bg && bg !== "rgba(0, 0, 0, 0)") {
-    const bgMatch = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-    if (bgMatch) {
-      const [, r, g, b] = bgMatch.map(Number);
-      if (r < 60 && g < 60 && b < 60) {
-        el.style.setProperty("background-color", "transparent");
-      }
-    }
-  }
-  const sourceChildren = source.children;
-  const cloneChildren = clone.children;
-  for (let i = 0; i < sourceChildren.length; i++) {
-    if (cloneChildren[i]) inlineStyles(sourceChildren[i], cloneChildren[i]);
-  }
+const cleanForClipboard = (el: HTMLElement) => {
+  // Strip ALL backgrounds, borders, shadows, padding from every element
+  const all = el.querySelectorAll("*");
+  const strip = (node: HTMLElement) => {
+    node.style.background = "none";
+    node.style.backgroundColor = "transparent";
+    node.style.border = "none";
+    node.style.borderLeft = "none";
+    node.style.borderRight = "none";
+    node.style.borderTop = "none";
+    node.style.borderBottom = "none";
+    node.style.boxShadow = "none";
+    node.style.padding = "0";
+    node.style.margin = "0";
+    node.style.color = "#1a1a1a";
+    // Remove class attribute entirely so no Tailwind leaks
+    node.removeAttribute("class");
+  };
+  strip(el);
+  all.forEach((child) => strip(child as HTMLElement));
+
+  // Re-apply only semantic text formatting
+  el.querySelectorAll("h1").forEach((h) => {
+    (h as HTMLElement).style.fontSize = "22px";
+    (h as HTMLElement).style.fontWeight = "700";
+    (h as HTMLElement).style.marginTop = "16px";
+    (h as HTMLElement).style.marginBottom = "8px";
+  });
+  el.querySelectorAll("h2").forEach((h) => {
+    (h as HTMLElement).style.fontSize = "18px";
+    (h as HTMLElement).style.fontWeight = "700";
+    (h as HTMLElement).style.marginTop = "14px";
+    (h as HTMLElement).style.marginBottom = "6px";
+  });
+  el.querySelectorAll("h3").forEach((h) => {
+    (h as HTMLElement).style.fontSize = "16px";
+    (h as HTMLElement).style.fontWeight = "600";
+    (h as HTMLElement).style.marginTop = "12px";
+    (h as HTMLElement).style.marginBottom = "4px";
+  });
+  el.querySelectorAll("strong, b").forEach((s) => {
+    (s as HTMLElement).style.fontWeight = "700";
+  });
+  el.querySelectorAll("em, i").forEach((s) => {
+    (s as HTMLElement).style.fontStyle = "italic";
+  });
+  el.querySelectorAll("p").forEach((p) => {
+    (p as HTMLElement).style.marginBottom = "8px";
+    (p as HTMLElement).style.lineHeight = "1.6";
+  });
+  el.querySelectorAll("ul").forEach((u) => {
+    (u as HTMLElement).style.paddingLeft = "20px";
+    (u as HTMLElement).style.listStyleType = "disc";
+    (u as HTMLElement).style.marginTop = "4px";
+    (u as HTMLElement).style.marginBottom = "8px";
+  });
+  el.querySelectorAll("ol").forEach((o) => {
+    (o as HTMLElement).style.paddingLeft = "20px";
+    (o as HTMLElement).style.listStyleType = "decimal";
+    (o as HTMLElement).style.marginTop = "4px";
+    (o as HTMLElement).style.marginBottom = "8px";
+  });
+  el.querySelectorAll("li").forEach((li) => {
+    (li as HTMLElement).style.marginBottom = "4px";
+    (li as HTMLElement).style.lineHeight = "1.6";
+  });
+  el.querySelectorAll("code").forEach((c) => {
+    (c as HTMLElement).style.fontFamily = "monospace";
+    (c as HTMLElement).style.fontSize = "13px";
+    (c as HTMLElement).style.backgroundColor = "#f3f4f6";
+    (c as HTMLElement).style.padding = "1px 4px";
+    (c as HTMLElement).style.borderRadius = "3px";
+    (c as HTMLElement).style.color = "#1a1a1a";
+  });
+  el.querySelectorAll("pre").forEach((pre) => {
+    (pre as HTMLElement).style.fontFamily = "monospace";
+    (pre as HTMLElement).style.fontSize = "13px";
+    (pre as HTMLElement).style.backgroundColor = "#f3f4f6";
+    (pre as HTMLElement).style.padding = "12px";
+    (pre as HTMLElement).style.borderRadius = "6px";
+    (pre as HTMLElement).style.marginTop = "8px";
+    (pre as HTMLElement).style.marginBottom = "8px";
+    (pre as HTMLElement).style.overflowX = "auto";
+    (pre as HTMLElement).style.color = "#1a1a1a";
+  });
+  el.querySelectorAll("blockquote").forEach((bq) => {
+    (bq as HTMLElement).style.borderLeft = "3px solid #d1d5db";
+    (bq as HTMLElement).style.paddingLeft = "12px";
+    (bq as HTMLElement).style.marginTop = "8px";
+    (bq as HTMLElement).style.marginBottom = "8px";
+    (bq as HTMLElement).style.color = "#4b5563";
+  });
+  el.querySelectorAll("table").forEach((t) => {
+    (t as HTMLElement).style.borderCollapse = "collapse";
+    (t as HTMLElement).style.marginTop = "8px";
+    (t as HTMLElement).style.marginBottom = "8px";
+  });
+  el.querySelectorAll("th, td").forEach((cell) => {
+    (cell as HTMLElement).style.border = "1px solid #d1d5db";
+    (cell as HTMLElement).style.padding = "6px 10px";
+    (cell as HTMLElement).style.fontSize = "13px";
+    (cell as HTMLElement).style.color = "#1a1a1a";
+  });
+  el.querySelectorAll("th").forEach((th) => {
+    (th as HTMLElement).style.fontWeight = "600";
+    (th as HTMLElement).style.backgroundColor = "#f9fafb";
+  });
 };
 
 const CopyButton = ({ content, messageRef }: { content: string; messageRef: React.RefObject<HTMLDivElement> }) => {
@@ -69,8 +135,7 @@ const CopyButton = ({ content, messageRef }: { content: string; messageRef: Reac
       let styledHTML = content;
       if (source) {
         const clone = source.cloneNode(true) as HTMLElement;
-        inlineStyles(source, clone);
-        // Wrap in a div with sensible defaults for light-bg paste targets
+        cleanForClipboard(clone);
         styledHTML = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.7; color: #1a1a1a;">${clone.innerHTML}</div>`;
       }
       await navigator.clipboard.write([
