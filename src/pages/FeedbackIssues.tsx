@@ -29,7 +29,6 @@ const FeedbackIssues = () => {
     title: "",
     issue_type: "Bug",
     description: "",
-    steps_to_reproduce: "",
     expected_behavior: "",
     actual_behavior: "",
     affected_area: "",
@@ -68,7 +67,7 @@ const FeedbackIssues = () => {
         title: form.title.trim(),
         issue_type: form.issue_type,
         description: form.description.trim(),
-        steps_to_reproduce: form.steps_to_reproduce.trim(),
+        
         expected_behavior: form.expected_behavior.trim(),
         actual_behavior: form.actual_behavior.trim(),
         affected_area: form.affected_area.trim(),
@@ -88,7 +87,7 @@ const FeedbackIssues = () => {
 
   const resetForm = () => {
     setForm({
-      title: "", issue_type: "Bug", description: "", steps_to_reproduce: "",
+      title: "", issue_type: "Bug", description: "",
       expected_behavior: "", actual_behavior: "", affected_area: "",
     });
     setFiles([]);
@@ -149,11 +148,6 @@ const FeedbackIssues = () => {
               <Textarea id="description" placeholder="Describe the issue in detail" rows={4} value={form.description} onChange={(e) => updateField("description", e.target.value)} />
             </div>
 
-            {/* Steps to Reproduce */}
-            <div className="space-y-2">
-              <Label htmlFor="steps">Steps to Reproduce</Label>
-              <Textarea id="steps" placeholder="1. Go to...\n2. Click on...\n3. Observe..." rows={3} value={form.steps_to_reproduce} onChange={(e) => updateField("steps_to_reproduce", e.target.value)} />
-            </div>
 
             {/* Expected / Actual */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
