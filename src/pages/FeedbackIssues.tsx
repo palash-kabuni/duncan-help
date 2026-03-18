@@ -87,7 +87,7 @@ const FeedbackIssues = () => {
 
   const resetForm = () => {
     setForm({
-      title: "", issue_type: "Bug", description: "", steps_to_reproduce: "",
+      title: "", issue_type: "Bug", description: "",
       expected_behavior: "", actual_behavior: "", affected_area: "",
     });
     setFiles([]);
