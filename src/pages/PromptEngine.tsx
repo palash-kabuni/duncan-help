@@ -44,7 +44,7 @@ const CopyButton = ({ content, messageRef }: { content: string; messageRef: Reac
       className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
       title="Copy response"
     >
-      {copied ? <Check className="h-3 w-3 text-green-400" /> : <Copy className="h-3 w-3" />}
+      {copied ? <Check className="h-3 w-3 text-primary" /> : <Copy className="h-3 w-3" />}
       {copied ? "Copied" : "Copy"}
     </button>
   );
