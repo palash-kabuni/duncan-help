@@ -17,9 +17,6 @@ const ISSUE_TYPES = [
   "UI Issue", "Data Issue", "Other",
 ];
 
-const SEVERITIES = ["Critical", "High", "Medium", "Low"];
-const FREQUENCIES = ["Always", "Often", "Sometimes", "Rare"];
-const RELEVANCE_OPTIONS = ["Yes", "No", "Not Applicable"];
 
 const FeedbackIssues = () => {
   const { user } = useAuth();
