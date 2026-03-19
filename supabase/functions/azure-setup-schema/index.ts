@@ -29,9 +29,9 @@ Deno.serve(async (req) => {
   const client = getAzurePgClient();
 
   try {
+    console.log("Attempting Azure PG connection...");
     await client.connect();
-
-    // 1. Create nda_submissions mirror table
+    console.log("Connected to Azure PG successfully");
     await client.queryArray(`
       CREATE TABLE IF NOT EXISTS nda_submissions (
         id UUID PRIMARY KEY,
