@@ -524,7 +524,7 @@ serve(async (req) => {
           sender_email: senderEmail,
           source: "plaud",
           status: transcriptText ? "transcribed" : (audioStoragePath ? "audio_only" : "pending"),
-          fetched_by: user.id,
+          fetched_by: requestingUserId,
         })
         .select()
         .single();
