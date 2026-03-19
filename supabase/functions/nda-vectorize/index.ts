@@ -14,7 +14,7 @@ function getAzurePgClient(): Client {
   return new Client({
     hostname: "duncan-dev-postgresql.postgres.database.azure.com",
     port: 5432,
-    user: "balkrishna@duncan-dev-postgresql",
+    user: "duncan_admin_dev",
     password,
     database: "postgres",
     tls: { enabled: true, enforce: false },
