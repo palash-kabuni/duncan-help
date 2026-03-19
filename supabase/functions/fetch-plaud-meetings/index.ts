@@ -217,6 +217,7 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    let requestingUserId: string | null = null;
 
     // Auth check — allow service role key for cron invocations
     const authHeader = req.headers.get("Authorization");
@@ -226,8 +227,8 @@ serve(async (req) => {
       });
     }
 
-    const token = authHeader.replace("Bearer ", "");
-    const isServiceRole = token === supabaseServiceKey;
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const isServiceRole = token === supabaseServiceKey.trim() || getJwtRole(token) === "service_role";
 
     if (!isServiceRole) {
       // Validate as user token
@@ -240,6 +241,7 @@ serve(async (req) => {
           status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+      requestingUserId = user.id;
     }
 
     console.log(`Invoked by: ${isServiceRole ? "cron/service-role" : "user"}`);
