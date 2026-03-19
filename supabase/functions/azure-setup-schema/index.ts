@@ -17,6 +17,7 @@ function getAzurePgClient(): Client {
     password,
     database: "postgres",
     tls: { enabled: true, enforce: false },
+    connection: { attempts: 1 },
   });
 }
 
