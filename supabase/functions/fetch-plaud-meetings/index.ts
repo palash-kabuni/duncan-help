@@ -104,6 +104,21 @@ function extractPlainTextBody(payload: any): string {
   return "";
 }
 
+function getJwtRole(token: string): string | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+
+    const base64Payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const paddedPayload = base64Payload.padEnd(Math.ceil(base64Payload.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(paddedPayload));
+
+    return typeof payload?.role === "string" ? payload.role : null;
+  } catch {
+    return null;
+  }
+}
+
 function extractPlaudLinks(text: string, html: string): string[] {
   const urls = new Set<string>();
   // Match Plaud-related URLs from both plain text and HTML
@@ -202,6 +217,7 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    let requestingUserId: string | null = null;
 
     // Auth check — allow service role key for cron invocations
     const authHeader = req.headers.get("Authorization");
@@ -211,8 +227,8 @@ serve(async (req) => {
       });
     }
 
-    const token = authHeader.replace("Bearer ", "");
-    const isServiceRole = token === supabaseServiceKey;
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const isServiceRole = token === supabaseServiceKey.trim() || getJwtRole(token) === "service_role";
 
     if (!isServiceRole) {
       // Validate as user token
@@ -225,6 +241,7 @@ serve(async (req) => {
           status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+      requestingUserId = user.id;
     }
 
     console.log(`Invoked by: ${isServiceRole ? "cron/service-role" : "user"}`);
@@ -507,7 +524,7 @@ serve(async (req) => {
           sender_email: senderEmail,
           source: "plaud",
           status: transcriptText ? "transcribed" : (audioStoragePath ? "audio_only" : "pending"),
-          fetched_by: user.id,
+          fetched_by: requestingUserId,
         })
         .select()
         .single();
