@@ -119,3 +119,9 @@ verify_jwt = false
 
 [functions.nda-search]
 verify_jwt = false
+
+[functions.generate-jd]
+verify_jwt = false
+
+[functions.create-hireflix-position]
+verify_jwt = false
