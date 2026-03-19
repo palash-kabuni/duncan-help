@@ -104,6 +104,21 @@ function extractPlainTextBody(payload: any): string {
   return "";
 }
 
+function getJwtRole(token: string): string | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+
+    const base64Payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const paddedPayload = base64Payload.padEnd(Math.ceil(base64Payload.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(paddedPayload));
+
+    return typeof payload?.role === "string" ? payload.role : null;
+  } catch {
+    return null;
+  }
+}
+
 function extractPlaudLinks(text: string, html: string): string[] {
   const urls = new Set<string>();
   // Match Plaud-related URLs from both plain text and HTML
