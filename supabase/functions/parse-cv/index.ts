@@ -1,13 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { ZipReader, BlobReader, TextWriter } from "https://deno.land/x/zipjs@v2.7.32/index.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// Safe base64 encoding that doesn't blow the stack on large files
 function uint8ToBase64(bytes: Uint8Array): string {
   const CHUNK = 8192;
   let result = "";
@@ -18,25 +16,13 @@ function uint8ToBase64(bytes: Uint8Array): string {
   return btoa(result);
 }
 
-// Extract text content from a DOCX file (ZIP of XML)
-// Note: For PDFs we do best-effort text extraction since OpenAI API doesn't accept PDF files directly
-async function extractDocxText(bytes: Uint8Array): Promise<string> {
-  const blob = new Blob([bytes]);
-  const reader = new ZipReader(new BlobReader(blob));
-  const entries = await reader.getEntries();
-  
-  let text = "";
-  for (const entry of entries) {
-    if (entry.filename === "word/document.xml" && entry.getData) {
-      const writer = new TextWriter();
-      const xml = await entry.getData(writer);
-      // Strip XML tags, keep text content
-      text = xml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-      break;
-    }
+function getMimeType(ext: string): string {
+  switch (ext) {
+    case "pdf": return "application/pdf";
+    case "docx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    case "doc": return "application/msword";
+    default: return "application/octet-stream";
   }
-  await reader.close();
-  return text.slice(0, 15000);
 }
 
 serve(async (req) => {
@@ -83,65 +69,12 @@ serve(async (req) => {
     const arrayBuffer = await fileData.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
     const base64 = uint8ToBase64(bytes);
+    const ext = storage_path.split(".").pop()?.toLowerCase() || "";
+    const mimeType = getMimeType(ext);
+    const filename = storage_path.split("/").pop() || `cv.${ext}`;
 
-    const ext = storage_path.split(".").pop()?.toLowerCase();
-    const isPdf = ext === "pdf";
-    const isDocx = ext === "docx";
-
-    const systemMsg = {
-      role: "system",
-      content: `You are a CV/resume parser. Extract the candidate's full name and email address from the document. 
-If you cannot find an email, return null for email. 
-Always return the result by calling the extract_candidate_info function.`,
-    };
-
-    let aiMessages: any[];
-
-    if (isPdf) {
-      // PDFs: extract text via best-effort decoding (OpenAI API doesn't accept PDF files directly)
-      const textContent = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-      const cleanText = textContent.replace(/[^\x20-\x7E\n\r\t]/g, " ").replace(/\s{3,}/g, " ").slice(0, 15000);
-      if (cleanText.length < 20) {
-        return new Response(
-          JSON.stringify({ error: "Could not extract text from PDF", candidate_id }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      aiMessages = [
-        systemMsg,
-        {
-          role: "user",
-          content: `Extract the candidate's full name and email address from this CV/resume document.\n\n${cleanText}`,
-        },
-      ];
-    } else if (isDocx) {
-      // DOCX: extract text from XML inside the ZIP, send as plain text
-      const docxText = await extractDocxText(bytes);
-      if (!docxText || docxText.length < 20) {
-        return new Response(
-          JSON.stringify({ error: "Could not extract text from DOCX file", candidate_id }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      aiMessages = [
-        systemMsg,
-        {
-          role: "user",
-          content: `Extract the candidate's full name and email from this CV text:\n\n${docxText}`,
-        },
-      ];
-    } else {
-      // DOC or other: best-effort raw text extraction
-      const textContent = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-      const cleanText = textContent.replace(/[^\x20-\x7E\n\r\t]/g, " ").replace(/\s{3,}/g, " ").slice(0, 8000);
-      aiMessages = [
-        systemMsg,
-        {
-          role: "user",
-          content: `Extract the candidate's full name and email from this CV text:\n\n${cleanText}`,
-        },
-      ];
-    }
+    // Send the file directly to GPT-4.1 using the file content type
+    // This works for PDF, DOCX, DOC and other document formats
     const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -150,7 +83,30 @@ Always return the result by calling the extract_candidate_info function.`,
       },
       body: JSON.stringify({
         model: "gpt-4.1",
-        messages: aiMessages,
+        messages: [
+          {
+            role: "system",
+            content: `You are a CV/resume parser. Extract the candidate's full name and email address from the document. 
+If you cannot find an email, return null for email. 
+Always return the result by calling the extract_candidate_info function.`,
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "file",
+                file: {
+                  filename,
+                  file_data: `data:${mimeType};base64,${base64}`,
+                },
+              },
+              {
+                type: "text",
+                text: "Extract the candidate's full name and email address from this CV/resume document.",
+              },
+            ],
+          },
+        ],
         tools: [
           {
             type: "function",
@@ -226,10 +182,8 @@ Always return the result by calling the extract_candidate_info function.`,
       );
     }
 
-    const updateData: any = { name: parsedName };
-    if (parsedEmail) {
-      updateData.email = parsedEmail;
-    }
+    const updateData: Record<string, string> = { name: parsedName };
+    if (parsedEmail) updateData.email = parsedEmail;
 
     const { error: updateError } = await supabaseAdmin
       .from("candidates")
