@@ -107,3 +107,15 @@ verify_jwt = false
 
 [functions.nda-send-signature]
 verify_jwt = false
+
+[functions.azure-setup-schema]
+verify_jwt = false
+
+[functions.azure-db-sync]
+verify_jwt = false
+
+[functions.nda-vectorize]
+verify_jwt = false
+
+[functions.nda-search]
+verify_jwt = false
