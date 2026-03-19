@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Briefcase, Plus, Loader2, Trash2, Upload, FileText } from "lucide-react";
+import { Briefcase, Plus, Loader2, Trash2, Upload, FileText, Sparkles, Download } from "lucide-react";
 import { toast } from "sonner";
 
 export function JobRolesManager() {
@@ -17,9 +17,11 @@ export function JobRolesManager() {
   const queryClient = useQueryClient();
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [jdFile, setJdFile] = useState<File | null>(null);
+  const [generatedJd, setGeneratedJd] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: jobRoles, isLoading } = useQuery({
@@ -34,6 +36,59 @@ export function JobRolesManager() {
     },
   });
 
+  const handleGenerateJd = async () => {
+    if (!title.trim()) {
+      toast.error("Enter a role title first");
+      return;
+    }
+    setGenerating(true);
+    try {
+      // Create a temporary role to generate against, or generate without saving first
+      const res = await supabase.functions.invoke("generate-jd", {
+        body: { job_role_id: "preview", title: title.trim() },
+      });
+      if (res.error) throw res.error;
+      const jdText = res.data?.full_text;
+      if (!jdText) throw new Error("No JD returned");
+      setGeneratedJd(jdText);
+      setDescription(jdText);
+      toast.success("Job description generated! You can edit it before saving.");
+    } catch (err: any) {
+      toast.error("Failed to generate JD: " + err.message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const downloadJdPdf = (roleTitle: string, jdText: string) => {
+    // Create a simple text-based downloadable file (HTML wrapped for print)
+    const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${roleTitle} - Job Description</title>
+<style>
+body { font-family: Georgia, serif; max-width: 700px; margin: 40px auto; padding: 20px; line-height: 1.6; color: #222; }
+h1 { font-size: 24px; border-bottom: 2px solid #333; padding-bottom: 8px; }
+h2 { font-size: 18px; margin-top: 24px; color: #444; }
+ul { padding-left: 20px; }
+li { margin-bottom: 4px; }
+</style></head><body>
+<h1>${roleTitle}</h1>
+${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
+  .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+  .replace(/^- (.+)$/gm, '<li>$1</li>')
+  .replace(/(<li>.*<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`)
+  .replace(/\n\n/g, '<br/><br/>')
+  .replace(/\n/g, '<br/>')}
+</body></html>`;
+
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${roleTitle.replace(/\s+/g, "_")}_JD.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleCreate = async () => {
     if (!title.trim()) {
       toast.error("Role title is required");
@@ -45,7 +100,7 @@ export function JobRolesManager() {
     try {
       let jdStoragePath: string | null = null;
 
-      // Upload JD if provided
+      // Upload JD file if provided
       if (jdFile) {
         const ext = jdFile.name.split(".").pop()?.toLowerCase();
         if (!["pdf", "docx", "doc"].includes(ext || "")) {
@@ -72,7 +127,7 @@ export function JobRolesManager() {
       const { data: newRole, error } = await supabase.from("job_roles").insert(insertData).select().single();
       if (error) throw error;
 
-      // If JD was uploaded, parse competencies via AI
+      // If JD was uploaded (not generated), parse competencies
       if (jdStoragePath && newRole) {
         toast.info("Parsing JD for competencies...");
         try {
@@ -87,10 +142,54 @@ export function JobRolesManager() {
         }
       }
 
+      // If JD was AI-generated, save competencies from the generation step
+      if (generatedJd && newRole) {
+        try {
+          const res = await supabase.functions.invoke("generate-jd", {
+            body: { job_role_id: newRole.id, title: title.trim() },
+          });
+          if (!res.error && res.data?.competencies) {
+            // Competencies already saved by the edge function
+          }
+        } catch {
+          // Non-critical
+        }
+      }
+
+      // Auto-create Hireflix position
+      if (newRole) {
+        toast.info("Creating Hireflix interview position...");
+        try {
+          // Fetch latest competencies for the role
+          const { data: roleData } = await supabase
+            .from("job_roles")
+            .select("competencies")
+            .eq("id", newRole.id)
+            .single();
+
+          const res = await supabase.functions.invoke("create-hireflix-position", {
+            body: {
+              job_role_id: newRole.id,
+              title: title.trim(),
+              competencies: roleData?.competencies || [],
+            },
+          });
+          if (res.error) throw res.error;
+          if (res.data?.success) {
+            toast.success(`Hireflix position "${title.trim()}" created with 5 interview questions`);
+          } else {
+            toast.warning("Hireflix position creation returned: " + (res.data?.error || "unknown issue"));
+          }
+        } catch (err: any) {
+          toast.warning("Role created but Hireflix setup failed: " + err.message);
+        }
+      }
+
       toast.success(`Role "${title.trim()}" created`);
       setTitle("");
       setDescription("");
       setJdFile(null);
+      setGeneratedJd(null);
       setAdding(false);
       queryClient.invalidateQueries({ queryKey: ["job-roles"] });
     } catch (err: any) {
@@ -120,7 +219,7 @@ export function JobRolesManager() {
             Job Roles
           </CardTitle>
           <CardDescription>
-            Define roles so Duncan searches Gmail for CVs with matching subject lines
+            Define roles — Duncan searches Gmail for CVs and auto-creates Hireflix positions
           </CardDescription>
         </div>
         {!adding && (
@@ -144,25 +243,35 @@ export function JobRolesManager() {
                 Gmail will be searched for emails with this title in the subject line
               </p>
             </div>
+
+            {/* JD Section: Generate or Upload */}
             <div className="space-y-1.5">
-              <Label htmlFor="role-desc">Description (optional)</Label>
-              <Textarea
-                id="role-desc"
-                placeholder="Brief description of the role..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={2}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Job Description (PDF/DOCX)</Label>
+              <Label>Job Description</Label>
               <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleGenerateJd}
+                  disabled={generating || !title.trim()}
+                >
+                  {generating ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                  ) : (
+                    <Sparkles className="h-4 w-4 mr-1" />
+                  )}
+                  {generating ? "Generating..." : "Generate JD"}
+                </Button>
+                <span className="text-xs text-muted-foreground">or</span>
                 <input
                   ref={fileInputRef}
                   type="file"
                   accept=".pdf,.docx,.doc"
                   className="hidden"
-                  onChange={(e) => setJdFile(e.target.files?.[0] || null)}
+                  onChange={(e) => {
+                    setJdFile(e.target.files?.[0] || null);
+                    setGeneratedJd(null);
+                  }}
                 />
                 <Button
                   type="button"
@@ -181,15 +290,64 @@ export function JobRolesManager() {
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
-                Upload a JD to auto-extract competencies for candidate scoring
+                Generate a JD from the role title using AI, or upload your own (PDF/DOCX)
               </p>
             </div>
+
+            {/* Show generated JD preview */}
+            {generatedJd && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label>Generated JD Preview</Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => downloadJdPdf(title, generatedJd)}
+                  >
+                    <Download className="h-4 w-4 mr-1" />
+                    Download
+                  </Button>
+                </div>
+                <Textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={8}
+                  className="text-xs font-mono"
+                />
+              </div>
+            )}
+
+            {/* Description field if no generated JD */}
+            {!generatedJd && (
+              <div className="space-y-1.5">
+                <Label htmlFor="role-desc">Description (optional)</Label>
+                <Textarea
+                  id="role-desc"
+                  placeholder="Brief description of the role..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={2}
+                />
+              </div>
+            )}
+
             <div className="flex gap-2">
               <Button size="sm" onClick={handleCreate} disabled={saving}>
                 {saving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
                 Save Role
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => { setAdding(false); setTitle(""); setDescription(""); setJdFile(null); }}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setAdding(false);
+                  setTitle("");
+                  setDescription("");
+                  setJdFile(null);
+                  setGeneratedJd(null);
+                }}
+              >
                 Cancel
               </Button>
             </div>
@@ -207,6 +365,7 @@ export function JobRolesManager() {
                 <TableHead>Title</TableHead>
                 <TableHead>Competencies</TableHead>
                 <TableHead>JD</TableHead>
+                <TableHead>Hireflix</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead className="w-10" />
@@ -240,6 +399,28 @@ export function JobRolesManager() {
                       {role.jd_storage_path ? (
                         <Badge variant="outline" className="text-[10px]">
                           <FileText className="h-3 w-3 mr-1" /> Uploaded
+                        </Badge>
+                      ) : role.description && role.description.length > 100 ? (
+                        <Badge variant="outline" className="text-[10px]">
+                          <Sparkles className="h-3 w-3 mr-1" /> Generated
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-5 w-5 ml-1"
+                            onClick={() => downloadJdPdf(role.title, role.description)}
+                          >
+                            <Download className="h-3 w-3" />
+                          </Button>
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {role.hireflix_position_id ? (
+                        <Badge variant="default" className="text-[10px]">
+                          ✓ Linked
                         </Badge>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
