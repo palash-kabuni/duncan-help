@@ -69,9 +69,8 @@ serve(async (req) => {
     const arrayBuffer = await fileData.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
     const base64 = uint8ToBase64(bytes);
-    const ext = storage_path.split(".").pop()?.toLowerCase() || "";
-    const mimeType = getMimeType(ext);
-    const filename = storage_path.split("/").pop() || `cv.${ext}`;
+    const filename = storage_path.split("/").pop() || "cv.pdf";
+    const mimeType = getMimeType(filename);
 
     // Send the file directly to GPT-4.1 using the file content type
     // This works for PDF, DOCX, DOC and other document formats
