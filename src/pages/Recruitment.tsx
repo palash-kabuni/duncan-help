@@ -200,9 +200,16 @@ const Recruitment = () => {
   };
 
   const scoreCompetencies = async () => {
+    if (!selectedRoleId) {
+      toast.error("Select a role first.");
+      return;
+    }
+
     setScoringCompetencies(true);
     try {
-      const res = await supabase.functions.invoke("score-cv-competencies");
+      const res = await supabase.functions.invoke("score-cv-competencies", {
+        body: { role_id: selectedRoleId },
+      });
       if (res.error) throw res.error;
       toast.success(`Scored ${res.data.scored} candidate(s) on competencies.${res.data.skipped ? ` ${res.data.skipped} skipped.` : ""}${res.data.failed ? ` ${res.data.failed} failed.` : ""}`);
       refetchCandidates();

@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
+import JSZip from "https://esm.sh/jszip@3.10.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,12 +24,59 @@ function getMimeType(filename: string): string {
   return "application/octet-stream";
 }
 
+function decodeXmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function cleanDocxText(xml: string): string {
+  return decodeXmlEntities(
+    xml
+      .replace(/<w:tab\/>/g, "\t")
+      .replace(/<w:br\/>/g, "\n")
+      .replace(/<w:cr\/>/g, "\n")
+      .replace(/<w:p[^>]*>/g, "\n")
+      .replace(/<\/w:p>/g, "\n")
+      .replace(/<[^>]+>/g, " ")
+  )
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 async function getCvContent(supabaseAdmin: any, storagePath: string): Promise<any[] | null> {
   const { data: fileData, error } = await supabaseAdmin.storage.from("cvs").download(storagePath);
   if (error || !fileData) return null;
 
   const bytes = new Uint8Array(await fileData.arrayBuffer());
   const filename = storagePath.split("/").pop() || "cv.pdf";
+  const lowerFilename = filename.toLowerCase();
+
+  if (lowerFilename.endsWith(".docx")) {
+    try {
+      const zip = await JSZip.loadAsync(bytes);
+      const documentXmlFile = zip.file("word/document.xml");
+      if (documentXmlFile) {
+        const xml = await documentXmlFile.async("string");
+        const extractedText = cleanDocxText(xml).slice(0, 120000);
+        if (extractedText.length > 0) {
+          return [
+            {
+              role: "user",
+              content: `Candidate CV (${filename}):\n\n${extractedText}\n\nScore this candidate's CV against the competencies listed in the system prompt.`,
+            },
+          ];
+        }
+      }
+    } catch (docxError) {
+      console.error(`DOCX extraction failed for ${storagePath}:`, docxError);
+    }
+  }
+
   const mimeType = getMimeType(filename);
   const base64 = uint8ToBase64(bytes);
 
@@ -74,14 +121,27 @@ serve(async (req) => {
       });
     }
 
+    const body = await req.json().catch(() => ({}));
+    const candidateId = body?.candidate_id as string | undefined;
+    const roleId = body?.role_id as string | undefined;
+
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get candidates that have a matched job role and a CV
-    const { data: candidates, error: fetchError } = await supabaseAdmin
+    let query = supabaseAdmin
       .from("candidates")
       .select("*")
       .not("cv_storage_path", "is", null)
       .not("job_role_id", "is", null);
+
+    if (candidateId) {
+      query = query.eq("id", candidateId);
+    }
+
+    if (roleId) {
+      query = query.eq("job_role_id", roleId);
+    }
+
+    const { data: candidates, error: fetchError } = await query;
 
     if (fetchError || !candidates || candidates.length === 0) {
       return new Response(JSON.stringify({ error: "No matched candidates with CVs found" }), {
@@ -89,7 +149,6 @@ serve(async (req) => {
       });
     }
 
-    // Get all relevant job roles with competencies
     const roleIds = [...new Set(candidates.map((c: any) => c.job_role_id))];
     const { data: roles } = await supabaseAdmin
       .from("job_roles")
@@ -114,12 +173,14 @@ serve(async (req) => {
 
       try {
         const cvMessages = await getCvContent(supabaseAdmin, candidate.cv_storage_path!);
-        if (!cvMessages) { failed++; continue; }
+        if (!cvMessages) {
+          failed++;
+          continue;
+        }
 
-        // Build dynamic tool schema from competencies
         const properties: any = {};
         const required: string[] = [];
-        competencies.forEach((comp: any, i: number) => {
+        competencies.forEach((_: any, i: number) => {
           const key = `competency_${i}`;
           properties[key] = {
             type: "object",
@@ -134,7 +195,7 @@ serve(async (req) => {
         });
 
         const competencyList = competencies.map((c: any, i: number) =>
-          `${i + 1}. ${c.name}: ${c.description}`
+          `${i + 1}. ${c?.name || `Competency ${i + 1}`}: ${c?.description || "No description provided"}`
         ).join("\n");
 
         const systemPrompt = `You are an expert recruitment assessor. Score this candidate's CV against the following competencies for the "${role.title}" role.
@@ -175,7 +236,8 @@ Call score_competencies with your assessment. Use keys competency_0, competency_
         });
 
         if (!aiResponse.ok) {
-          console.error(`AI error for ${candidate.id}:`, aiResponse.status);
+          const errText = await aiResponse.text();
+          console.error(`AI error for ${candidate.id}:`, aiResponse.status, errText);
           if (aiResponse.status === 429) {
             return new Response(JSON.stringify({ error: "Rate limited. Try again shortly.", scored, failed }), {
               status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -192,30 +254,36 @@ Call score_competencies with your assessment. Use keys competency_0, competency_
 
         const aiData = await aiResponse.json();
         const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
-        if (!toolCall?.function?.arguments) { failed++; continue; }
+        if (!toolCall?.function?.arguments) {
+          failed++;
+          continue;
+        }
 
-        const rawScores = JSON.parse(toolCall.function.arguments);
+        let rawScores: any;
+        try {
+          rawScores = JSON.parse(toolCall.function.arguments);
+        } catch {
+          failed++;
+          continue;
+        }
 
-        // Map back to competency names
         const competencyScores: any = {};
         competencies.forEach((comp: any, i: number) => {
           const key = `competency_${i}`;
           competencyScores[comp.name] = rawScores[key] || { score: 0, justification: "Not scored" };
         });
 
-        // Average
-        const allScores = Object.values(competencyScores).map((v: any) => v.score || 0);
+        const allScores = Object.values(competencyScores).map((v: any) => Number(v.score) || 0);
         const avg = allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length;
         const competencyScore = Math.round(avg * 10) / 10;
 
-        // Calculate total (values + competency average)
         const valuesScore = candidate.values_score || 0;
         const totalScore = Math.round(((valuesScore + competencyScore) / 2) * 10) / 10;
 
         const existingDetails = (candidate.scoring_details as any) || {};
         const newDetails = { ...existingDetails, competencies: competencyScores };
 
-        await supabaseAdmin
+        const { error: updateError } = await supabaseAdmin
           .from("candidates")
           .update({
             competency_score: competencyScore,
@@ -224,6 +292,12 @@ Call score_competencies with your assessment. Use keys competency_0, competency_
             status: "scored",
           })
           .eq("id", candidate.id);
+
+        if (updateError) {
+          console.error(`Update error for ${candidate.id}:`, updateError);
+          failed++;
+          continue;
+        }
 
         results.push({ id: candidate.id, name: candidate.name, competency_score: competencyScore, total_score: totalScore });
         scored++;
