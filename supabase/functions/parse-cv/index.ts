@@ -16,13 +16,13 @@ function uint8ToBase64(bytes: Uint8Array): string {
   return btoa(result);
 }
 
-function getMimeType(ext: string): string {
-  switch (ext) {
-    case "pdf": return "application/pdf";
-    case "docx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-    case "doc": return "application/msword";
-    default: return "application/octet-stream";
-  }
+function getMimeType(filename: string): string {
+  const lower = filename.toLowerCase();
+  // Handle double extensions like abc.docx.pdf — use the last real extension
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (lower.endsWith(".doc")) return "application/msword";
+  return "application/octet-stream";
 }
 
 serve(async (req) => {
