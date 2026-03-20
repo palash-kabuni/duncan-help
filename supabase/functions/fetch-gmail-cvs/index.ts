@@ -254,13 +254,15 @@ serve(async (req) => {
 
       // Collect ALL CV attachments from the email (not just the first one)
       const cvAttachments: CvAttachment[] = [];
+      function isCvFile(name: string): boolean {
+        const lower = name.toLowerCase();
+        // Match .pdf, .docx, .doc — including double extensions like abc.docx.pdf
+        return /\.(pdf|docx?)(\.pdf)?$/i.test(lower);
+      }
       function collectAttachments(parts: any[]) {
         for (const part of parts) {
           const filename = (part.filename || "").toLowerCase();
-          if (
-            part.body?.attachmentId &&
-            (filename.endsWith(".pdf") || filename.endsWith(".docx") || filename.endsWith(".doc"))
-          ) {
+          if (part.body?.attachmentId && isCvFile(filename)) {
             cvAttachments.push({
               attachmentId: part.body.attachmentId,
               filename: part.filename,

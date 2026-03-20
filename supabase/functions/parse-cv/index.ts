@@ -16,13 +16,13 @@ function uint8ToBase64(bytes: Uint8Array): string {
   return btoa(result);
 }
 
-function getMimeType(ext: string): string {
-  switch (ext) {
-    case "pdf": return "application/pdf";
-    case "docx": return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-    case "doc": return "application/msword";
-    default: return "application/octet-stream";
-  }
+function getMimeType(filename: string): string {
+  const lower = filename.toLowerCase();
+  // Handle double extensions like abc.docx.pdf — use the last real extension
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (lower.endsWith(".doc")) return "application/msword";
+  return "application/octet-stream";
 }
 
 serve(async (req) => {
@@ -69,9 +69,8 @@ serve(async (req) => {
     const arrayBuffer = await fileData.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
     const base64 = uint8ToBase64(bytes);
-    const ext = storage_path.split(".").pop()?.toLowerCase() || "";
-    const mimeType = getMimeType(ext);
-    const filename = storage_path.split("/").pop() || `cv.${ext}`;
+    const filename = storage_path.split("/").pop() || "cv.pdf";
+    const mimeType = getMimeType(filename);
 
     // Send the file directly to GPT-4.1 using the file content type
     // This works for PDF, DOCX, DOC and other document formats
