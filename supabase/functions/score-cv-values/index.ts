@@ -50,21 +50,12 @@ function uint8ToBase64(bytes: Uint8Array): string {
   return btoa(result);
 }
 
-async function extractDocxText(bytes: Uint8Array): Promise<string> {
-  const blob = new Blob([bytes]);
-  const reader = new ZipReader(new BlobReader(blob));
-  const entries = await reader.getEntries();
-  let text = "";
-  for (const entry of entries) {
-    if (entry.filename === "word/document.xml" && entry.getData) {
-      const writer = new TextWriter();
-      const xml = await entry.getData(writer);
-      text = xml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-      break;
-    }
-  }
-  await reader.close();
-  return text.slice(0, 15000);
+function getMimeType(filename: string): string {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (lower.endsWith(".doc")) return "application/msword";
+  return "application/octet-stream";
 }
 
 async function getCvContent(supabaseAdmin: any, storagePath: string): Promise<{ messages: any[] } | null> {
@@ -72,33 +63,28 @@ async function getCvContent(supabaseAdmin: any, storagePath: string): Promise<{ 
   if (error || !fileData) return null;
 
   const bytes = new Uint8Array(await fileData.arrayBuffer());
-  const ext = storagePath.split(".").pop()?.toLowerCase();
-
-  if (ext === "pdf") {
-    // Extract text from PDF (OpenAI API doesn't accept PDF files directly)
-    const textContent = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-    const cleanText = textContent.replace(/[^\x20-\x7E\n\r\t]/g, " ").replace(/\s{3,}/g, " ").slice(0, 15000);
-    if (!cleanText || cleanText.length < 20) return null;
-    return {
-      messages: [
-        { role: "user", content: `Score this candidate's CV against the Kabuni company values described in the system prompt.\n\nCV TEXT:\n${cleanText}` },
-      ],
-    };
-  }
-
-  let text = "";
-  if (ext === "docx") {
-    text = await extractDocxText(bytes);
-  } else {
-    text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-    text = text.replace(/[^\x20-\x7E\n\r\t]/g, " ").replace(/\s{3,}/g, " ").slice(0, 8000);
-  }
-
-  if (!text || text.length < 20) return null;
+  const filename = storagePath.split("/").pop() || "cv.pdf";
+  const mimeType = getMimeType(filename);
+  const base64 = uint8ToBase64(bytes);
 
   return {
     messages: [
-      { role: "user", content: `Score this candidate's CV against the Kabuni company values described in the system prompt.\n\nCV TEXT:\n${text}` },
+      {
+        role: "user",
+        content: [
+          {
+            type: "file",
+            file: {
+              filename,
+              file_data: `data:${mimeType};base64,${base64}`,
+            },
+          },
+          {
+            type: "text",
+            text: "Score this candidate's CV against the Kabuni company values described in the system prompt.",
+          },
+        ],
+      },
     ],
   };
 }
