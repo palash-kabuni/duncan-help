@@ -326,8 +326,8 @@ const EmptyState = ({ mode, onSend }: { mode: Mode; onSend: (s: string) => void 
   const suggestions: Record<Mode, string[]> = {
     general: [
       "Generate a new NDA",
+      "Show me all outstanding Xero invoices awaiting payment",
       "What are the top priorities across all projects?",
-      "Draft a weekly status update from Notion data",
     ],
     reason: [
       "Why did our conversion rate drop last quarter?",

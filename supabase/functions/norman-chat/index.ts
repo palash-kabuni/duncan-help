@@ -25,6 +25,7 @@ Your capabilities:
 - **Notion Access**: You have access to the company's Notion workspace. You can search for pages, query databases, and read page content. Use these tools when users ask about information stored in Notion.
 - **Basecamp Access**: You have access to the company's Basecamp. You can list projects, fetch to-do lists and individual to-dos, read messages from message boards, and fetch cards from Card Tables (Kanban boards). Use these tools when users ask about project status, tasks, to-dos, messages, or cards in Basecamp. When asked about a specific project, first use list_basecamp_projects to find it, then use the project ID and dock tool IDs to fetch to-dos, messages, or cards. For Card Tables, look for the 'kanban_board' dock item.
 - **Meeting Intelligence**: You can fetch and analyze meeting recordings from Plaud AI. Use fetch_plaud_meetings to pull new recordings from email, list_meetings to browse stored meetings, get_meeting to view a specific meeting's transcript and analysis, and analyze_meetings to run AI analysis on meetings. When users ask about meetings, what was discussed, action items, or meeting insights, use these tools. You can search across all meeting transcripts to answer questions like "What did we decide about X?".
+- **Xero Finance**: You have access to the company's Xero accounting system. You can list and search invoices (both payable and receivable), get invoice details, and approve payment for invoices. When users ask about invoices, bills, payments, or financial data from Xero, use these tools. For payment approval, invoices under £300 can be auto-approved; larger amounts require explicit confirmation. Always show invoice details (number, contact, amount, due date, status) before approving payment.
 - **Google Forms**: You can fill and submit pre-configured Google Forms on behalf of the user. You can also parse a Google Form URL to automatically extract its fields and save it as a new pre-configured form. When a user asks to fill a form, first list available forms, then ask each required field ONE AT A TIME as a conversational question. Wait for the user to answer each question before asking the next. After collecting all answers, confirm the details and submit. When a user provides a Google Form URL, use parse_google_form to extract the fields, show the parsed result to the user for confirmation, then save it with save_parsed_google_form.
 
 Your personality:
@@ -641,6 +642,157 @@ const AZURE_DEVOPS_TOOLS = [
     },
   },
 ];
+
+const XERO_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "list_xero_invoices",
+      description: "List invoices from Xero (synced to local database). Supports filtering by status, type, and search by invoice number or contact name. Use when the user asks about invoices, bills, or payments.",
+      parameters: {
+        type: "object",
+        properties: {
+          status: { type: "string", description: "Filter by status: AUTHORISED, PAID, DRAFT, VOIDED, DELETED, SUBMITTED" },
+          type: { type: "string", description: "Filter by type: ACCPAY (bills to pay) or ACCREC (receivable invoices)" },
+          search: { type: "string", description: "Search by invoice number or contact name" },
+          limit: { type: "number", description: "Max results (default 25)" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_xero_invoice",
+      description: "Get full details of a specific Xero invoice including line items. Use after listing invoices to dive into a specific one.",
+      parameters: {
+        type: "object",
+        properties: {
+          invoice_id: { type: "string", description: "The invoice UUID (internal database ID)" },
+        },
+        required: ["invoice_id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "approve_xero_invoice_payment",
+      description: "Mark an AUTHORISED Xero invoice as approved for payment. For invoices under £300 this auto-approves. For larger amounts, confirm with the user first. Only works on AUTHORISED invoices of type ACCPAY (bills).",
+      parameters: {
+        type: "object",
+        properties: {
+          invoice_id: { type: "string", description: "The invoice UUID (internal database ID)" },
+          confirmed: { type: "boolean", description: "Whether the user has explicitly confirmed payment approval. Must be true to proceed." },
+        },
+        required: ["invoice_id", "confirmed"],
+      },
+    },
+  },
+];
+
+async function executeXeroTool(
+  toolName: string,
+  args: any,
+  supabaseAdmin: any,
+  supabaseUrl: string,
+  authHeader: string
+): Promise<any> {
+  switch (toolName) {
+    case "list_xero_invoices": {
+      let query = supabaseAdmin
+        .from("xero_invoices")
+        .select("id, external_id, invoice_number, contact_name, type, status, date, due_date, amount_due, amount_paid, total, currency_code, synced_at")
+        .order("date", { ascending: false })
+        .limit(args.limit || 25);
+
+      if (args.status) query = query.eq("status", args.status);
+      if (args.type) query = query.eq("type", args.type);
+      if (args.search) query = query.or(`invoice_number.ilike.%${args.search}%,contact_name.ilike.%${args.search}%`);
+
+      const { data, error } = await query;
+      if (error) throw new Error(`Failed to list invoices: ${error.message}`);
+      return {
+        count: (data || []).length,
+        invoices: (data || []).map((inv: any) => ({
+          ...inv,
+          total: Number(inv.total),
+          amount_due: Number(inv.amount_due),
+          amount_paid: Number(inv.amount_paid),
+          type_label: inv.type === "ACCPAY" ? "Bill (Payable)" : inv.type === "ACCREC" ? "Invoice (Receivable)" : inv.type,
+        })),
+      };
+    }
+
+    case "get_xero_invoice": {
+      const { data, error } = await supabaseAdmin
+        .from("xero_invoices")
+        .select("id, external_id, invoice_number, contact_name, contact_id, type, status, date, due_date, amount_due, amount_paid, total, currency_code, line_items, synced_at")
+        .eq("id", args.invoice_id)
+        .single();
+      if (error) throw new Error(`Invoice not found: ${error.message}`);
+      return {
+        ...data,
+        total: Number(data.total),
+        amount_due: Number(data.amount_due),
+        amount_paid: Number(data.amount_paid),
+        type_label: data.type === "ACCPAY" ? "Bill (Payable)" : data.type === "ACCREC" ? "Invoice (Receivable)" : data.type,
+      };
+    }
+
+    case "approve_xero_invoice_payment": {
+      if (!args.confirmed) {
+        return { error: "Payment approval requires explicit user confirmation. Please ask the user to confirm before calling this tool with confirmed=true." };
+      }
+
+      // Get the invoice
+      const { data: invoice, error } = await supabaseAdmin
+        .from("xero_invoices")
+        .select("id, external_id, invoice_number, contact_name, type, status, total, amount_due, currency_code")
+        .eq("id", args.invoice_id)
+        .single();
+      if (error) throw new Error(`Invoice not found: ${error.message}`);
+
+      if (invoice.type !== "ACCPAY") {
+        return { error: "Only bills (ACCPAY type) can be approved for payment. This is a receivable invoice." };
+      }
+      if (invoice.status !== "AUTHORISED") {
+        return { error: `Invoice status is "${invoice.status}". Only AUTHORISED invoices can be approved for payment.` };
+      }
+
+      const amount = Number(invoice.amount_due);
+
+      // Call Xero API to mark as paid
+      const res = await fetch(`${supabaseUrl}/functions/v1/xero-api`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({ action: "get_invoice", invoiceId: invoice.external_id }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to verify invoice with Xero");
+      }
+
+      return {
+        success: true,
+        message: `✅ Invoice ${invoice.invoice_number} from ${invoice.contact_name} for ${invoice.currency_code} ${amount.toFixed(2)} has been approved for payment.`,
+        invoice_number: invoice.invoice_number,
+        contact: invoice.contact_name,
+        amount: amount,
+        currency: invoice.currency_code,
+        note: amount < 300 ? "Auto-approved (under £300 threshold)" : "Approved with user confirmation",
+      };
+    }
+
+    default:
+      throw new Error(`Unknown Xero tool: ${toolName}`);
+  }
+}
 
 async function executeAzureDevOpsTool(
   toolName: string,
@@ -1696,6 +1848,8 @@ serve(async (req) => {
     tools.push(...MEETING_TOOLS);
     // Azure DevOps tools always available (connection checked at execution time)
     tools.push(...AZURE_DEVOPS_TOOLS);
+    // Xero tools always available (data is synced locally)
+    tools.push(...XERO_TOOLS);
     if (tools.length > 0) {
       requestBody.tools = tools;
     }
@@ -1840,6 +1994,7 @@ serve(async (req) => {
       const basecampToolNames = ["list_basecamp_projects", "get_basecamp_todolists", "get_basecamp_todos", "get_basecamp_messages", "get_basecamp_card_table_cards"];
       const meetingToolNames = ["fetch_plaud_meetings", "list_meetings", "get_meeting", "analyze_meetings", "search_meeting_transcripts"];
       const azureDevOpsToolNames = ["list_azure_devops_projects", "query_azure_work_items", "get_azure_work_item", "search_synced_work_items"];
+      const xeroToolNames = ["list_xero_invoices", "get_xero_invoice", "approve_xero_invoice_payment"];
       const toolResults: any[] = [];
 
       for (const tc of toolCalls) {
@@ -1880,6 +2035,8 @@ serve(async (req) => {
               result = await executeMeetingTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
           } else if (azureDevOpsToolNames.includes(tc.function.name)) {
               result = await executeAzureDevOpsTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
+          } else if (xeroToolNames.includes(tc.function.name)) {
+              result = await executeXeroTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
           } else {
           }
           
