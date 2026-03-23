@@ -405,8 +405,7 @@ const Operations = () => {
                         <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Name</th>
                         <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Email</th>
                         <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Type</th>
-                        <th className="text-right px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Outstanding</th>
-                        <th className="text-right px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Overdue</th>
+                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Status</th>
                       </tr>
                     </thead>
                     <tbody>
