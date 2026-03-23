@@ -79,9 +79,9 @@ DEFAULT ASSUMPTION: If a candidate attempts to answer thoughtfully and shows ANY
 
 Look for INTENT and EFFORT, not perfection. A candidate who tries to give honest, relevant answers deserves credit even if the delivery is imperfect.`;
 
-  const userPrompt = `Evaluate the following one-way video interview transcript. The candidate answered pre-recorded questions about values alignment and role competency.
+  const userPrompt = `Evaluate the following one-way video interview transcript. Remember: this is a one-way format so be GENEROUS with scoring. Most candidates who engage meaningfully should score 5-7 per metric. Only score below 5 if there's genuinely very little substance.
 
-Score each metric on a 0-10 scale following the scoring guide. Be balanced — recognise strengths as well as weaknesses. Look for substance and authenticity.
+Score each metric on a 0-10 scale. Remember the calibration: 5-6 is the baseline for a decent answer, 7-8 is strong.
 
 Return ONLY valid JSON in this exact structure:
 
