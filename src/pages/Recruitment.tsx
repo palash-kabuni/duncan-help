@@ -277,7 +277,7 @@ const Recruitment = () => {
   const syncInterviews = async () => {
     setSyncingInterviews(true);
     try {
-      const res = await supabase.functions.invoke("hireflix-sync-interviews");
+      const res = await supabase.functions.invoke("hireflix-sync-interviews", { body: { force_rescore: true } });
       if (res.error) throw res.error;
       const d = res.data;
       toast.success(`Synced ${d.synced} interview(s), scored ${d.scored}.${d.failed ? ` ${d.failed} failed.` : ""}`);
