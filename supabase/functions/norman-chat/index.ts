@@ -643,7 +643,158 @@ const AZURE_DEVOPS_TOOLS = [
   },
 ];
 
-async function executeAzureDevOpsTool(
+const XERO_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "list_xero_invoices",
+      description: "List invoices from Xero (synced to local database). Supports filtering by status, type, and search by invoice number or contact name. Use when the user asks about invoices, bills, or payments.",
+      parameters: {
+        type: "object",
+        properties: {
+          status: { type: "string", description: "Filter by status: AUTHORISED, PAID, DRAFT, VOIDED, DELETED, SUBMITTED" },
+          type: { type: "string", description: "Filter by type: ACCPAY (bills to pay) or ACCREC (receivable invoices)" },
+          search: { type: "string", description: "Search by invoice number or contact name" },
+          limit: { type: "number", description: "Max results (default 25)" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_xero_invoice",
+      description: "Get full details of a specific Xero invoice including line items. Use after listing invoices to dive into a specific one.",
+      parameters: {
+        type: "object",
+        properties: {
+          invoice_id: { type: "string", description: "The invoice UUID (internal database ID)" },
+        },
+        required: ["invoice_id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "approve_xero_invoice_payment",
+      description: "Mark an AUTHORISED Xero invoice as approved for payment. For invoices under £300 this auto-approves. For larger amounts, confirm with the user first. Only works on AUTHORISED invoices of type ACCPAY (bills).",
+      parameters: {
+        type: "object",
+        properties: {
+          invoice_id: { type: "string", description: "The invoice UUID (internal database ID)" },
+          confirmed: { type: "boolean", description: "Whether the user has explicitly confirmed payment approval. Must be true to proceed." },
+        },
+        required: ["invoice_id", "confirmed"],
+      },
+    },
+  },
+];
+
+async function executeXeroTool(
+  toolName: string,
+  args: any,
+  supabaseAdmin: any,
+  supabaseUrl: string,
+  authHeader: string
+): Promise<any> {
+  switch (toolName) {
+    case "list_xero_invoices": {
+      let query = supabaseAdmin
+        .from("xero_invoices")
+        .select("id, external_id, invoice_number, contact_name, type, status, date, due_date, amount_due, amount_paid, total, currency_code, synced_at")
+        .order("date", { ascending: false })
+        .limit(args.limit || 25);
+
+      if (args.status) query = query.eq("status", args.status);
+      if (args.type) query = query.eq("type", args.type);
+      if (args.search) query = query.or(`invoice_number.ilike.%${args.search}%,contact_name.ilike.%${args.search}%`);
+
+      const { data, error } = await query;
+      if (error) throw new Error(`Failed to list invoices: ${error.message}`);
+      return {
+        count: (data || []).length,
+        invoices: (data || []).map((inv: any) => ({
+          ...inv,
+          total: Number(inv.total),
+          amount_due: Number(inv.amount_due),
+          amount_paid: Number(inv.amount_paid),
+          type_label: inv.type === "ACCPAY" ? "Bill (Payable)" : inv.type === "ACCREC" ? "Invoice (Receivable)" : inv.type,
+        })),
+      };
+    }
+
+    case "get_xero_invoice": {
+      const { data, error } = await supabaseAdmin
+        .from("xero_invoices")
+        .select("id, external_id, invoice_number, contact_name, contact_id, type, status, date, due_date, amount_due, amount_paid, total, currency_code, line_items, synced_at")
+        .eq("id", args.invoice_id)
+        .single();
+      if (error) throw new Error(`Invoice not found: ${error.message}`);
+      return {
+        ...data,
+        total: Number(data.total),
+        amount_due: Number(data.amount_due),
+        amount_paid: Number(data.amount_paid),
+        type_label: data.type === "ACCPAY" ? "Bill (Payable)" : data.type === "ACCREC" ? "Invoice (Receivable)" : data.type,
+      };
+    }
+
+    case "approve_xero_invoice_payment": {
+      if (!args.confirmed) {
+        return { error: "Payment approval requires explicit user confirmation. Please ask the user to confirm before calling this tool with confirmed=true." };
+      }
+
+      // Get the invoice
+      const { data: invoice, error } = await supabaseAdmin
+        .from("xero_invoices")
+        .select("id, external_id, invoice_number, contact_name, type, status, total, amount_due, currency_code")
+        .eq("id", args.invoice_id)
+        .single();
+      if (error) throw new Error(`Invoice not found: ${error.message}`);
+
+      if (invoice.type !== "ACCPAY") {
+        return { error: "Only bills (ACCPAY type) can be approved for payment. This is a receivable invoice." };
+      }
+      if (invoice.status !== "AUTHORISED") {
+        return { error: `Invoice status is "${invoice.status}". Only AUTHORISED invoices can be approved for payment.` };
+      }
+
+      const amount = Number(invoice.amount_due);
+
+      // Call Xero API to mark as paid
+      const res = await fetch(`${supabaseUrl}/functions/v1/xero-api`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({ action: "get_invoice", invoiceId: invoice.external_id }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to verify invoice with Xero");
+      }
+
+      return {
+        success: true,
+        message: `✅ Invoice ${invoice.invoice_number} from ${invoice.contact_name} for ${invoice.currency_code} ${amount.toFixed(2)} has been approved for payment.`,
+        invoice_number: invoice.invoice_number,
+        contact: invoice.contact_name,
+        amount: amount,
+        currency: invoice.currency_code,
+        note: amount < 300 ? "Auto-approved (under £300 threshold)" : "Approved with user confirmation",
+      };
+    }
+
+    default:
+      throw new Error(`Unknown Xero tool: ${toolName}`);
+  }
+}
+
+
   toolName: string,
   args: any,
   supabaseAdmin: any,
