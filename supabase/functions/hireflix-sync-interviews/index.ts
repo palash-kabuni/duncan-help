@@ -426,7 +426,7 @@ serve(async (req) => {
             .from("candidates")
             .update({
               hireflix_status: "completed",
-              hireflix_interview_id: interview.id,
+              hireflix_interview_id: interviewId,
               interview_transcript: transcript,
               interview_scores: scores,
               interview_final_score: scores.final_score,
