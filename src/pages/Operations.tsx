@@ -187,7 +187,7 @@ const Operations = () => {
           </motion.div>
 
           {/* Summary Cards */}
-          <div className="grid grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-3 gap-4 mb-8">
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} className="rounded-xl border border-border bg-card p-4">
               <div className="flex items-center gap-2 mb-2">
                 <GitBranch className="h-4 w-4 text-primary" />
@@ -208,13 +208,6 @@ const Operations = () => {
                 <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Overdue Invoices</span>
               </div>
               <p className="text-2xl font-bold text-foreground">{overdueInvoices.length}</p>
-            </motion.div>
-            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="rounded-xl border border-border bg-card p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <TrendingUp className="h-4 w-4 text-norman-info" />
-                <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Outstanding</span>
-              </div>
-              <p className="text-2xl font-bold text-foreground">£{totalOutstanding.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
             </motion.div>
           </div>
 
