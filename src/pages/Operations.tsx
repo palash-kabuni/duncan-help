@@ -148,7 +148,7 @@ const Operations = () => {
     if (!i.due_date || i.status === "PAID" || i.status === "VOIDED") return false;
     return new Date(i.due_date) < new Date();
   });
-  const totalOutstanding = invoices.reduce((sum: number, i: any) => sum + Number(i.amount_due || 0), 0);
+  
 
   return (
     <div className="flex min-h-screen bg-background">
