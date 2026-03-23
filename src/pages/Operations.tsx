@@ -90,10 +90,42 @@ const invoiceStatusColors: Record<string, string> = {
 
 const Operations = () => {
   const { data: workItems = [], isLoading: wiLoading } = useWorkItems();
-  const { data: invoices = [], isLoading: invLoading } = useXeroInvoices();
+  const { data: invoiceData, isLoading: invLoading } = useXeroInvoices();
+  const invoices = invoiceData?.invoices || [];
   const { data: contacts = [], isLoading: conLoading } = useXeroContacts();
   const { data: syncLogs = [], isLoading: slLoading } = useSyncLogs();
   const [syncing, setSyncing] = useState<string | null>(null);
+
+  // Invoice filters
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState<string>("all");
+  const [invoiceSearch, setInvoiceSearch] = useState("");
+  const [invoicePage, setInvoicePage] = useState(0);
+  const INVOICES_PER_PAGE = 25;
+
+  const filteredInvoices = useMemo(() => {
+    let filtered = invoices;
+    if (invoiceStatusFilter !== "all") {
+      if (invoiceStatusFilter === "OVERDUE") {
+        filtered = filtered.filter((i: any) => {
+          if (!i.due_date || i.status === "PAID" || i.status === "VOIDED") return false;
+          return new Date(i.due_date) < new Date();
+        });
+      } else {
+        filtered = filtered.filter((i: any) => i.status === invoiceStatusFilter);
+      }
+    }
+    if (invoiceSearch.trim()) {
+      const q = invoiceSearch.toLowerCase();
+      filtered = filtered.filter((i: any) =>
+        (i.invoice_number || "").toLowerCase().includes(q) ||
+        (i.contact_name || "").toLowerCase().includes(q)
+      );
+    }
+    return filtered;
+  }, [invoices, invoiceStatusFilter, invoiceSearch]);
+
+  const totalInvoicePages = Math.max(1, Math.ceil(filteredInvoices.length / INVOICES_PER_PAGE));
+  const paginatedInvoices = filteredInvoices.slice(invoicePage * INVOICES_PER_PAGE, (invoicePage + 1) * INVOICES_PER_PAGE);
 
   const handleSync = async (type: "azure" | "xero") => {
     setSyncing(type);
