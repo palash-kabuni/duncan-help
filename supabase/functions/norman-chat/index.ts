@@ -679,7 +679,7 @@ const XERO_TOOLS = [
     type: "function",
     function: {
       name: "approve_xero_invoice_payment",
-      description: "Mark an AUTHORISED Xero invoice as approved for payment. For invoices under £300 this auto-approves. For larger amounts, confirm with the user first. Only works on AUTHORISED invoices of type ACCPAY (bills).",
+      description: "Approve payment for an AUTHORISED Xero bill (ACCPAY) under £300 only. Invoices of £300 or more cannot be approved through Duncan. Only Patrick Badenoch can use this tool. Requires explicit user confirmation.",
       parameters: {
         type: "object",
         properties: {
@@ -768,7 +768,11 @@ async function executeXeroTool(
 
       const amount = Number(invoice.amount_due);
 
-      // Call Xero API to mark as paid
+      if (amount >= 300) {
+        return { error: `⛔ Invoice ${invoice.invoice_number} is for ${invoice.currency_code} ${amount.toFixed(2)} which exceeds the £300 approval limit. Invoices of £300 or more must be approved through a separate process.` };
+      }
+
+      // Call Xero API to verify invoice
       const res = await fetch(`${supabaseUrl}/functions/v1/xero-api`, {
         method: "POST",
         headers: {
@@ -790,7 +794,6 @@ async function executeXeroTool(
         contact: invoice.contact_name,
         amount: amount,
         currency: invoice.currency_code,
-        note: amount < 300 ? "Auto-approved (under £300 threshold)" : "Approved with user confirmation",
       };
     }
 
