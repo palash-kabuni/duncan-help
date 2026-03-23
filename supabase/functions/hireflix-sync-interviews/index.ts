@@ -374,17 +374,42 @@ serve(async (req) => {
 
       // Match interviews to candidates by email
       for (const candidate of posCandidates) {
-        const interview = interviews.find(
-          (i: any) => i.candidate?.email?.toLowerCase() === candidate.email?.toLowerCase() && (i.status === "finished" || i.status === "completed")
-        );
+        let transcript = "";
+        let interviewId = candidate.hireflix_interview_id;
 
-        if (!interview) continue; // not finished yet
-
-        // Build transcript
-        const transcript = (interview.questions || [])
-          .map((q: any) => q.answer?.transcription?.text || "")
-          .filter((t: string) => t.length > 0)
-          .join("\n\n");
+        if (candidate.hireflix_status === "completed" && forceRescore) {
+          // For re-scoring, try to get fresh transcript from Hireflix first
+          const interview = interviews.find(
+            (i: any) => i.candidate?.email?.toLowerCase() === candidate.email?.toLowerCase() && (i.status === "finished" || i.status === "completed")
+          );
+          if (interview) {
+            transcript = (interview.questions || [])
+              .map((q: any) => q.answer?.transcription?.text || "")
+              .filter((t: string) => t.length > 0)
+              .join("\n\n");
+            interviewId = interview.id;
+          }
+          // Fall back to existing transcript if Hireflix doesn't return one
+          if (!transcript) {
+            const { data: existing } = await supabaseAdmin
+              .from("candidates")
+              .select("interview_transcript")
+              .eq("id", candidate.id)
+              .single();
+            transcript = existing?.interview_transcript || "";
+          }
+        } else {
+          // Normal flow for invited candidates
+          const interview = interviews.find(
+            (i: any) => i.candidate?.email?.toLowerCase() === candidate.email?.toLowerCase() && (i.status === "finished" || i.status === "completed")
+          );
+          if (!interview) continue;
+          transcript = (interview.questions || [])
+            .map((q: any) => q.answer?.transcription?.text || "")
+            .filter((t: string) => t.length > 0)
+            .join("\n\n");
+          interviewId = interview.id;
+        }
 
         if (!transcript) {
           console.log(`No transcript for candidate ${candidate.id}`);
