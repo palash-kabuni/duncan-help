@@ -419,9 +419,10 @@ const Operations = () => {
                               {c.is_supplier && <Badge variant="outline" className="text-[10px] bg-norman-info/10 text-norman-info border-norman-info/20">Supplier</Badge>}
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-right font-mono text-foreground">£{Number(c.outstanding_balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                          <td className={`px-4 py-3 text-right font-mono ${Number(c.overdue_balance) > 0 ? "text-destructive" : "text-foreground"}`}>
-                            £{Number(c.overdue_balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          <td className="px-4 py-3">
+                            <Badge variant="outline" className={`text-[10px] ${c.contact_status === 'ACTIVE' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-muted text-muted-foreground border-border'}`}>
+                              {c.contact_status || "Unknown"}
+                            </Badge>
                           </td>
                         </tr>
                       ))}
