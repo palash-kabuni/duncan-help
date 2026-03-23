@@ -302,16 +302,30 @@ serve(async (req) => {
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get all candidates that were invited but not yet scored
-    const { data: candidates, error: candErr } = await supabaseAdmin
+    // Get request body to check for force re-score
+    let forceRescore = false;
+    try {
+      const body = await req.json();
+      forceRescore = body?.force_rescore === true;
+    } catch { /* no body is fine */ }
+
+    // Get candidates: invited ones always, plus completed ones if force re-scoring
+    let candidateQuery = supabaseAdmin
       .from("candidates")
-      .select("id, name, email, job_role_id, hireflix_status, hireflix_interview_id, interview_final_score")
-      .eq("hireflix_status", "invited");
+      .select("id, name, email, job_role_id, hireflix_status, hireflix_interview_id, interview_final_score");
+
+    if (forceRescore) {
+      candidateQuery = candidateQuery.in("hireflix_status", ["invited", "completed"]);
+    } else {
+      candidateQuery = candidateQuery.eq("hireflix_status", "invited");
+    }
+
+    const { data: candidates, error: candErr } = await candidateQuery;
 
     if (candErr) throw candErr;
-    console.log("Found invited candidates:", candidates?.length || 0, candidates?.map((c: any) => ({ id: c.id, name: c.name, email: c.email })));
+    console.log(`Found candidates (force_rescore=${forceRescore}):`, candidates?.length || 0, candidates?.map((c: any) => ({ id: c.id, name: c.name, email: c.email, status: c.hireflix_status })));
     if (!candidates || candidates.length === 0) {
-      return new Response(JSON.stringify({ synced: 0, scored: 0, message: "No invited candidates to sync" }), {
+      return new Response(JSON.stringify({ synced: 0, scored: 0, message: "No candidates to sync" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -360,17 +374,42 @@ serve(async (req) => {
 
       // Match interviews to candidates by email
       for (const candidate of posCandidates) {
-        const interview = interviews.find(
-          (i: any) => i.candidate?.email?.toLowerCase() === candidate.email?.toLowerCase() && (i.status === "finished" || i.status === "completed")
-        );
+        let transcript = "";
+        let interviewId = candidate.hireflix_interview_id;
 
-        if (!interview) continue; // not finished yet
-
-        // Build transcript
-        const transcript = (interview.questions || [])
-          .map((q: any) => q.answer?.transcription?.text || "")
-          .filter((t: string) => t.length > 0)
-          .join("\n\n");
+        if (candidate.hireflix_status === "completed" && forceRescore) {
+          // For re-scoring, try to get fresh transcript from Hireflix first
+          const interview = interviews.find(
+            (i: any) => i.candidate?.email?.toLowerCase() === candidate.email?.toLowerCase() && (i.status === "finished" || i.status === "completed")
+          );
+          if (interview) {
+            transcript = (interview.questions || [])
+              .map((q: any) => q.answer?.transcription?.text || "")
+              .filter((t: string) => t.length > 0)
+              .join("\n\n");
+            interviewId = interview.id;
+          }
+          // Fall back to existing transcript if Hireflix doesn't return one
+          if (!transcript) {
+            const { data: existing } = await supabaseAdmin
+              .from("candidates")
+              .select("interview_transcript")
+              .eq("id", candidate.id)
+              .single();
+            transcript = existing?.interview_transcript || "";
+          }
+        } else {
+          // Normal flow for invited candidates
+          const interview = interviews.find(
+            (i: any) => i.candidate?.email?.toLowerCase() === candidate.email?.toLowerCase() && (i.status === "finished" || i.status === "completed")
+          );
+          if (!interview) continue;
+          transcript = (interview.questions || [])
+            .map((q: any) => q.answer?.transcription?.text || "")
+            .filter((t: string) => t.length > 0)
+            .join("\n\n");
+          interviewId = interview.id;
+        }
 
         if (!transcript) {
           console.log(`No transcript for candidate ${candidate.id}`);
@@ -387,7 +426,7 @@ serve(async (req) => {
             .from("candidates")
             .update({
               hireflix_status: "completed",
-              hireflix_interview_id: interview.id,
+              hireflix_interview_id: interviewId,
               interview_transcript: transcript,
               interview_scores: scores,
               interview_final_score: scores.final_score,
@@ -404,7 +443,7 @@ serve(async (req) => {
             .from("candidates")
             .update({
               hireflix_status: "completed",
-              hireflix_interview_id: interview.id,
+              hireflix_interview_id: interviewId,
               interview_transcript: transcript,
             })
             .eq("id", candidate.id);
