@@ -443,7 +443,7 @@ serve(async (req) => {
             .from("candidates")
             .update({
               hireflix_status: "completed",
-              hireflix_interview_id: interview.id,
+              hireflix_interview_id: interviewId,
               interview_transcript: transcript,
             })
             .eq("id", candidate.id);
