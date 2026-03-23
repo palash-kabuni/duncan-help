@@ -697,8 +697,10 @@ async function executeXeroTool(
   args: any,
   supabaseAdmin: any,
   supabaseUrl: string,
-  authHeader: string
+  authHeader: string,
+  userId: string
 ): Promise<any> {
+  const PAYMENT_APPROVER_ID = "00347694-6eab-4cc6-819a-01f13660f869"; // Patrick Badenoch
   switch (toolName) {
     case "list_xero_invoices": {
       let query = supabaseAdmin
