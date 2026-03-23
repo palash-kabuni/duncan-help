@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   GitBranch, Receipt, AlertTriangle, CheckCircle2,
   Clock, RefreshCw, Loader2, Activity, TrendingUp,
-  ArrowUpRight, ArrowDownRight, Filter, ChevronLeft, ChevronRight, Search
+  ArrowUpRight, ArrowDownRight, Filter, ChevronLeft, ChevronRight, Search,
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
