@@ -302,16 +302,30 @@ serve(async (req) => {
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get all candidates that were invited but not yet scored
-    const { data: candidates, error: candErr } = await supabaseAdmin
+    // Get request body to check for force re-score
+    let forceRescore = false;
+    try {
+      const body = await req.json();
+      forceRescore = body?.force_rescore === true;
+    } catch { /* no body is fine */ }
+
+    // Get candidates: invited ones always, plus completed ones if force re-scoring
+    let candidateQuery = supabaseAdmin
       .from("candidates")
-      .select("id, name, email, job_role_id, hireflix_status, hireflix_interview_id, interview_final_score")
-      .eq("hireflix_status", "invited");
+      .select("id, name, email, job_role_id, hireflix_status, hireflix_interview_id, interview_final_score");
+
+    if (forceRescore) {
+      candidateQuery = candidateQuery.in("hireflix_status", ["invited", "completed"]);
+    } else {
+      candidateQuery = candidateQuery.eq("hireflix_status", "invited");
+    }
+
+    const { data: candidates, error: candErr } = await candidateQuery;
 
     if (candErr) throw candErr;
-    console.log("Found invited candidates:", candidates?.length || 0, candidates?.map((c: any) => ({ id: c.id, name: c.name, email: c.email })));
+    console.log(`Found candidates (force_rescore=${forceRescore}):`, candidates?.length || 0, candidates?.map((c: any) => ({ id: c.id, name: c.name, email: c.email, status: c.hireflix_status })));
     if (!candidates || candidates.length === 0) {
-      return new Response(JSON.stringify({ synced: 0, scored: 0, message: "No invited candidates to sync" }), {
+      return new Response(JSON.stringify({ synced: 0, scored: 0, message: "No candidates to sync" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
