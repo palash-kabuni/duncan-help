@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import {
   GitBranch, Receipt, AlertTriangle, CheckCircle2,
-  Clock, RefreshCw, Loader2, Activity, TrendingUp,
+  Clock, RefreshCw, Loader2, Activity,
   ArrowUpRight, ArrowDownRight, Filter, ChevronLeft, ChevronRight, Search,
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
