@@ -679,7 +679,7 @@ const XERO_TOOLS = [
     type: "function",
     function: {
       name: "approve_xero_invoice_payment",
-      description: "Mark an AUTHORISED Xero invoice as approved for payment. For invoices under £300 this auto-approves. For larger amounts, confirm with the user first. Only works on AUTHORISED invoices of type ACCPAY (bills).",
+      description: "Approve payment for an AUTHORISED Xero bill (ACCPAY) under £300 only. Invoices of £300 or more cannot be approved through Duncan. Only Patrick Badenoch can use this tool. Requires explicit user confirmation.",
       parameters: {
         type: "object",
         properties: {
