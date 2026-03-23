@@ -2041,7 +2041,7 @@ serve(async (req) => {
           } else if (azureDevOpsToolNames.includes(tc.function.name)) {
               result = await executeAzureDevOpsTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
           } else if (xeroToolNames.includes(tc.function.name)) {
-              result = await executeXeroTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
+              result = await executeXeroTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "", userId || "");
           } else {
           }
           
