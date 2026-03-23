@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import {
   GitBranch, Receipt, AlertTriangle, CheckCircle2,
   Clock, RefreshCw, Loader2, Activity, TrendingUp,
-  ArrowUpRight, ArrowDownRight, Filter
+  ArrowUpRight, ArrowDownRight, Filter, ChevronLeft, ChevronRight, Search
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
