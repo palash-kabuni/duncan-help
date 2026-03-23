@@ -1848,6 +1848,8 @@ serve(async (req) => {
     tools.push(...MEETING_TOOLS);
     // Azure DevOps tools always available (connection checked at execution time)
     tools.push(...AZURE_DEVOPS_TOOLS);
+    // Xero tools always available (data is synced locally)
+    tools.push(...XERO_TOOLS);
     if (tools.length > 0) {
       requestBody.tools = tools;
     }
