@@ -744,6 +744,9 @@ async function executeXeroTool(
     }
 
     case "approve_xero_invoice_payment": {
+      if (userId !== PAYMENT_APPROVER_ID) {
+        return { error: "⛔ Access denied. Only Patrick Badenoch is authorised to approve invoice payments." };
+      }
       if (!args.confirmed) {
         return { error: "Payment approval requires explicit user confirmation. Please ask the user to confirm before calling this tool with confirmed=true." };
       }
