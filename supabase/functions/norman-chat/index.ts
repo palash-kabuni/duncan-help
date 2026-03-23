@@ -697,8 +697,10 @@ async function executeXeroTool(
   args: any,
   supabaseAdmin: any,
   supabaseUrl: string,
-  authHeader: string
+  authHeader: string,
+  userId: string
 ): Promise<any> {
+  const PAYMENT_APPROVER_ID = "00347694-6eab-4cc6-819a-01f13660f869"; // Patrick Badenoch
   switch (toolName) {
     case "list_xero_invoices": {
       let query = supabaseAdmin
@@ -742,6 +744,9 @@ async function executeXeroTool(
     }
 
     case "approve_xero_invoice_payment": {
+      if (userId !== PAYMENT_APPROVER_ID) {
+        return { error: "⛔ Access denied. Only Patrick Badenoch is authorised to approve invoice payments." };
+      }
       if (!args.confirmed) {
         return { error: "Payment approval requires explicit user confirmation. Please ask the user to confirm before calling this tool with confirmed=true." };
       }
@@ -2036,7 +2041,7 @@ serve(async (req) => {
           } else if (azureDevOpsToolNames.includes(tc.function.name)) {
               result = await executeAzureDevOpsTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
           } else if (xeroToolNames.includes(tc.function.name)) {
-              result = await executeXeroTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
+              result = await executeXeroTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "", userId || "");
           } else {
           }
           
