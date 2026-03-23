@@ -1994,6 +1994,7 @@ serve(async (req) => {
       const basecampToolNames = ["list_basecamp_projects", "get_basecamp_todolists", "get_basecamp_todos", "get_basecamp_messages", "get_basecamp_card_table_cards"];
       const meetingToolNames = ["fetch_plaud_meetings", "list_meetings", "get_meeting", "analyze_meetings", "search_meeting_transcripts"];
       const azureDevOpsToolNames = ["list_azure_devops_projects", "query_azure_work_items", "get_azure_work_item", "search_synced_work_items"];
+      const xeroToolNames = ["list_xero_invoices", "get_xero_invoice", "approve_xero_invoice_payment"];
       const toolResults: any[] = [];
 
       for (const tc of toolCalls) {
