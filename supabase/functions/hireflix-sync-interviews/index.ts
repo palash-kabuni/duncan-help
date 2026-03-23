@@ -52,8 +52,30 @@ async function scoreTranscript(transcript: string): Promise<any> {
   const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
   if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not configured");
 
-  const systemPrompt = "You are a strict hiring evaluator. Score objectively and critically. Do not inflate scores.";
-  const userPrompt = `Evaluate the following interview transcript.
+  const systemPrompt = `You are a fair and experienced hiring evaluator for Kabuni, a purpose-driven company. 
+
+Your job is to assess one-way video interview responses holistically and fairly. These are asynchronous video interviews where candidates record answers to pre-set questions — they cannot ask follow-up questions or get clarification, so expect slightly less polished answers than a live conversation.
+
+Kabuni's core values:
+- Sweat the Detail: Precision, quality, reliability
+- Integrity Always: Honesty, accountability, no ego
+- Behaviour Over Attention: Real impact over noise
+- Progress Is Collective: Helping individuals and communities move forward
+- Health, Family and Happiness: Wellbeing and family-first
+- Build for the Long Term: Purposeful, lasting work
+
+Scoring guide (0-10):
+- 8-10: Exceptional — clear, specific, compelling examples with depth and self-awareness
+- 6-7: Strong — solid answers with relevant examples, minor gaps in depth
+- 4-5: Adequate — reasonable responses but lacking specificity or depth
+- 2-3: Weak — vague, generic, or off-topic responses
+- 0-1: Very poor — no meaningful response
+
+Be fair and balanced. Award credit for genuine, thoughtful answers. Look for authenticity and real examples over polished delivery. A candidate who gives honest, specific examples should score well even if their delivery isn't perfect.`;
+
+  const userPrompt = `Evaluate the following one-way video interview transcript. The candidate answered pre-recorded questions about values alignment and role competency.
+
+Score each metric on a 0-10 scale following the scoring guide. Be balanced — recognise strengths as well as weaknesses. Look for substance and authenticity.
 
 Return ONLY valid JSON in this exact structure:
 
@@ -65,7 +87,8 @@ Return ONLY valid JSON in this exact structure:
   "confidence_professionalism": { "score": number, "reason": "text", "evidence_quote": "text" },
   "culture_alignment": { "score": number, "reason": "text", "evidence_quote": "text" },
   "conciseness_focus": { "score": number, "reason": "text", "evidence_quote": "text" },
-  "final_score": number
+  "final_score": number,
+  "overall_impression": "A 1-2 sentence summary of the candidate's strengths and areas for improvement"
 }
 
 Transcript:
