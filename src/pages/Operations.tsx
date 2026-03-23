@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import {
   GitBranch, Receipt, AlertTriangle, CheckCircle2,
   Clock, RefreshCw, Loader2, Activity, TrendingUp,
-  ArrowUpRight, ArrowDownRight, Filter
+  ArrowUpRight, ArrowDownRight, Filter, ChevronLeft, ChevronRight, Search
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -31,13 +31,12 @@ function useXeroInvoices() {
   return useQuery({
     queryKey: ["xero-invoices"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error, count } = await supabase
         .from("xero_invoices")
-        .select("*")
-        .order("due_date", { ascending: true })
-        .limit(100);
+        .select("*", { count: "exact" })
+        .order("date", { ascending: false });
       if (error) throw error;
-      return data || [];
+      return { invoices: data || [], total: count || 0 };
     },
   });
 }
@@ -91,10 +90,42 @@ const invoiceStatusColors: Record<string, string> = {
 
 const Operations = () => {
   const { data: workItems = [], isLoading: wiLoading } = useWorkItems();
-  const { data: invoices = [], isLoading: invLoading } = useXeroInvoices();
+  const { data: invoiceData, isLoading: invLoading } = useXeroInvoices();
+  const invoices = invoiceData?.invoices || [];
   const { data: contacts = [], isLoading: conLoading } = useXeroContacts();
   const { data: syncLogs = [], isLoading: slLoading } = useSyncLogs();
   const [syncing, setSyncing] = useState<string | null>(null);
+
+  // Invoice filters
+  const [invoiceStatusFilter, setInvoiceStatusFilter] = useState<string>("all");
+  const [invoiceSearch, setInvoiceSearch] = useState("");
+  const [invoicePage, setInvoicePage] = useState(0);
+  const INVOICES_PER_PAGE = 25;
+
+  const filteredInvoices = useMemo(() => {
+    let filtered = invoices;
+    if (invoiceStatusFilter !== "all") {
+      if (invoiceStatusFilter === "OVERDUE") {
+        filtered = filtered.filter((i: any) => {
+          if (!i.due_date || i.status === "PAID" || i.status === "VOIDED") return false;
+          return new Date(i.due_date) < new Date();
+        });
+      } else {
+        filtered = filtered.filter((i: any) => i.status === invoiceStatusFilter);
+      }
+    }
+    if (invoiceSearch.trim()) {
+      const q = invoiceSearch.toLowerCase();
+      filtered = filtered.filter((i: any) =>
+        (i.invoice_number || "").toLowerCase().includes(q) ||
+        (i.contact_name || "").toLowerCase().includes(q)
+      );
+    }
+    return filtered;
+  }, [invoices, invoiceStatusFilter, invoiceSearch]);
+
+  const totalInvoicePages = Math.max(1, Math.ceil(filteredInvoices.length / INVOICES_PER_PAGE));
+  const paginatedInvoices = filteredInvoices.slice(invoicePage * INVOICES_PER_PAGE, (invoicePage + 1) * INVOICES_PER_PAGE);
 
   const handleSync = async (type: "azure" | "xero") => {
     setSyncing(type);
@@ -255,40 +286,104 @@ const Operations = () => {
                   <p className="text-sm">No invoices synced yet. Connect Xero and run a sync.</p>
                 </div>
               ) : (
-                <div className="rounded-xl border border-border bg-card overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-secondary/30">
-                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Invoice #</th>
-                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Contact</th>
-                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Status</th>
-                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Type</th>
-                        <th className="text-right px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Total</th>
-                        <th className="text-right px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Due</th>
-                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Due Date</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {invoices.map((inv: any) => {
-                        const isOverdue = inv.due_date && new Date(inv.due_date) < new Date() && inv.status !== "PAID" && inv.status !== "VOIDED";
-                        return (
-                          <tr key={inv.id} className={`border-b border-border/50 hover:bg-secondary/20 transition-colors ${isOverdue ? "bg-destructive/5" : ""}`}>
-                            <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{inv.invoice_number || "—"}</td>
-                            <td className="px-4 py-3 font-medium text-foreground">{inv.contact_name}</td>
-                            <td className="px-4 py-3">
-                              <Badge variant="outline" className={invoiceStatusColors[isOverdue ? "OVERDUE" : inv.status] || ""}>
-                                {isOverdue ? "OVERDUE" : inv.status}
-                              </Badge>
-                            </td>
-                            <td className="px-4 py-3 text-muted-foreground">{inv.type === "ACCREC" ? "Receivable" : "Payable"}</td>
-                            <td className="px-4 py-3 text-right font-mono text-foreground">£{Number(inv.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                            <td className="px-4 py-3 text-right font-mono text-foreground">£{Number(inv.amount_due || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                            <td className="px-4 py-3 text-xs font-mono text-muted-foreground">{inv.due_date || "—"}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                <div className="space-y-3">
+                  {/* Filters */}
+                  <div className="flex items-center gap-3">
+                    <div className="relative flex-1 max-w-xs">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                      <input
+                        type="text"
+                        placeholder="Search invoice # or contact..."
+                        value={invoiceSearch}
+                        onChange={(e) => { setInvoiceSearch(e.target.value); setInvoicePage(0); }}
+                        className="w-full rounded-lg border border-border bg-card pl-9 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {["all", "AUTHORISED", "PAID", "DRAFT", "OVERDUE", "VOIDED"].map((status) => (
+                        <button
+                          key={status}
+                          onClick={() => { setInvoiceStatusFilter(status); setInvoicePage(0); }}
+                          className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors border ${
+                            invoiceStatusFilter === status
+                              ? "bg-primary/10 text-primary border-primary/30"
+                              : "bg-card text-muted-foreground border-border hover:bg-secondary"
+                          }`}
+                        >
+                          {status === "all" ? "All" : status.charAt(0) + status.slice(1).toLowerCase()}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="text-xs text-muted-foreground ml-auto">
+                      {filteredInvoices.length} invoice{filteredInvoices.length !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+
+                  {/* Table */}
+                  <div className="rounded-xl border border-border bg-card overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-secondary/30">
+                          <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Invoice #</th>
+                          <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Contact</th>
+                          <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Status</th>
+                          <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Type</th>
+                          <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Date</th>
+                          <th className="text-right px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Total</th>
+                          <th className="text-right px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Due</th>
+                          <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Due Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paginatedInvoices.length === 0 ? (
+                          <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-muted-foreground">No invoices match your filters.</td></tr>
+                        ) : paginatedInvoices.map((inv: any) => {
+                          const isOverdue = inv.due_date && new Date(inv.due_date) < new Date() && inv.status !== "PAID" && inv.status !== "VOIDED";
+                          return (
+                            <tr key={inv.id} className={`border-b border-border/50 hover:bg-secondary/20 transition-colors ${isOverdue ? "bg-destructive/5" : ""}`}>
+                              <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{inv.invoice_number || "—"}</td>
+                              <td className="px-4 py-3 font-medium text-foreground">{inv.contact_name}</td>
+                              <td className="px-4 py-3">
+                                <Badge variant="outline" className={invoiceStatusColors[isOverdue ? "OVERDUE" : inv.status] || ""}>
+                                  {isOverdue ? "OVERDUE" : inv.status}
+                                </Badge>
+                              </td>
+                              <td className="px-4 py-3 text-muted-foreground">{inv.type === "ACCREC" ? "Receivable" : "Payable"}</td>
+                              <td className="px-4 py-3 text-xs font-mono text-muted-foreground">{inv.date || "—"}</td>
+                              <td className="px-4 py-3 text-right font-mono text-foreground">£{Number(inv.total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                              <td className="px-4 py-3 text-right font-mono text-foreground">£{Number(inv.amount_due || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                              <td className="px-4 py-3 text-xs font-mono text-muted-foreground">{inv.due_date || "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Pagination */}
+                  {totalInvoicePages > 1 && (
+                    <div className="flex items-center justify-between pt-1">
+                      <p className="text-xs text-muted-foreground">
+                        Page {invoicePage + 1} of {totalInvoicePages}
+                      </p>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setInvoicePage(Math.max(0, invoicePage - 1))}
+                          disabled={invoicePage === 0}
+                          className="rounded-lg border border-border bg-card p-1.5 text-muted-foreground hover:bg-secondary disabled:opacity-30 transition-colors"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => setInvoicePage(Math.min(totalInvoicePages - 1, invoicePage + 1))}
+                          disabled={invoicePage >= totalInvoicePages - 1}
+                          className="rounded-lg border border-border bg-card p-1.5 text-muted-foreground hover:bg-secondary disabled:opacity-30 transition-colors"
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </TabsContent>
