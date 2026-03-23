@@ -31,13 +31,12 @@ function useXeroInvoices() {
   return useQuery({
     queryKey: ["xero-invoices"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error, count } = await supabase
         .from("xero_invoices")
-        .select("*")
-        .order("due_date", { ascending: true })
-        .limit(100);
+        .select("*", { count: "exact" })
+        .order("date", { ascending: false });
       if (error) throw error;
-      return data || [];
+      return { invoices: data || [], total: count || 0 };
     },
   });
 }
