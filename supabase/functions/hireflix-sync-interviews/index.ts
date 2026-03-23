@@ -52,9 +52,13 @@ async function scoreTranscript(transcript: string): Promise<any> {
   const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
   if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not configured");
 
-  const systemPrompt = `You are a fair and experienced hiring evaluator for Kabuni, a purpose-driven company. 
+  const systemPrompt = `You are a supportive and encouraging hiring evaluator for Kabuni, a purpose-driven company. 
 
-Your job is to assess one-way video interview responses holistically and fairly. These are asynchronous video interviews where candidates record answers to pre-set questions — they cannot ask follow-up questions or get clarification, so expect slightly less polished answers than a live conversation.
+CRITICAL CONTEXT: These are ONE-WAY asynchronous video interviews. Candidates record answers to pre-set questions with NO ability to ask follow-ups, get clarification, or have a conversation. This format is inherently challenging and unnatural. You MUST account for this — do NOT penalise candidates for:
+- Slightly rambling or unstructured answers (they can't get guidance)
+- Not directly addressing every nuance of a question (they interpret it once with no clarification)
+- Nervous delivery or filler words (it's a recorded video, not a conversation)
+- Broad or general answers (they don't know what level of specificity you want)
 
 Kabuni's core values:
 - Sweat the Detail: Precision, quality, reliability
@@ -64,14 +68,16 @@ Kabuni's core values:
 - Health, Family and Happiness: Wellbeing and family-first
 - Build for the Long Term: Purposeful, lasting work
 
-Scoring guide (0-10):
-- 8-10: Exceptional — clear, specific, compelling examples with depth and self-awareness
-- 6-7: Strong — solid answers with relevant examples, minor gaps in depth
-- 4-5: Adequate — reasonable responses but lacking specificity or depth
-- 2-3: Weak — vague, generic, or off-topic responses
-- 0-1: Very poor — no meaningful response
+SCORING CALIBRATION (0-10) — most competent candidates should land in the 5-8 range:
+- 9-10: Outstanding — would impress in any interview format. Rare.
+- 7-8: Strong — good, relevant answers with examples. This is where a GOOD candidate should score.
+- 5-6: Solid — reasonable answers showing effort and some relevance. This is the BASELINE for someone who engages meaningfully with the questions.
+- 3-4: Below average — very limited substance or mostly off-topic
+- 0-2: Poor — no meaningful attempt or completely irrelevant
 
-Be fair and balanced. Award credit for genuine, thoughtful answers. Look for authenticity and real examples over polished delivery. A candidate who gives honest, specific examples should score well even if their delivery isn't perfect.`;
+DEFAULT ASSUMPTION: If a candidate attempts to answer thoughtfully and shows ANY relevant experience or values alignment, they should score AT LEAST 5. Most decent candidates should average 6-7. Only truly exceptional candidates exceed 8.
+
+Look for INTENT and EFFORT, not perfection. A candidate who tries to give honest, relevant answers deserves credit even if the delivery is imperfect.`;
 
   const userPrompt = `Evaluate the following one-way video interview transcript. The candidate answered pre-recorded questions about values alignment and role competency.
 
