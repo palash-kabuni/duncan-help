@@ -117,13 +117,21 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Sync contacts
-    const contactsRes = await fetch("https://api.xero.com/api.xro/2.0/Contacts?page=1&pageSize=100", {
-      headers: xeroHeaders,
-    });
-    if (contactsRes.ok) {
+    // Sync contacts (paginate through all)
+    let contactPage = 1;
+    let hasMoreContacts = true;
+    while (hasMoreContacts) {
+      const contactsRes = await fetch(`https://api.xero.com/api.xro/2.0/Contacts?page=${contactPage}&pageSize=100`, {
+        headers: xeroHeaders,
+      });
+      if (!contactsRes.ok) break;
       const contactsData = await contactsRes.json();
-      for (const c of contactsData.Contacts || []) {
+      const contactsList = contactsData.Contacts || [];
+      if (contactsList.length === 0) {
+        hasMoreContacts = false;
+        break;
+      }
+      for (const c of contactsList) {
         const { error } = await supabaseAdmin.from("xero_contacts").upsert(
           {
             external_id: c.ContactID,
@@ -141,6 +149,11 @@ Deno.serve(async (req) => {
           { onConflict: "external_id" }
         );
         if (!error) totalSynced++;
+      }
+      if (contactsList.length < 100) {
+        hasMoreContacts = false;
+      } else {
+        contactPage++;
       }
     }
 
