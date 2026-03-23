@@ -73,13 +73,21 @@ Deno.serve(async (req) => {
 
     let totalSynced = 0;
 
-    // Sync invoices
-    const invoicesRes = await fetch("https://api.xero.com/api.xro/2.0/Invoices?page=1&pageSize=100", {
-      headers: xeroHeaders,
-    });
-    if (invoicesRes.ok) {
+    // Sync invoices (paginate through all)
+    let invoicePage = 1;
+    let hasMoreInvoices = true;
+    while (hasMoreInvoices) {
+      const invoicesRes = await fetch(`https://api.xero.com/api.xro/2.0/Invoices?page=${invoicePage}&pageSize=100`, {
+        headers: xeroHeaders,
+      });
+      if (!invoicesRes.ok) break;
       const invoicesData = await invoicesRes.json();
-      for (const inv of invoicesData.Invoices || []) {
+      const invoicesList = invoicesData.Invoices || [];
+      if (invoicesList.length === 0) {
+        hasMoreInvoices = false;
+        break;
+      }
+      for (const inv of invoicesList) {
         const { error } = await supabaseAdmin.from("xero_invoices").upsert(
           {
             external_id: inv.InvoiceID,
@@ -101,6 +109,11 @@ Deno.serve(async (req) => {
           { onConflict: "external_id" }
         );
         if (!error) totalSynced++;
+      }
+      if (invoicesList.length < 100) {
+        hasMoreInvoices = false;
+      } else {
+        invoicePage++;
       }
     }
 
