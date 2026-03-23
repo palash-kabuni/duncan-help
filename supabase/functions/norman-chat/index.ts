@@ -768,7 +768,11 @@ async function executeXeroTool(
 
       const amount = Number(invoice.amount_due);
 
-      // Call Xero API to mark as paid
+      if (amount >= 300) {
+        return { error: `⛔ Invoice ${invoice.invoice_number} is for ${invoice.currency_code} ${amount.toFixed(2)} which exceeds the £300 approval limit. Invoices of £300 or more must be approved through a separate process.` };
+      }
+
+      // Call Xero API to verify invoice
       const res = await fetch(`${supabaseUrl}/functions/v1/xero-api`, {
         method: "POST",
         headers: {
@@ -790,7 +794,6 @@ async function executeXeroTool(
         contact: invoice.contact_name,
         amount: amount,
         currency: invoice.currency_code,
-        note: amount < 300 ? "Auto-approved (under £300 threshold)" : "Approved with user confirmation",
       };
     }
 
