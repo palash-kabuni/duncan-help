@@ -2035,6 +2035,8 @@ serve(async (req) => {
               result = await executeMeetingTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
           } else if (azureDevOpsToolNames.includes(tc.function.name)) {
               result = await executeAzureDevOpsTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
+          } else if (xeroToolNames.includes(tc.function.name)) {
+              result = await executeXeroTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
           } else {
           }
           
