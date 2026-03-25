@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Send, Brain, Sparkles, Trash2, Loader2, Download, Copy, Check,
-  FileText, Receipt, Users, FolderOpen, BarChart3, Zap,
+  Send, Brain, Trash2, Loader2, Download, Copy, Check,
+  FileText, Receipt, Users, FolderOpen,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
