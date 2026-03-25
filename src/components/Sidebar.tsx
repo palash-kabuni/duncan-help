@@ -69,8 +69,8 @@ const Sidebar = () => {
           </RouterNavLink>)}
       </nav>
 
-      {/* User & Status */}
-      <div className="border-t border-border px-4 py-4 space-y-3">
+      {/* User */}
+      <div className="border-t border-border px-4 py-4 space-y-2">
         {user && <div className="flex items-center justify-between">
             <div className="min-w-0">
               <p className="text-xs font-medium text-foreground truncate">{user.email}</p>
@@ -79,10 +79,10 @@ const Sidebar = () => {
               <LogOut className="h-3.5 w-3.5" />
             </button>
           </div>}
-        <div className="flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-norman-success animate-pulse-glow" />
-          <span className="text-xs font-mono text-muted-foreground">System Online</span>
-        </div>
+        <RouterNavLink to="/settings" className={({ isActive }) => cn("flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium transition-all duration-150", isActive ? "text-primary" : "text-muted-foreground hover:text-foreground")}>
+          <Settings className="h-3.5 w-3.5" />
+          Settings
+        </RouterNavLink>
         <p className="text-[10px] font-mono text-muted-foreground/50">v0.1.0</p>
       </div>
     </aside>;
