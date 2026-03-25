@@ -4,7 +4,7 @@ import {
   Send, Brain, Trash2, Loader2, Download, Copy, Check,
   FileText, Receipt, Users, FolderOpen,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useNavigate } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import WelcomeModal from "@/components/WelcomeModal";
