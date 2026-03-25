@@ -11,14 +11,6 @@ import WelcomeModal from "@/components/WelcomeModal";
 import { useNormanChat } from "@/hooks/useNormanChat";
 import { supabase } from "@/integrations/supabase/client";
 
-type Mode = "general" | "reason" | "automate" | "analyze";
-
-const modes = [
-  { id: "general" as Mode, icon: Sparkles, label: "General" },
-  { id: "reason" as Mode, icon: Brain, label: "Reason" },
-  { id: "automate" as Mode, icon: Zap, label: "Automate" },
-  { id: "analyze" as Mode, icon: BarChart3, label: "Analyze" },
-];
 
 const quickActions = [
   { icon: FileText, label: "Generate NDA", prompt: "Generate a new NDA" },
