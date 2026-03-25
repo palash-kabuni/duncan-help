@@ -247,7 +247,7 @@ const Index = () => {
             <div className="flex items-end gap-3 rounded-xl border border-border bg-card px-4 py-3 focus-within:border-primary/40 focus-within:glow-primary-sm transition-all duration-300">
               <textarea
                 ref={textareaRef}
-                placeholder={`Ask Duncan to ${mode === "reason" ? "reason through a problem" : mode === "automate" ? "create an automation" : mode === "analyze" ? "analyze data" : "do anything"}…`}
+                placeholder="Ask Duncan anything…"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -261,7 +261,7 @@ const Index = () => {
               </button>
             </div>
             <p className="mt-2 text-center text-[10px] font-mono text-muted-foreground/40">
-              Mode: {mode.toUpperCase()} · Shift+Enter for new line · Powered by Duncan AI Engine
+              Shift+Enter for new line · Powered by Duncan AI Engine
             </p>
           </div>
         </div>
