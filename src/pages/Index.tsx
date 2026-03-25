@@ -15,7 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 const quickActions = [
   { icon: FileText, label: "Generate NDA", prompt: "Generate a new NDA" },
   { icon: Receipt, label: "Fetch Invoices", prompt: "Show me all outstanding Xero invoices awaiting payment" },
-  { icon: Users, label: "Recruitment Status", prompt: "Show me the current recruitment pipeline status" },
+  { icon: Users, label: "Recruitment Status", link: "/recruitment" },
   { icon: FolderOpen, label: "Basecamp Projects", prompt: "List all active Basecamp projects and their status" },
 ];
 
