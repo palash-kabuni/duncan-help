@@ -163,7 +163,7 @@ const Index = () => {
     send(input.trim(), "general");
     setInput("");
     requestAnimationFrame(() => { if (textareaRef.current) { textareaRef.current.style.height = "auto"; textareaRef.current.focus(); } });
-  }, [input, isLoading, send, mode]);
+  }, [input, isLoading, send]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
