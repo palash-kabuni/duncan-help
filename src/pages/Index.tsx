@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Send, Brain, Sparkles, Trash2, Loader2, Download, Copy, Check,
-  FileText, Receipt, Users, FolderOpen, BarChart3, Zap,
+  Send, Brain, Trash2, Loader2, Download, Copy, Check,
+  FileText, Receipt, Users, FolderOpen,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -11,14 +11,6 @@ import WelcomeModal from "@/components/WelcomeModal";
 import { useNormanChat } from "@/hooks/useNormanChat";
 import { supabase } from "@/integrations/supabase/client";
 
-type Mode = "general" | "reason" | "automate" | "analyze";
-
-const modes = [
-  { id: "general" as Mode, icon: Sparkles, label: "General" },
-  { id: "reason" as Mode, icon: Brain, label: "Reason" },
-  { id: "automate" as Mode, icon: Zap, label: "Automate" },
-  { id: "analyze" as Mode, icon: BarChart3, label: "Analyze" },
-];
 
 const quickActions = [
   { icon: FileText, label: "Generate NDA", prompt: "Generate a new NDA" },
@@ -112,7 +104,7 @@ const MessageBubble = ({
 const Index = () => {
   const { messages, isLoading, send, clearMessages } = useNormanChat();
   const [input, setInput] = useState("");
-  const [mode, setMode] = useState<Mode>("general");
+  
   const [downloadingUrl, setDownloadingUrl] = useState<string | null>(null);
   const [weather, setWeather] = useState<{ temp: number; description: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -168,17 +160,17 @@ const Index = () => {
 
   const handleSubmit = useCallback(() => {
     if (!input.trim() || isLoading) return;
-    send(input.trim(), mode);
+    send(input.trim(), "general");
     setInput("");
     requestAnimationFrame(() => { if (textareaRef.current) { textareaRef.current.style.height = "auto"; textareaRef.current.focus(); } });
-  }, [input, isLoading, send, mode]);
+  }, [input, isLoading, send]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
   };
 
   const handleQuickAction = (prompt: string) => {
-    send(prompt, mode);
+    send(prompt, "general");
   };
 
   const hasMessages = messages.length > 0;
@@ -201,21 +193,11 @@ const Index = () => {
               {weather && <span className="ml-2 text-sm font-normal text-muted-foreground">{weather.temp}°C · {weather.description}</span>}
             </h2>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center rounded-lg border border-border bg-card p-1 gap-0.5">
-              {modes.map((m) => (
-                <button key={m.id} onClick={() => setMode(m.id)} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-150 ${mode === m.id ? "bg-primary/10 text-primary glow-primary-sm" : "text-muted-foreground hover:text-foreground"}`}>
-                  <m.icon className="h-3 w-3" />
-                  {m.label}
-                </button>
-              ))}
-            </div>
-            {hasMessages && (
-              <button onClick={clearMessages} className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                <Trash2 className="h-3 w-3" /> Clear
-              </button>
-            )}
-          </div>
+          {hasMessages && (
+            <button onClick={clearMessages} className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
+              <Trash2 className="h-3 w-3" /> Clear
+            </button>
+          )}
         </div>
 
         {/* Content area */}
@@ -266,7 +248,7 @@ const Index = () => {
             <div className="flex items-end gap-3 rounded-xl border border-border bg-card px-4 py-3 focus-within:border-primary/40 focus-within:glow-primary-sm transition-all duration-300">
               <textarea
                 ref={textareaRef}
-                placeholder={`Ask Duncan to ${mode === "reason" ? "reason through a problem" : mode === "automate" ? "create an automation" : mode === "analyze" ? "analyze data" : "do anything"}…`}
+                placeholder="Ask Duncan anything…"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -280,7 +262,7 @@ const Index = () => {
               </button>
             </div>
             <p className="mt-2 text-center text-[10px] font-mono text-muted-foreground/40">
-              Mode: {mode.toUpperCase()} · Shift+Enter for new line · Powered by Duncan AI Engine
+              Shift+Enter for new line · Powered by Duncan AI Engine
             </p>
           </div>
         </div>
