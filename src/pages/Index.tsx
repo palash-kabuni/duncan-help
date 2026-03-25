@@ -10,6 +10,8 @@ import { useNavigate } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import WelcomeModal from "@/components/WelcomeModal";
 import { useNormanChat } from "@/hooks/useNormanChat";
+import type { ChatAttachment } from "@/hooks/useNormanChat";
+import ChatInput from "@/components/chat/ChatInput";
 import { supabase } from "@/integrations/supabase/client";
 
 
