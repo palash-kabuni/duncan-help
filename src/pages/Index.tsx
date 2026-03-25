@@ -192,21 +192,11 @@ const Index = () => {
               {weather && <span className="ml-2 text-sm font-normal text-muted-foreground">{weather.temp}°C · {weather.description}</span>}
             </h2>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center rounded-lg border border-border bg-card p-1 gap-0.5">
-              {modes.map((m) => (
-                <button key={m.id} onClick={() => setMode(m.id)} className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-150 ${mode === m.id ? "bg-primary/10 text-primary glow-primary-sm" : "text-muted-foreground hover:text-foreground"}`}>
-                  <m.icon className="h-3 w-3" />
-                  {m.label}
-                </button>
-              ))}
-            </div>
-            {hasMessages && (
-              <button onClick={clearMessages} className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                <Trash2 className="h-3 w-3" /> Clear
-              </button>
-            )}
-          </div>
+          {hasMessages && (
+            <button onClick={clearMessages} className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
+              <Trash2 className="h-3 w-3" /> Clear
+            </button>
+          )}
         </div>
 
         {/* Content area */}
