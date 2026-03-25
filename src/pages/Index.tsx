@@ -25,8 +25,6 @@ const quickActions = [
   { icon: Receipt, label: "Fetch Invoices", prompt: "Show me all outstanding Xero invoices awaiting payment" },
   { icon: Users, label: "Recruitment Status", prompt: "Show me the current recruitment pipeline status" },
   { icon: FolderOpen, label: "Basecamp Projects", prompt: "List all active Basecamp projects and their status" },
-  { icon: BarChart3, label: "Company KPIs", prompt: "Give me a summary of current company KPIs" },
-  { icon: Zap, label: "Action Items", prompt: "What are the top priority action items across all projects?" },
 ];
 
 const getGreeting = () => {
@@ -230,7 +228,7 @@ const Index = () => {
               <motion.p initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="text-sm text-muted-foreground mb-8 text-center max-w-md">
                 Ask Duncan anything, or use a quick action below.
               </motion.p>
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full max-w-2xl">
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="grid grid-cols-2 gap-3 w-full max-w-lg">
                 {quickActions.map((action) => (
                   <button key={action.label} onClick={() => handleQuickAction(action.prompt)} className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card/60 px-4 py-5 text-center hover:bg-card hover:border-primary/20 transition-all duration-200 group">
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 border border-primary/20 group-hover:glow-primary-sm transition-all">
