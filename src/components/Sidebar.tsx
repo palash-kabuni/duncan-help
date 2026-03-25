@@ -12,10 +12,6 @@ const navItems = [{
   label: "Prompt Engine",
   to: "/prompt"
 }, {
-  icon: BookOpen,
-  label: "Wiki",
-  to: "/wiki"
-}, {
   icon: ShoppingCart,
   label: "Purchase Orders",
   to: "/purchase-orders"

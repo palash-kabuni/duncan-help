@@ -37,7 +37,7 @@ const AppContent = () => {
           <Route path="/integrations" element={<ProtectedRoute><Integrations /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-          <Route path="/wiki" element={<ProtectedRoute><Wiki /></ProtectedRoute>} />
+          
           <Route path="/purchase-orders" element={<ProtectedRoute><PurchaseOrders /></ProtectedRoute>} />
           <Route path="/recruitment" element={<ProtectedRoute><Recruitment /></ProtectedRoute>} />
           <Route path="/operations" element={<ProtectedRoute><Operations /></ProtectedRoute>} />
