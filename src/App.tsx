@@ -7,7 +7,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { useCopySanitizer } from "@/hooks/useCopySanitizer";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Index from "./pages/Index";
-import PromptEngine from "./pages/PromptEngine";
+
 import Integrations from "./pages/Integrations";
 import Auth from "./pages/Auth";
 import Profile from "./pages/Profile";
