@@ -230,29 +230,7 @@ const Index = () => {
         </div>
 
         {/* Prompt input */}
-        <div className="relative z-10 border-t border-border px-8 py-4">
-          <div className="mx-auto max-w-3xl">
-            <div className="flex items-end gap-3 rounded-xl border border-border bg-card px-4 py-3 focus-within:border-primary/40 focus-within:glow-primary-sm transition-all duration-300">
-              <textarea
-                ref={textareaRef}
-                placeholder="Ask Duncan anything…"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                disabled={isLoading}
-                rows={1}
-                className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-50 resize-none overflow-y-auto"
-                style={{ maxHeight: 160 }}
-              />
-              <button type="button" onClick={handleSubmit} disabled={!input.trim() || isLoading} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30 disabled:cursor-not-allowed">
-                <Send className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            <p className="mt-2 text-center text-[10px] font-mono text-muted-foreground/40">
-              Shift+Enter for new line · Powered by Duncan AI Engine
-            </p>
-          </div>
-        </div>
+        <ChatInput onSubmit={handleChatSubmit} isLoading={isLoading} />
       </main>
     </div>
   );
