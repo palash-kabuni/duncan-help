@@ -25,8 +25,6 @@ const quickActions = [
   { icon: Receipt, label: "Fetch Invoices", prompt: "Show me all outstanding Xero invoices awaiting payment" },
   { icon: Users, label: "Recruitment Status", prompt: "Show me the current recruitment pipeline status" },
   { icon: FolderOpen, label: "Basecamp Projects", prompt: "List all active Basecamp projects and their status" },
-  { icon: BarChart3, label: "Company KPIs", prompt: "Give me a summary of current company KPIs" },
-  { icon: Zap, label: "Action Items", prompt: "What are the top priority action items across all projects?" },
 ];
 
 const getGreeting = () => {
