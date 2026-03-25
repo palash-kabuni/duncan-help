@@ -107,12 +107,10 @@ const MessageBubble = ({
 const Index = () => {
   const { messages, isLoading, send, clearMessages } = useNormanChat();
   const navigate = useNavigate();
-  const [input, setInput] = useState("");
   
   const [downloadingUrl, setDownloadingUrl] = useState<string | null>(null);
   const [weather, setWeather] = useState<{ temp: number; description: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     navigator.geolocation?.getCurrentPosition(
@@ -152,26 +150,11 @@ const Index = () => {
     finally { setDownloadingUrl(null); }
   }, []);
 
-  const resizeTextarea = useCallback(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 160) + "px";
-  }, []);
-
-  useEffect(() => { resizeTextarea(); }, [input, resizeTextarea]);
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages]);
 
-  const handleSubmit = useCallback(() => {
-    if (!input.trim() || isLoading) return;
-    send(input.trim(), "general");
-    setInput("");
-    requestAnimationFrame(() => { if (textareaRef.current) { textareaRef.current.style.height = "auto"; textareaRef.current.focus(); } });
-  }, [input, isLoading, send]);
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
-  };
+  const handleChatSubmit = useCallback((input: string, attachments: ChatAttachment[]) => {
+    send(input, "general", attachments);
+  }, [send]);
 
   const handleQuickAction = (prompt: string) => {
     send(prompt, "general");
