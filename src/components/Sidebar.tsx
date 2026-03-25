@@ -31,10 +31,6 @@ const navItems = [{
   icon: MessageSquareWarning,
   label: "Feedback / Issues",
   to: "/feedback"
-}, {
-  icon: Settings,
-  label: "Settings",
-  to: "/settings"
 }];
 const Sidebar = () => {
   const {
