@@ -160,7 +160,7 @@ const Index = () => {
 
   const handleSubmit = useCallback(() => {
     if (!input.trim() || isLoading) return;
-    send(input.trim(), mode);
+    send(input.trim(), "general");
     setInput("");
     requestAnimationFrame(() => { if (textareaRef.current) { textareaRef.current.style.height = "auto"; textareaRef.current.focus(); } });
   }, [input, isLoading, send, mode]);
