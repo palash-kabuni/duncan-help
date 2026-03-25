@@ -5,7 +5,48 @@ import { supabase } from "@/integrations/supabase/client";
 type Message = { role: "user" | "assistant"; content: string };
 type Mode = "general" | "reason" | "automate" | "analyze";
 
+export interface ChatAttachment {
+  name: string;
+  type: string;
+  base64: string;
+  previewUrl?: string;
+}
+
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/norman-chat`;
+
+function buildUserContent(input: string, attachments: ChatAttachment[]) {
+  if (attachments.length === 0) return input;
+
+  const parts: any[] = [{ type: "text", text: input }];
+
+  for (const att of attachments) {
+    if (att.type.startsWith("image/")) {
+      parts.push({
+        type: "image_url",
+        image_url: {
+          url: `data:${att.type};base64,${att.base64}`,
+          detail: "auto",
+        },
+      });
+    } else {
+      // For non-image files, include as text context
+      try {
+        const decoded = atob(att.base64);
+        parts.push({
+          type: "text",
+          text: `\n\n--- Attached file: ${att.name} ---\n${decoded}\n--- End of file ---`,
+        });
+      } catch {
+        parts.push({
+          type: "text",
+          text: `\n\n[Attached file: ${att.name} (binary, unable to display)]`,
+        });
+      }
+    }
+  }
+
+  return parts;
+}
 
 export function useNormanChat() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -13,9 +54,8 @@ export function useNormanChat() {
   const { profile } = useProfile();
 
   const send = useCallback(
-    async (input: string, mode: Mode = "general") => {
+    async (input: string, mode: Mode = "general", attachments: ChatAttachment[] = []) => {
       const userMsg: Message = { role: "user", content: input };
-      const newMessages = [...messages, userMsg];
       setMessages((prev) => [...prev, userMsg]);
       setIsLoading(true);
 
@@ -38,6 +78,13 @@ export function useNormanChat() {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
+        // Build the messages array for the API - use content array for attachments
+        const userContent = buildUserContent(input, attachments);
+        const apiMessages = [
+          ...messages.map((m) => ({ role: m.role, content: m.content })),
+          { role: "user", content: userContent },
+        ];
+
         const fetchChat = async (): Promise<Response> =>
           fetch(CHAT_URL, {
             method: "POST",
@@ -45,7 +92,7 @@ export function useNormanChat() {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify({ messages: newMessages, mode, userProfile: profile ?? undefined }),
+            body: JSON.stringify({ messages: apiMessages, mode, userProfile: profile ?? undefined }),
           });
 
         let resp = await fetchChat();

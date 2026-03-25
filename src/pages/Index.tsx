@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Send, Brain, Trash2, Loader2, Download, Copy, Check,
+  Brain, Trash2, Loader2, Download, Copy, Check,
   FileText, Receipt, Users, FolderOpen,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -10,6 +10,8 @@ import { useNavigate } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import WelcomeModal from "@/components/WelcomeModal";
 import { useNormanChat } from "@/hooks/useNormanChat";
+import type { ChatAttachment } from "@/hooks/useNormanChat";
+import ChatInput from "@/components/chat/ChatInput";
 import { supabase } from "@/integrations/supabase/client";
 
 
@@ -105,12 +107,10 @@ const MessageBubble = ({
 const Index = () => {
   const { messages, isLoading, send, clearMessages } = useNormanChat();
   const navigate = useNavigate();
-  const [input, setInput] = useState("");
   
   const [downloadingUrl, setDownloadingUrl] = useState<string | null>(null);
   const [weather, setWeather] = useState<{ temp: number; description: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     navigator.geolocation?.getCurrentPosition(
@@ -150,26 +150,11 @@ const Index = () => {
     finally { setDownloadingUrl(null); }
   }, []);
 
-  const resizeTextarea = useCallback(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 160) + "px";
-  }, []);
-
-  useEffect(() => { resizeTextarea(); }, [input, resizeTextarea]);
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages]);
 
-  const handleSubmit = useCallback(() => {
-    if (!input.trim() || isLoading) return;
-    send(input.trim(), "general");
-    setInput("");
-    requestAnimationFrame(() => { if (textareaRef.current) { textareaRef.current.style.height = "auto"; textareaRef.current.focus(); } });
-  }, [input, isLoading, send]);
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
-  };
+  const handleChatSubmit = useCallback((input: string, attachments: ChatAttachment[]) => {
+    send(input, "general", attachments);
+  }, [send]);
 
   const handleQuickAction = (prompt: string) => {
     send(prompt, "general");
@@ -245,29 +230,7 @@ const Index = () => {
         </div>
 
         {/* Prompt input */}
-        <div className="relative z-10 border-t border-border px-8 py-4">
-          <div className="mx-auto max-w-3xl">
-            <div className="flex items-end gap-3 rounded-xl border border-border bg-card px-4 py-3 focus-within:border-primary/40 focus-within:glow-primary-sm transition-all duration-300">
-              <textarea
-                ref={textareaRef}
-                placeholder="Ask Duncan anything…"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                disabled={isLoading}
-                rows={1}
-                className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-50 resize-none overflow-y-auto"
-                style={{ maxHeight: 160 }}
-              />
-              <button type="button" onClick={handleSubmit} disabled={!input.trim() || isLoading} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30 disabled:cursor-not-allowed">
-                <Send className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            <p className="mt-2 text-center text-[10px] font-mono text-muted-foreground/40">
-              Shift+Enter for new line · Powered by Duncan AI Engine
-            </p>
-          </div>
-        </div>
+        <ChatInput onSubmit={handleChatSubmit} isLoading={isLoading} />
       </main>
     </div>
   );

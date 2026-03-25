@@ -1,0 +1,181 @@
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Send, Paperclip, X, FileText, Image as ImageIcon, Loader2 } from "lucide-react";
+import type { ChatAttachment } from "@/hooks/useNormanChat";
+
+interface ChatInputProps {
+  onSubmit: (input: string, attachments: ChatAttachment[]) => void;
+  isLoading: boolean;
+}
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const ACCEPTED_TYPES = [
+  "image/png", "image/jpeg", "image/gif", "image/webp",
+  "application/pdf",
+  "text/plain", "text/csv", "text/markdown",
+  "application/json",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+];
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.split(",")[1]);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+export default function ChatInput({ onSubmit, isLoading }: ChatInputProps) {
+  const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const resizeTextarea = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 160) + "px";
+  }, []);
+
+  useEffect(() => { resizeTextarea(); }, [input, resizeTextarea]);
+
+  const handleFiles = useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setIsProcessing(true);
+    try {
+      const newAttachments: ChatAttachment[] = [];
+      for (const file of Array.from(files)) {
+        if (file.size > MAX_FILE_SIZE) {
+          console.warn(`File ${file.name} exceeds 10MB limit`);
+          continue;
+        }
+        const base64 = await fileToBase64(file);
+        const previewUrl = file.type.startsWith("image/")
+          ? URL.createObjectURL(file)
+          : undefined;
+        newAttachments.push({ name: file.name, type: file.type || "application/octet-stream", base64, previewUrl });
+      }
+      setAttachments((prev) => [...prev, ...newAttachments].slice(0, 5));
+    } finally {
+      setIsProcessing(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }, []);
+
+  const removeAttachment = useCallback((index: number) => {
+    setAttachments((prev) => {
+      const removed = prev[index];
+      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+      return prev.filter((_, i) => i !== index);
+    });
+  }, []);
+
+  const handleSubmit = useCallback(() => {
+    if ((!input.trim() && attachments.length === 0) || isLoading) return;
+    onSubmit(input.trim() || "Analyze the attached file(s)", attachments);
+    setInput("");
+    setAttachments([]);
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "auto";
+        textareaRef.current.focus();
+      }
+    });
+  }, [input, attachments, isLoading, onSubmit]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
+  };
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    handleFiles(e.dataTransfer.files);
+  }, [handleFiles]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+  }, []);
+
+  return (
+    <div className="relative z-10 border-t border-border px-8 py-4">
+      <div className="mx-auto max-w-3xl">
+        {/* Attachment previews */}
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {attachments.map((att, i) => (
+              <div key={i} className="flex items-center gap-2 rounded-lg border border-border bg-secondary/50 px-3 py-1.5 text-xs">
+                {att.previewUrl ? (
+                  <img src={att.previewUrl} alt={att.name} className="h-6 w-6 rounded object-cover" />
+                ) : att.type.startsWith("image/") ? (
+                  <ImageIcon className="h-4 w-4 text-primary" />
+                ) : (
+                  <FileText className="h-4 w-4 text-primary" />
+                )}
+                <span className="max-w-[120px] truncate text-foreground">{att.name}</span>
+                <button onClick={() => removeAttachment(i)} className="text-muted-foreground hover:text-foreground">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div
+          className="flex items-end gap-3 rounded-xl border border-border bg-card px-4 py-3 focus-within:border-primary/40 focus-within:glow-primary-sm transition-all duration-300"
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+        >
+          {/* Attach button */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isLoading || isProcessing}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-30"
+            title="Attach file"
+          >
+            {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+          </button>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={ACCEPTED_TYPES.join(",")}
+            className="hidden"
+            onChange={(e) => handleFiles(e.target.files)}
+          />
+
+          <textarea
+            ref={textareaRef}
+            placeholder="Ask Duncan anything…"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={isLoading}
+            rows={1}
+            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-50 resize-none overflow-y-auto"
+            style={{ maxHeight: 160 }}
+          />
+
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={(!input.trim() && attachments.length === 0) || isLoading}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <Send className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <p className="mt-2 text-center text-[10px] font-mono text-muted-foreground/40">
+          Shift+Enter for new line · Attach files for analysis · Powered by Duncan AI Engine
+        </p>
+      </div>
+    </div>
+  );
+}
