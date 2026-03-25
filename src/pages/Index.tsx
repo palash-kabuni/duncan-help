@@ -104,7 +104,7 @@ const MessageBubble = ({
 const Index = () => {
   const { messages, isLoading, send, clearMessages } = useNormanChat();
   const [input, setInput] = useState("");
-  const [mode, setMode] = useState<Mode>("general");
+  
   const [downloadingUrl, setDownloadingUrl] = useState<string | null>(null);
   const [weather, setWeather] = useState<{ temp: number; description: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
