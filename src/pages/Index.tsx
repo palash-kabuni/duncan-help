@@ -103,6 +103,7 @@ const MessageBubble = ({
 /* ── Main Page ── */
 const Index = () => {
   const { messages, isLoading, send, clearMessages } = useNormanChat();
+  const navigate = useNavigate();
   const [input, setInput] = useState("");
   
   const [downloadingUrl, setDownloadingUrl] = useState<string | null>(null);
