@@ -171,6 +171,7 @@ const Index = () => {
 
   const handleQuickAction = (prompt: string) => {
     send(prompt, "general");
+  };
 
   const hasMessages = messages.length > 0;
 
