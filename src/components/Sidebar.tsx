@@ -1,4 +1,4 @@
-import { Brain, LayoutDashboard, Plug, Terminal, Settings, LogOut, UserCircle, ShoppingCart, Users, Activity, MessageSquareWarning } from "lucide-react";
+import { Brain, LayoutDashboard, Plug, Settings, LogOut, UserCircle, ShoppingCart, Users, Activity, MessageSquareWarning } from "lucide-react";
 import { NavLink as RouterNavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -7,10 +7,6 @@ const navItems = [{
   icon: LayoutDashboard,
   label: "Dashboard",
   to: "/"
-}, {
-  icon: Terminal,
-  label: "Prompt Engine",
-  to: "/prompt"
 }, {
   icon: ShoppingCart,
   label: "Purchase Orders",
