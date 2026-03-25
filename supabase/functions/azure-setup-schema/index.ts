@@ -11,7 +11,7 @@ function getAzurePgClient(): Client {
   if (!password) throw new Error("AZURE_PG_PASSWORD not configured");
 
   return new Client({
-    hostname: "duncan-dev-postgresql.postgres.database.azure.com",
+    hostname: "kabuni-dev-cin-postgresql-01.postgres.database.azure.com",
     port: 5432,
     user: "duncan_admin_dev",
     password,
