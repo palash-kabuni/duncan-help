@@ -508,17 +508,39 @@ serve(async (req) => {
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       );
 
-      // Create Notion row
-      const notionToken = await getNotionToken(supabaseAdmin);
-      const { pageId: notionPageId, pageUrl: notionPageUrl } = await createNotionRow(
-        { ...body, submitter_email: submitterEmail },
-        docUrl,
-        notionToken,
-        formattedDate
-      );
+      // ── Priority 4: Placeholder verification ──
+      // Re-read generated XML to check for unresolved placeholders
+      const JSZipCheck = (await import("https://esm.sh/jszip@3.10.1")).default;
+      const checkZip = await JSZipCheck.loadAsync(docxBytes);
+      const checkXmlFile = checkZip.file("word/document.xml");
+      if (checkXmlFile) {
+        const checkXml = await checkXmlFile.async("string");
+        const unresolvedMatches = checkXml.match(/\{\{[^}]+\}\}/g);
+        if (unresolvedMatches) {
+          const unique = [...new Set(unresolvedMatches)];
+          console.warn(`WARNING: ${unique.length} unresolved placeholder(s) in generated NDA: ${unique.join(", ")}`);
+        }
+      }
 
-      // Update submission record
-      await supabaseAdmin
+      // ── Priority 2: Notion creation is non-critical ──
+      let notionPageId: string | null = null;
+      let notionPageUrl: string | null = null;
+      try {
+        const notionToken = await getNotionToken(supabaseAdmin);
+        const notionResult = await createNotionRow(
+          { ...body, submitter_email: submitterEmail },
+          docUrl,
+          notionToken,
+          formattedDate,
+        );
+        notionPageId = notionResult.pageId;
+        notionPageUrl = notionResult.pageUrl;
+      } catch (notionErr) {
+        console.error("Non-critical: Notion row creation failed:", notionErr instanceof Error ? notionErr.message : notionErr);
+      }
+
+      // ── Priority 3: Checked DB update ──
+      const { error: updateErr } = await supabaseAdmin
         .from("nda_submissions")
         .update({
           google_doc_id: blobPath,
@@ -530,7 +552,11 @@ serve(async (req) => {
         })
         .eq("id", submissionId);
 
-      console.log(`NDA generated successfully: blob=${blobPath}, notion=${notionPageId}`);
+      if (updateErr) {
+        console.error("DB update failed (save generated NDA):", updateErr.message);
+      }
+
+      console.log(`NDA generated successfully: blob=${blobPath}, notion=${notionPageId || "skipped"}`);
 
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const downloadUrl = `${supabaseUrl}/functions/v1/azure-blob-api?blob_path=${encodeURIComponent(blobPath)}`;
