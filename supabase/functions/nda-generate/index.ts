@@ -482,10 +482,11 @@ serve(async (req) => {
       if (insertErr) throw new Error(`Failed to create submission: ${insertErr.message}`);
       submissionId = newSub.id;
     } else {
-      await supabaseAdmin
+      const { error: retryErr } = await supabaseAdmin
         .from("nda_submissions")
         .update({ status: "generating", last_error: null })
         .eq("id", submissionId);
+      if (retryErr) console.error("DB update failed (retry set generating):", retryErr.message);
     }
 
     const formattedDate = formatDateLondon(body.date_of_agreement);
