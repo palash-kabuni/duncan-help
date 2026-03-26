@@ -7,14 +7,98 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-const GOOGLE_DRIVE_API = "https://www.googleapis.com/drive/v3";
 const NOTION_API_URL = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
+const CONTAINER_NAME = "duncanstorage01";
 
-/**
- * Create a JWT for DocuSign authentication
- */
+// ── Azure Blob helpers ──────────────────────────────────────────────
+
+function parseConnectionString(connStr: string): { accountName: string; accountKey: string } {
+  const parts: Record<string, string> = {};
+  for (const part of connStr.trim().split(";")) {
+    const [key, ...rest] = part.split("=");
+    if (!key || rest.length === 0) continue;
+    parts[key.trim()] = rest.join("=").trim();
+  }
+  if (!parts.AccountName || !parts.AccountKey) {
+    throw new Error("Invalid Azure Storage connection string");
+  }
+  return { accountName: parts.AccountName, accountKey: parts.AccountKey };
+}
+
+async function createSharedKeySignature(
+  accountName: string,
+  accountKey: string,
+  method: string,
+  path: string,
+  headers: Record<string, string>,
+  queryParams?: URLSearchParams,
+): Promise<string> {
+  const contentLength = headers["Content-Length"] || "";
+  const contentType = headers["Content-Type"] || "";
+
+  const msHeaders: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase().startsWith("x-ms-")) {
+      msHeaders[k.toLowerCase()] = v.trim();
+    }
+  }
+
+  const canonicalizedHeaders = Object.keys(msHeaders)
+    .sort()
+    .map((k) => `${k}:${msHeaders[k]}`)
+    .join("\n");
+
+  let canonicalizedResource = `/${accountName}${path}`;
+  if (queryParams) {
+    const grouped: Record<string, string[]> = {};
+    for (const [k, v] of queryParams.entries()) {
+      const key = k.toLowerCase();
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(v);
+    }
+    for (const key of Object.keys(grouped).sort()) {
+      canonicalizedResource += `\n${key}:${grouped[key].sort().join(",")}`;
+    }
+  }
+
+  const stringToSign = [
+    method, "", "", contentLength, "", contentType,
+    "", "", "", "", "", "",
+    canonicalizedHeaders, canonicalizedResource,
+  ].join("\n");
+
+  const keyBytes = Uint8Array.from(atob(accountKey), (c) => c.charCodeAt(0));
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  );
+  const sigBytes = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(stringToSign));
+  const signature = btoa(String.fromCharCode(...new Uint8Array(sigBytes)));
+  return `SharedKey ${accountName}:${signature}`;
+}
+
+async function downloadBlobBytes(connectionString: string, blobPath: string): Promise<Uint8Array> {
+  const { accountName, accountKey } = parseConnectionString(connectionString);
+  const encodedPath = `/${CONTAINER_NAME}/${blobPath}`
+    .split("/").map((s) => encodeURIComponent(s)).join("/");
+
+  const headers: Record<string, string> = {
+    "x-ms-date": new Date().toUTCString(),
+    "x-ms-version": "2023-11-03",
+  };
+  headers.Authorization = await createSharedKeySignature(
+    accountName, accountKey, "GET", encodedPath, headers,
+  );
+
+  const res = await fetch(`https://${accountName}.blob.core.windows.net${encodedPath}`, {
+    method: "GET", headers,
+  });
+  if (!res.ok) throw new Error(`Azure blob download failed (${res.status}): ${await res.text()}`);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+// ── DocuSign helpers ────────────────────────────────────────────────
+
 async function getDocuSignAccessToken(): Promise<string> {
   const integrationKey = Deno.env.get("DOCUSIGN_INTEGRATION_KEY");
   const userId = Deno.env.get("DOCUSIGN_USER_ID");
@@ -27,24 +111,19 @@ async function getDocuSignAccessToken(): Promise<string> {
   const basePath = Deno.env.get("DOCUSIGN_BASE_PATH") || "https://demo.docusign.net";
   const authServer = basePath.includes("demo") ? "account-d.docusign.com" : "account.docusign.com";
 
-  // Build JWT
   const now = Math.floor(Date.now() / 1000);
   const header = { alg: "RS256", typ: "JWT" };
   const payload = {
-    iss: integrationKey,
-    sub: userId,
-    aud: authServer,
-    iat: now,
-    exp: now + 3600,
-    scope: "signature impersonation",
+    iss: integrationKey, sub: userId, aud: authServer,
+    iat: now, exp: now + 3600, scope: "signature impersonation",
   };
 
-  const encode = (obj: any) => btoa(JSON.stringify(obj)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  const encode = (obj: any) =>
+    btoa(JSON.stringify(obj)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
   const headerB64 = encode(header);
   const payloadB64 = encode(payload);
   const signingInput = `${headerB64}.${payloadB64}`;
 
-  // Import RSA private key and sign
   const pemClean = privateKeyPem
     .replace(/\\n/g, "\n")
     .replace(/-----BEGIN RSA PRIVATE KEY-----/g, "")
@@ -54,29 +133,19 @@ async function getDocuSignAccessToken(): Promise<string> {
     .replace(/\s/g, "");
 
   const binaryKey = Uint8Array.from(atob(pemClean), (c) => c.charCodeAt(0));
-
   const cryptoKey = await crypto.subtle.importKey(
-    "pkcs8",
-    binaryKey,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"]
+    "pkcs8", binaryKey,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"],
   );
 
   const signature = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    cryptoKey,
-    new TextEncoder().encode(signingInput)
+    "RSASSA-PKCS1-v1_5", cryptoKey, new TextEncoder().encode(signingInput),
   );
-
   const sigB64 = btoa(String.fromCharCode(...new Uint8Array(signature)))
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
+    .replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 
   const jwt = `${signingInput}.${sigB64}`;
 
-  // Exchange JWT for access token
   const tokenRes = await fetch(`https://${authServer}/oauth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -87,59 +156,14 @@ async function getDocuSignAccessToken(): Promise<string> {
   });
 
   if (!tokenRes.ok) {
-    const errText = await tokenRes.text();
-    throw new Error(`DocuSign token exchange failed: ${errText}`);
+    throw new Error(`DocuSign token exchange failed: ${await tokenRes.text()}`);
   }
 
-  const tokenData = await tokenRes.json();
-  return tokenData.access_token;
+  return (await tokenRes.json()).access_token;
 }
 
-/**
- * Get Drive access token
- */
-async function getDriveAccessToken(supabaseAdmin: any): Promise<string> {
-  const clientId = Deno.env.get("GOOGLE_CALENDAR_CLIENT_ID");
-  const clientSecret = Deno.env.get("GOOGLE_CALENDAR_CLIENT_SECRET");
-  if (!clientId || !clientSecret) throw new Error("Google OAuth credentials not configured");
+// ── Notion helpers ──────────────────────────────────────────────────
 
-  const { data: tokenData, error } = await supabaseAdmin
-    .from("google_drive_tokens")
-    .select("*")
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !tokenData) throw new Error("Google Drive not connected");
-
-  const tokenExpiry = new Date(tokenData.token_expiry);
-  if (tokenExpiry > new Date()) return tokenData.access_token;
-
-  const refreshResponse = await fetch(GOOGLE_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: tokenData.refresh_token,
-      grant_type: "refresh_token",
-    }),
-  });
-
-  if (!refreshResponse.ok) throw new Error("Failed to refresh Google Drive token");
-  const newTokens = await refreshResponse.json();
-  const newExpiry = new Date(Date.now() + newTokens.expires_in * 1000);
-
-  await supabaseAdmin
-    .from("google_drive_tokens")
-    .update({ access_token: newTokens.access_token, token_expiry: newExpiry.toISOString() })
-    .eq("id", tokenData.id);
-
-  return newTokens.access_token;
-}
-
-/**
- * Get Notion token
- */
 async function getNotionToken(supabaseAdmin: any): Promise<string> {
   const { data: integration } = await supabaseAdmin
     .from("company_integrations")
@@ -153,10 +177,9 @@ async function getNotionToken(supabaseAdmin: any): Promise<string> {
   return atob(integration.encrypted_api_key);
 }
 
-/**
- * Update a Notion page's properties
- */
-async function updateNotionPage(pageId: string, properties: Record<string, any>, notionToken: string): Promise<void> {
+async function updateNotionPage(
+  pageId: string, properties: Record<string, any>, notionToken: string,
+): Promise<void> {
   const res = await fetch(`${NOTION_API_URL}/pages/${pageId}`, {
     method: "PATCH",
     headers: {
@@ -166,12 +189,35 @@ async function updateNotionPage(pageId: string, properties: Record<string, any>,
     },
     body: JSON.stringify({ properties }),
   });
-
   if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Failed to update Notion page: ${errText}`);
+    throw new Error(`Failed to update Notion page: ${await res.text()}`);
   }
 }
+
+// ── Checked DB update helper ────────────────────────────────────────
+
+async function checkedUpdate(
+  supabaseAdmin: any,
+  table: string,
+  values: Record<string, any>,
+  matchCol: string,
+  matchVal: string,
+  context: string,
+): Promise<void> {
+  const { error, count } = await supabaseAdmin
+    .from(table)
+    .update(values)
+    .eq(matchCol, matchVal)
+    .select("id", { count: "exact", head: true });
+
+  if (error) {
+    console.error(`DB update failed (${context}):`, error.message);
+  } else if (count === 0) {
+    console.warn(`DB update matched 0 rows (${context}) for ${matchCol}=${matchVal}`);
+  }
+}
+
+// ── Main handler ────────────────────────────────────────────────────
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -244,47 +290,45 @@ serve(async (req) => {
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    if (!submission.google_doc_id) {
+    // google_doc_id now stores the Azure blob path
+    const blobPath = submission.google_doc_id;
+    if (!blobPath) {
       return new Response(JSON.stringify({ error: "NDA document not generated yet" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     // Update status
-    await supabaseAdmin
-      .from("nda_submissions")
-      .update({ status: "sending_signature", last_error: null })
-      .eq("id", submission_id);
+    await checkedUpdate(supabaseAdmin, "nda_submissions",
+      { status: "sending_signature", last_error: null },
+      "id", submission_id, "set sending_signature");
 
     try {
-      // Step 1: Export doc as PDF
-      const driveToken = await getDriveAccessToken(supabaseAdmin);
-      const pdfRes = await fetch(
-        `${GOOGLE_DRIVE_API}/files/${submission.google_doc_id}/export?mimeType=application/pdf`,
-        { headers: { Authorization: `Bearer ${driveToken}` } }
-      );
-      if (!pdfRes.ok) throw new Error(`PDF export failed: ${await pdfRes.text()}`);
+      // Step 1: Download .docx from Azure Blob Storage
+      const connectionString = Deno.env.get("AZURE_STORAGE_CONNECTION_STRING");
+      if (!connectionString) throw new Error("Azure Storage not configured");
 
-      const pdfBuffer = await pdfRes.arrayBuffer();
-      const pdfBytes = new Uint8Array(pdfBuffer);
+      const docxBytes = await downloadBlobBytes(connectionString, blobPath);
+      console.log(`Downloaded .docx from Azure: ${docxBytes.length} bytes`);
+
+      // Encode .docx as base64 for DocuSign (DocuSign accepts .docx natively)
       let binary = "";
-      for (let i = 0; i < pdfBytes.length; i++) {
-        binary += String.fromCharCode(pdfBytes[i]);
+      for (let i = 0; i < docxBytes.length; i++) {
+        binary += String.fromCharCode(docxBytes[i]);
       }
-      const pdfBase64 = btoa(binary);
+      const docBase64 = btoa(binary);
 
       // Dry run mode
       if (dry_run) {
-        await supabaseAdmin
-          .from("nda_submissions")
-          .update({ status: "generated", last_error: "Dry run — envelope not sent" })
-          .eq("id", submission_id);
+        await checkedUpdate(supabaseAdmin, "nda_submissions",
+          { status: "generated", last_error: "Dry run — envelope not sent" },
+          "id", submission_id, "dry run reset");
 
         return new Response(JSON.stringify({
           success: true,
           dry_run: true,
-          message: `Dry run complete. PDF exported (${pdfBytes.length} bytes). Would send to: signer1=${submission.internal_signer_email || "palash@kabuni.com"}, signer2=${submission.recipient_email}`,
-          pdf_size_bytes: pdfBytes.length,
+          message: `Dry run complete. Document downloaded (${docxBytes.length} bytes). Would send to: signer1=${submission.internal_signer_email || "palash@kabuni.com"}, signer2=${submission.recipient_email}`,
+          doc_size_bytes: docxBytes.length,
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
@@ -321,14 +365,15 @@ serve(async (req) => {
         },
       };
 
-      // Step 3: Create envelope
+      // Step 3: Create envelope — send .docx directly (DocuSign converts to PDF internally)
+      const docFileName = blobPath.split("/").pop() || "NDA.docx";
       const envelopeBody = {
         emailSubject: `NDA - ${submission.receiving_party_name} — Please sign`,
         documents: [
           {
-            documentBase64: pdfBase64,
-            name: `NDA - ${submission.receiving_party_name}.pdf`,
-            fileExtension: "pdf",
+            documentBase64: docBase64,
+            name: docFileName,
+            fileExtension: "docx",
             documentId: "1",
           },
         ],
@@ -347,7 +392,7 @@ serve(async (req) => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(envelopeBody),
-        }
+        },
       );
 
       if (!envelopeRes.ok) {
@@ -360,16 +405,13 @@ serve(async (req) => {
       console.log(`DocuSign envelope created: ${envelopeId}`);
 
       // Step 4: Update submission
-      await supabaseAdmin
-        .from("nda_submissions")
-        .update({
-          docusign_envelope_id: envelopeId,
-          status: "sent",
-          last_error: null,
-        })
-        .eq("id", submission_id);
+      await checkedUpdate(supabaseAdmin, "nda_submissions", {
+        docusign_envelope_id: envelopeId,
+        status: "sent",
+        last_error: null,
+      }, "id", submission_id, "save envelope_id");
 
-      // Step 5: Update Notion
+      // Step 5: Update Notion (non-critical)
       if (submission.notion_page_id) {
         try {
           const notionToken = await getNotionToken(supabaseAdmin);
@@ -392,13 +434,10 @@ serve(async (req) => {
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     } catch (sendError) {
-      await supabaseAdmin
-        .from("nda_submissions")
-        .update({
-          status: "failed",
-          last_error: sendError instanceof Error ? sendError.message : "Unknown error",
-        })
-        .eq("id", submission_id);
+      await checkedUpdate(supabaseAdmin, "nda_submissions", {
+        status: "failed",
+        last_error: sendError instanceof Error ? sendError.message : "Unknown error",
+      }, "id", submission_id, "mark failed");
 
       throw sendError;
     }
@@ -406,7 +445,7 @@ serve(async (req) => {
     console.error("nda-send-signature error:", e);
     return new Response(
       JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });
