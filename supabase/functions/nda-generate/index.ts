@@ -600,13 +600,14 @@ serve(async (req) => {
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     } catch (genError) {
-      await supabaseAdmin
+      const { error: failErr } = await supabaseAdmin
         .from("nda_submissions")
         .update({
           status: "failed",
           last_error: genError instanceof Error ? genError.message : "Unknown error",
         })
         .eq("id", submissionId);
+      if (failErr) console.error("DB update failed (mark NDA failed):", failErr.message);
 
       throw genError;
     }
