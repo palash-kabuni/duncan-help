@@ -1,51 +1,25 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 const KABUNI_VALUES = [
-  {
-    key: "sweat_the_detail",
-    name: "Sweat the Detail",
-    description: "Care deeply about the small things. Precision, quality, and reliability are non-negotiable.",
-  },
-  {
-    key: "integrity_always",
-    name: "Integrity Always",
-    description: "Act with honesty, consistency, and accountability. No ego. No shortcuts.",
-  },
-  {
-    key: "behaviour_over_attention",
-    name: "Behaviour Over Attention",
-    description: "Optimise for real-world impact, not clicks or noise. If it doesn't change behaviour, it doesn't matter.",
-  },
-  {
-    key: "progress_is_collective",
-    name: "Progress Is Collective",
-    description: "Lift each other, celebrate progress, and design systems that help individuals, families, and communities move forward together.",
-  },
-  {
-    key: "health_family_happiness",
-    name: "Health, Family and Happiness",
-    description: "Protect wellbeing, support family first, and build in ways that allow people to live healthy, balanced lives.",
-  },
-  {
-    key: "build_for_long_term",
-    name: "Build for the Long Term",
-    description: "Build with purpose, patience, and ambition. Creating infrastructure, not features. A movement designed to last.",
-  },
+  { key: "sweat_the_detail", name: "Sweat the Detail", description: "Care deeply about the small things. Precision, quality, and reliability are non-negotiable." },
+  { key: "integrity_always", name: "Integrity Always", description: "Act with honesty, consistency, and accountability. No ego. No shortcuts." },
+  { key: "behaviour_over_attention", name: "Behaviour Over Attention", description: "Optimise for real-world impact, not clicks or noise. If it doesn't change behaviour, it doesn't matter." },
+  { key: "progress_is_collective", name: "Progress Is Collective", description: "Lift each other, celebrate progress, and design systems that help individuals, families, and communities move forward together." },
+  { key: "health_family_happiness", name: "Health, Family and Happiness", description: "Protect wellbeing, support family first, and build in ways that allow people to live healthy, balanced lives." },
+  { key: "build_for_long_term", name: "Build for the Long Term", description: "Build with purpose, patience, and ambition. Creating infrastructure, not features. A movement designed to last." },
 ];
 
 function uint8ToBase64(bytes: Uint8Array): string {
   const CHUNK = 8192;
   let result = "";
   for (let i = 0; i < bytes.length; i += CHUNK) {
-    const chunk = bytes.subarray(i, i + CHUNK);
-    result += String.fromCharCode(...chunk);
+    result += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
   }
   return btoa(result);
 }
@@ -56,6 +30,13 @@ function getMimeType(filename: string): string {
   if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   if (lower.endsWith(".doc")) return "application/msword";
   return "application/octet-stream";
+}
+
+// P8: Clamp score to valid range
+function clampScore(score: number): number {
+  const n = Number(score);
+  if (isNaN(n)) return 1;
+  return Math.max(1, Math.min(5, Math.round(n)));
 }
 
 async function getCvContent(supabaseAdmin: any, storagePath: string): Promise<{ messages: any[] } | null> {
@@ -72,17 +53,8 @@ async function getCvContent(supabaseAdmin: any, storagePath: string): Promise<{ 
       {
         role: "user",
         content: [
-          {
-            type: "file",
-            file: {
-              filename,
-              file_data: `data:${mimeType};base64,${base64}`,
-            },
-          },
-          {
-            type: "text",
-            text: "Score this candidate's CV against the Kabuni company values described in the system prompt.",
-          },
+          { type: "file", file: { filename, file_data: `data:${mimeType};base64,${base64}` } },
+          { type: "text", text: "Score this candidate's CV against the Kabuni company values described in the system prompt." },
         ],
       },
     ],
@@ -103,7 +75,6 @@ serve(async (req) => {
       });
     }
 
-    // Auth check
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -113,19 +84,35 @@ serve(async (req) => {
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get request body - optionally filter by candidate_id
     const body = await req.json().catch(() => ({}));
     const candidateId = body.candidate_id;
+    const roleId = body.role_id;
 
-    // Fetch candidates to score
-    let query = supabaseAdmin.from("candidates").select("*").not("cv_storage_path", "is", null);
+    // P7: Only score candidates that need scoring
+    let query = supabaseAdmin
+      .from("candidates")
+      .select("*")
+      .not("cv_storage_path", "is", null)
+      .not("job_role_id", "is", null); // Must have a valid role
+
     if (candidateId) {
       query = query.eq("id", candidateId);
+    } else {
+      // P7: Skip already values-scored candidates unless explicitly targeting one
+      query = query.is("values_score", null);
     }
+
+    if (roleId) {
+      query = query.eq("job_role_id", roleId);
+    }
+
+    // P7: Exclude unmatched and parse_failed candidates
+    query = query.not("status", "in", '("unmatched","parse_failed")');
+
     const { data: candidates, error: fetchError } = await query;
 
     if (fetchError || !candidates || candidates.length === 0) {
-      return new Response(JSON.stringify({ error: "No candidates with CVs found" }), {
+      return new Response(JSON.stringify({ error: "No eligible candidates to score" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -141,10 +128,7 @@ For EACH value, score the candidate from 1-5 based on evidence in their CV:
 4 = Good evidence demonstrated
 5 = Exceptional, clear and strong evidence
 
-Be CRITICAL and evidence-based. Do not give high scores without clear justification from the CV content. Look for:
-- Specific examples, achievements, or responsibilities that demonstrate each value
-- Language and emphasis that suggests alignment
-- Career choices and patterns that reflect the value
+Be CRITICAL and evidence-based. Do not give high scores without clear justification from the CV content.
 
 The 6 Kabuni Core Values:
 ${valuesDescription}
@@ -158,63 +142,21 @@ You MUST call the score_values function with your assessment.`;
         description: "Submit the values-based scoring for a candidate",
         parameters: {
           type: "object",
-          properties: {
-            sweat_the_detail: {
-              type: "object",
-              properties: {
-                score: { type: "number", minimum: 1, maximum: 5 },
-                justification: { type: "string", description: "Brief evidence-based justification (1-2 sentences)" },
+          properties: Object.fromEntries(
+            KABUNI_VALUES.map((v) => [
+              v.key,
+              {
+                type: "object",
+                properties: {
+                  score: { type: "number", minimum: 1, maximum: 5 },
+                  justification: { type: "string", description: "Brief evidence-based justification (1-2 sentences)" },
+                },
+                required: ["score", "justification"],
+                additionalProperties: false,
               },
-              required: ["score", "justification"],
-              additionalProperties: false,
-            },
-            integrity_always: {
-              type: "object",
-              properties: {
-                score: { type: "number", minimum: 1, maximum: 5 },
-                justification: { type: "string" },
-              },
-              required: ["score", "justification"],
-              additionalProperties: false,
-            },
-            behaviour_over_attention: {
-              type: "object",
-              properties: {
-                score: { type: "number", minimum: 1, maximum: 5 },
-                justification: { type: "string" },
-              },
-              required: ["score", "justification"],
-              additionalProperties: false,
-            },
-            progress_is_collective: {
-              type: "object",
-              properties: {
-                score: { type: "number", minimum: 1, maximum: 5 },
-                justification: { type: "string" },
-              },
-              required: ["score", "justification"],
-              additionalProperties: false,
-            },
-            health_family_happiness: {
-              type: "object",
-              properties: {
-                score: { type: "number", minimum: 1, maximum: 5 },
-                justification: { type: "string" },
-              },
-              required: ["score", "justification"],
-              additionalProperties: false,
-            },
-            build_for_long_term: {
-              type: "object",
-              properties: {
-                score: { type: "number", minimum: 1, maximum: 5 },
-                justification: { type: "string" },
-              },
-              required: ["score", "justification"],
-              additionalProperties: false,
-            },
-          },
-          required: ["sweat_the_detail", "integrity_always", "behaviour_over_attention", "progress_is_collective", "health_family_happiness", "build_for_long_term"],
+            ])
+          ),
+          required: KABUNI_VALUES.map((v) => v.key),
           additionalProperties: false,
         },
       },
@@ -250,7 +192,6 @@ You MUST call the score_values function with your assessment.`;
           const errText = await aiResponse.text();
           console.error(`AI error for ${candidate.id}:`, aiResponse.status, errText);
           if (aiResponse.status === 429) {
-            // Rate limited — stop processing more
             return new Response(JSON.stringify({ error: "Rate limited. Try again shortly.", scored, failed }), {
               status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
@@ -274,21 +215,49 @@ You MUST call the score_values function with your assessment.`;
 
         const scores = JSON.parse(toolCall.function.arguments);
 
-        // Calculate overall values score (average of 6 values, out of 5)
-        const allScores = KABUNI_VALUES.map((v) => scores[v.key]?.score ?? 0);
+        // P8: Clamp all scores to valid range 1-5
+        for (const v of KABUNI_VALUES) {
+          if (scores[v.key]?.score !== undefined) {
+            scores[v.key].score = clampScore(scores[v.key].score);
+          }
+        }
+
+        // Calculate values score average
+        const allScores = KABUNI_VALUES.map((v) => scores[v.key]?.score ?? 0).filter((s) => s > 0);
+        if (allScores.length === 0) {
+          console.error(`All scores were 0 for candidate ${candidate.id}`);
+          failed++;
+          continue;
+        }
         const valuesAvg = allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length;
-        const valuesScore = Math.round(valuesAvg * 10) / 10; // 1 decimal
+        const valuesScore = Math.round(valuesAvg * 10) / 10;
 
         // Merge with existing scoring_details
         const existingDetails = (candidate.scoring_details as any) || {};
         const newDetails = { ...existingDetails, values: scores };
 
+        // P3: Only calculate total_score if BOTH scores exist
+        const competencyScore = candidate.competency_score;
+        let totalScore: number | null = null;
+        if (competencyScore != null && valuesScore != null) {
+          totalScore = Math.round(((valuesScore + competencyScore) / 2) * 10) / 10;
+        }
+
+        // P4: Determine correct status
+        let newStatus: string;
+        if (competencyScore != null) {
+          newStatus = "fully_scored";
+        } else {
+          newStatus = "values_scored";
+        }
+
         const { error: updateError } = await supabaseAdmin
           .from("candidates")
           .update({
             values_score: valuesScore,
+            total_score: totalScore,
             scoring_details: newDetails,
-            status: candidate.competency_score ? "scored" : "values_scored",
+            status: newStatus,
           })
           .eq("id", candidate.id);
 
@@ -298,7 +267,7 @@ You MUST call the score_values function with your assessment.`;
           continue;
         }
 
-        results.push({ id: candidate.id, name: candidate.name, values_score: valuesScore });
+        results.push({ id: candidate.id, name: candidate.name, values_score: valuesScore, status: newStatus });
         scored++;
       } catch (err) {
         console.error(`Error scoring candidate ${candidate.id}:`, err);
