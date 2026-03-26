@@ -498,11 +498,35 @@ serve(async (req) => {
       // Generate .docx from template
       const docxBytes = await generateDocxFromTemplate(connectionString, body, formattedDate);
 
-      // Upload NDA to Azure Blob Storage as .docx
+      // ── Priority 5: Clean up existing blob on retry ──
       const sanitizedName = body.receiving_party_name.replace(/[^a-zA-Z0-9_\- ]/g, "_");
       const dateStr = body.date_of_agreement.replace(/-/g, "_");
       const blobPath = `ndas/${sanitizedName}/NDA_${dateStr}.docx`;
 
+      try {
+        const { accountName, accountKey } = parseConnectionString(connectionString);
+        const encodedDeletePath = `/${CONTAINER_NAME}/${blobPath}`
+          .split("/").map((s) => encodeURIComponent(s)).join("/");
+        const delHeaders: Record<string, string> = {
+          "x-ms-date": new Date().toUTCString(),
+          "x-ms-version": "2023-11-03",
+        };
+        delHeaders.Authorization = await createSharedKeySignature(
+          accountName, accountKey, "DELETE", encodedDeletePath, delHeaders,
+        );
+        const delRes = await fetch(`https://${accountName}.blob.core.windows.net${encodedDeletePath}`, {
+          method: "DELETE", headers: delHeaders,
+        });
+        if (delRes.ok || delRes.status === 404) {
+          console.log(`Retry cleanup: previous blob ${delRes.ok ? "deleted" : "not found"}`);
+        } else {
+          console.warn(`Retry cleanup: delete returned ${delRes.status}`);
+        }
+      } catch (cleanupErr) {
+        console.warn("Non-critical: blob cleanup failed:", cleanupErr);
+      }
+
+      // Upload NDA to Azure Blob Storage as .docx
       const docUrl = await uploadBlobBytes(
         connectionString,
         blobPath,
