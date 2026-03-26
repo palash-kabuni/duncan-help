@@ -1127,8 +1127,8 @@ async function executeNdaTool(
       const ndaErrors: string[] = [];
 
       const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      const PURELY_NUMERIC_RE = /^\d+$/;
-      const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+      const HAS_ALPHA_RE = /[a-zA-Z\u00C0-\u024F\u0400-\u04FF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]/;
+      const MEANINGLESS_RE = /^[\d\s\W]+$/;
 
       // Required field presence
       const requiredFields: { key: string; label: string }[] = [
@@ -1172,8 +1172,8 @@ async function executeNdaTool(
       for (const f of nameFields) {
         const val = args[f.key];
         if (val && typeof val === "string" && val.trim().length > 0) {
-          if (PURELY_NUMERIC_RE.test(val.trim())) {
-            ndaErrors.push(`${f.label} cannot be purely numeric.`);
+          if (!HAS_ALPHA_RE.test(val.trim())) {
+            ndaErrors.push(`${f.label} must contain alphabetic characters.`);
           }
         }
       }
@@ -1192,10 +1192,43 @@ async function executeNdaTool(
         }
       }
 
-      // Date format validation
+      // Address must not be purely numeric or meaningless
+      if (args.registered_address && typeof args.registered_address === "string") {
+        const addr = args.registered_address.trim();
+        if (addr.length > 0 && MEANINGLESS_RE.test(addr)) {
+          ndaErrors.push("Registered Address must contain meaningful text, not just numbers or symbols.");
+        }
+      }
+
+      // Flexible date normalization and validation
       if (args.date_of_agreement && typeof args.date_of_agreement === "string") {
-        if (!DATE_RE.test(args.date_of_agreement.trim())) {
-          ndaErrors.push("Date of Agreement must be in YYYY-MM-DD format.");
+        const raw = args.date_of_agreement.trim();
+        // Try to parse flexibly: YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, "January 1, 2025", etc.
+        let parsed: Date | null = null;
+
+        // Try ISO format first
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+          parsed = new Date(raw + "T00:00:00Z");
+        }
+        // DD/MM/YYYY or DD-MM-YYYY
+        else if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}$/.test(raw)) {
+          const parts = raw.split(/[\/\-]/);
+          parsed = new Date(`${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}T00:00:00Z`);
+        }
+        // Natural language date (e.g. "January 1, 2025")
+        else {
+          const attempt = new Date(raw);
+          if (!isNaN(attempt.getTime())) parsed = attempt;
+        }
+
+        if (!parsed || isNaN(parsed.getTime())) {
+          ndaErrors.push("Date of Agreement could not be understood. Please use YYYY-MM-DD or a clear date format.");
+        } else {
+          // Normalize to YYYY-MM-DD for downstream
+          const y = parsed.getUTCFullYear();
+          const m = String(parsed.getUTCMonth() + 1).padStart(2, "0");
+          const d = String(parsed.getUTCDate()).padStart(2, "0");
+          args.date_of_agreement = `${y}-${m}-${d}`;
         }
       }
 
