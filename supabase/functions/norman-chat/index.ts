@@ -1123,6 +1123,87 @@ async function executeNdaTool(
 
   switch (toolName) {
     case "generate_nda": {
+      // --- Pre-validation before calling nda-generate ---
+      const ndaErrors: string[] = [];
+
+      const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const PURELY_NUMERIC_RE = /^\d+$/;
+      const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+      // Required field presence
+      const requiredFields: { key: string; label: string }[] = [
+        { key: "receiving_party_name", label: "Receiving Party Name" },
+        { key: "receiving_party_entity", label: "Receiving Party Entity" },
+        { key: "date_of_agreement", label: "Date of Agreement" },
+        { key: "registered_address", label: "Registered Address" },
+        { key: "purpose", label: "Purpose" },
+        { key: "recipient_name", label: "Recipient Name" },
+        { key: "recipient_email", label: "Recipient Email" },
+      ];
+
+      for (const f of requiredFields) {
+        const val = args[f.key];
+        if (!val || (typeof val === "string" && val.trim().length === 0)) {
+          ndaErrors.push(`${f.label} is required.`);
+        }
+      }
+
+      // Email format validation (all email fields)
+      const emailFields = [
+        { key: "recipient_email", label: "Recipient Email" },
+        { key: "internal_signer_email", label: "Internal Signer Email" },
+      ];
+      for (const f of emailFields) {
+        const val = args[f.key];
+        if (val && typeof val === "string" && val.trim().length > 0) {
+          if (!EMAIL_RE.test(val.trim())) {
+            ndaErrors.push(`${f.label} is not a valid email address.`);
+          }
+        }
+      }
+
+      // Name fields: must not be purely numeric
+      const nameFields = [
+        { key: "receiving_party_name", label: "Receiving Party Name" },
+        { key: "receiving_party_entity", label: "Receiving Party Entity" },
+        { key: "recipient_name", label: "Recipient Name" },
+        { key: "internal_signer_name", label: "Internal Signer Name" },
+      ];
+      for (const f of nameFields) {
+        const val = args[f.key];
+        if (val && typeof val === "string" && val.trim().length > 0) {
+          if (PURELY_NUMERIC_RE.test(val.trim())) {
+            ndaErrors.push(`${f.label} cannot be purely numeric.`);
+          }
+        }
+      }
+
+      // Minimum length on key text fields
+      const minLengthFields = [
+        { key: "purpose", label: "Purpose", min: 5 },
+        { key: "registered_address", label: "Registered Address", min: 10 },
+        { key: "receiving_party_name", label: "Receiving Party Name", min: 2 },
+        { key: "recipient_name", label: "Recipient Name", min: 2 },
+      ];
+      for (const f of minLengthFields) {
+        const val = args[f.key];
+        if (val && typeof val === "string" && val.trim().length > 0 && val.trim().length < f.min) {
+          ndaErrors.push(`${f.label} is too short (minimum ${f.min} characters).`);
+        }
+      }
+
+      // Date format validation
+      if (args.date_of_agreement && typeof args.date_of_agreement === "string") {
+        if (!DATE_RE.test(args.date_of_agreement.trim())) {
+          ndaErrors.push("Date of Agreement must be in YYYY-MM-DD format.");
+        }
+      }
+
+      if (ndaErrors.length > 0) {
+        throw new Error(`NDA validation failed:\n- ${ndaErrors.join("\n- ")}`);
+      }
+
+      // --- Validation passed, proceed ---
       const res = await fetch(`${supabaseUrl}/functions/v1/nda-generate`, {
         method: "POST",
         headers: {
