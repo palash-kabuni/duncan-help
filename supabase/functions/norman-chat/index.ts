@@ -1127,8 +1127,8 @@ async function executeNdaTool(
       const ndaErrors: string[] = [];
 
       const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      const PURELY_NUMERIC_RE = /^\d+$/;
-      const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+      const HAS_ALPHA_RE = /[a-zA-Z\u00C0-\u024F\u0400-\u04FF\u4E00-\u9FFF\u3040-\u309F\u30A0-\u30FF]/;
+      const MEANINGLESS_RE = /^[\d\s\W]+$/;
 
       // Required field presence
       const requiredFields: { key: string; label: string }[] = [
