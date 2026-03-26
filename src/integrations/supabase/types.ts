@@ -192,6 +192,7 @@ export type Database = {
           cv_text: string | null
           email: string | null
           email_subject: string | null
+          failure_reason: string | null
           gmail_message_id: string | null
           hireflix_interview_id: string | null
           hireflix_interview_url: string | null
@@ -217,6 +218,7 @@ export type Database = {
           cv_text?: string | null
           email?: string | null
           email_subject?: string | null
+          failure_reason?: string | null
           gmail_message_id?: string | null
           hireflix_interview_id?: string | null
           hireflix_interview_url?: string | null
@@ -242,6 +244,7 @@ export type Database = {
           cv_text?: string | null
           email?: string | null
           email_subject?: string | null
+          failure_reason?: string | null
           gmail_message_id?: string | null
           hireflix_interview_id?: string | null
           hireflix_interview_url?: string | null

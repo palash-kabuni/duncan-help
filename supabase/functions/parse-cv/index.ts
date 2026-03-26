@@ -24,12 +24,10 @@ function getMimeType(filename: string): string {
   return "application/octet-stream";
 }
 
-// P8: Validate email format
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254;
 }
 
-// P8: Validate name is reasonable
 function isValidName(name: string): boolean {
   return name.length >= 2 && name.length <= 200 && !/^\d+$/.test(name);
 }
@@ -69,11 +67,11 @@ serve(async (req) => {
 
     if (downloadError || !fileData) {
       console.error("Download error:", downloadError);
-      // P6: Update candidate status to reflect failure
-      await supabaseAdmin
+      const { error: updErr } = await supabaseAdmin
         .from("candidates")
-        .update({ status: "parse_failed" })
+        .update({ status: "parse_failed", failure_reason: `CV download failed: ${downloadError?.message || "no file data"}` })
         .eq("id", candidate_id);
+      if (updErr) console.error("Failed to update parse_failed:", updErr);
       return new Response(
         JSON.stringify({ error: "Failed to download CV file" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -150,6 +148,13 @@ Always return the result by calling the extract_candidate_info function.`,
       const errText = await aiResponse.text();
       console.error("AI gateway error:", aiResponse.status, errText);
 
+      const failureReason = `AI parse failed: HTTP ${aiResponse.status}`;
+      const { error: updErr } = await supabaseAdmin
+        .from("candidates")
+        .update({ status: "parse_failed", failure_reason: failureReason })
+        .eq("id", candidate_id);
+      if (updErr) console.error("Failed to update parse_failed:", updErr);
+
       if (aiResponse.status === 429) {
         return new Response(
           JSON.stringify({ error: "Rate limit exceeded, please try again later." }),
@@ -186,7 +191,7 @@ Always return the result by calling the extract_candidate_info function.`,
       }
     }
 
-    // P8: Validate parsed values before storing
+    // Validate parsed values
     if (parsedName && !isValidName(parsedName)) {
       console.warn(`Invalid parsed name rejected: "${parsedName}"`);
       parsedName = null;
@@ -198,23 +203,22 @@ Always return the result by calling the extract_candidate_info function.`,
     }
 
     if (!parsedName) {
-      // P6: Mark as parse_failed instead of silently succeeding
-      await supabaseAdmin
+      const { error: updErr } = await supabaseAdmin
         .from("candidates")
-        .update({ status: "parse_failed" })
+        .update({ status: "parse_failed", failure_reason: "Could not extract candidate name from CV" })
         .eq("id", candidate_id);
+      if (updErr) console.error("Failed to update parse_failed:", updErr);
       return new Response(
         JSON.stringify({ error: "Could not extract candidate name from CV", candidate_id }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // P4: Update status to "parsed" after successful parse
     const updateData: Record<string, any> = {
       name: parsedName,
       status: "parsed",
+      failure_reason: null, // Clear any previous failure
     };
-    // P2: Only set email if valid, otherwise leave null
     if (parsedEmail) {
       updateData.email = parsedEmail;
     }
@@ -241,7 +245,7 @@ Always return the result by calling the extract_candidate_info function.`,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error("Parse CV error:", error);
     return new Response(
       JSON.stringify({ error: error.message || "Failed to parse CV" }),
