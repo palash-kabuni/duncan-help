@@ -445,7 +445,8 @@ serve(async (req) => {
         .eq("id", submissionId)
         .single();
 
-      if (existing && existing.google_doc_id && existing.notion_page_id) {
+      // Consider generated if doc exists (Notion may have been skipped)
+      if (existing && existing.google_doc_id && existing.status === "generated") {
         return new Response(JSON.stringify({
           success: true,
           submission_id: existing.id,
