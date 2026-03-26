@@ -24,6 +24,13 @@ function getMimeType(filename: string): string {
   return "application/octet-stream";
 }
 
+// P8: Clamp score to valid range
+function clampScore(score: number): number {
+  const n = Number(score);
+  if (isNaN(n)) return 1;
+  return Math.max(1, Math.min(5, Math.round(n)));
+}
+
 function decodeXmlEntities(value: string): string {
   return value
     .replace(/&amp;/g, "&")
@@ -84,17 +91,8 @@ async function getCvContent(supabaseAdmin: any, storagePath: string): Promise<an
     {
       role: "user",
       content: [
-        {
-          type: "file",
-          file: {
-            filename,
-            file_data: `data:${mimeType};base64,${base64}`,
-          },
-        },
-        {
-          type: "text",
-          text: "Score this candidate's CV against the competencies listed in the system prompt.",
-        },
+        { type: "file", file: { filename, file_data: `data:${mimeType};base64,${base64}` } },
+        { type: "text", text: "Score this candidate's CV against the competencies listed in the system prompt." },
       ],
     },
   ];
@@ -127,6 +125,7 @@ serve(async (req) => {
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
+    // P7: Only score candidates that need competency scoring
     let query = supabaseAdmin
       .from("candidates")
       .select("*")
@@ -135,16 +134,22 @@ serve(async (req) => {
 
     if (candidateId) {
       query = query.eq("id", candidateId);
+    } else {
+      // P7: Skip already competency-scored candidates unless explicitly targeting one
+      query = query.is("competency_score", null);
     }
 
     if (roleId) {
       query = query.eq("job_role_id", roleId);
     }
 
+    // P7: Exclude unmatched and parse_failed candidates
+    query = query.not("status", "in", '("unmatched","parse_failed")');
+
     const { data: candidates, error: fetchError } = await query;
 
     if (fetchError || !candidates || candidates.length === 0) {
-      return new Response(JSON.stringify({ error: "No matched candidates with CVs found" }), {
+      return new Response(JSON.stringify({ error: "No eligible candidates to score" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -267,18 +272,40 @@ Call score_competencies with your assessment. Use keys competency_0, competency_
           continue;
         }
 
+        // P8: Clamp scores and build competency map
         const competencyScores: any = {};
         competencies.forEach((comp: any, i: number) => {
           const key = `competency_${i}`;
-          competencyScores[comp.name] = rawScores[key] || { score: 0, justification: "Not scored" };
+          const raw = rawScores[key] || { score: 0, justification: "Not scored" };
+          competencyScores[comp.name] = {
+            score: clampScore(raw.score),
+            justification: raw.justification || "Not scored",
+          };
         });
 
-        const allScores = Object.values(competencyScores).map((v: any) => Number(v.score) || 0);
+        const allScores = Object.values(competencyScores).map((v: any) => Number(v.score) || 0).filter((s) => s > 0);
+        if (allScores.length === 0) {
+          console.error(`All competency scores were 0 for candidate ${candidate.id}`);
+          failed++;
+          continue;
+        }
         const avg = allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length;
         const competencyScore = Math.round(avg * 10) / 10;
 
-        const valuesScore = candidate.values_score || 0;
-        const totalScore = Math.round(((valuesScore + competencyScore) / 2) * 10) / 10;
+        // P3: Only calculate total_score if BOTH scores exist
+        const valuesScore = candidate.values_score;
+        let totalScore: number | null = null;
+        if (valuesScore != null && competencyScore != null) {
+          totalScore = Math.round(((valuesScore + competencyScore) / 2) * 10) / 10;
+        }
+
+        // P4: Determine correct status
+        let newStatus: string;
+        if (valuesScore != null) {
+          newStatus = "fully_scored";
+        } else {
+          newStatus = "competency_scored";
+        }
 
         const existingDetails = (candidate.scoring_details as any) || {};
         const newDetails = { ...existingDetails, competencies: competencyScores };
@@ -289,7 +316,7 @@ Call score_competencies with your assessment. Use keys competency_0, competency_
             competency_score: competencyScore,
             total_score: totalScore,
             scoring_details: newDetails,
-            status: "scored",
+            status: newStatus,
           })
           .eq("id", candidate.id);
 
@@ -299,7 +326,7 @@ Call score_competencies with your assessment. Use keys competency_0, competency_
           continue;
         }
 
-        results.push({ id: candidate.id, name: candidate.name, competency_score: competencyScore, total_score: totalScore });
+        results.push({ id: candidate.id, name: candidate.name, competency_score: competencyScore, total_score: totalScore, status: newStatus });
         scored++;
       } catch (err) {
         console.error(`Error scoring ${candidate.id}:`, err);

@@ -70,6 +70,64 @@ const corsHeaders = {
 const GMAIL_API = "https://www.googleapis.com/gmail/v1/users/me";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
+// --- P1: Improved role matching ---
+function normalizeText(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function tokenize(text: string): string[] {
+  return normalizeText(text).split(" ").filter(Boolean);
+}
+
+function matchRoleToSubject(
+  subject: string,
+  roles: { id: string; title: string }[]
+): { roleId: string; confidence: "exact" | "high" | "low" } | null {
+  const normalizedSubject = normalizeText(subject);
+  const subjectTokens = tokenize(subject);
+
+  // Pass 1: Exact normalized match (subject contains the full normalized title)
+  const exactMatches = roles.filter((r) => normalizedSubject.includes(normalizeText(r.title)));
+
+  if (exactMatches.length === 1) {
+    return { roleId: exactMatches[0].id, confidence: "exact" };
+  }
+
+  // If multiple exact matches, pick the longest title (most specific)
+  if (exactMatches.length > 1) {
+    exactMatches.sort((a, b) => b.title.length - a.title.length);
+    return { roleId: exactMatches[0].id, confidence: "high" };
+  }
+
+  // Pass 2: Word-based matching — all words in the role title must appear in the subject
+  const wordMatches: { role: typeof roles[0]; matchedWords: number; totalWords: number }[] = [];
+  for (const role of roles) {
+    const titleTokens = tokenize(role.title);
+    if (titleTokens.length === 0) continue;
+    const matched = titleTokens.filter((t) => subjectTokens.includes(t));
+    if (matched.length === titleTokens.length) {
+      wordMatches.push({ role, matchedWords: matched.length, totalWords: titleTokens.length });
+    }
+  }
+
+  if (wordMatches.length === 1) {
+    return { roleId: wordMatches[0].role.id, confidence: "high" };
+  }
+  if (wordMatches.length > 1) {
+    // Pick the most specific (longest title)
+    wordMatches.sort((a, b) => b.totalWords - a.totalWords);
+    return { roleId: wordMatches[0].role.id, confidence: "high" };
+  }
+
+  // No confident match
+  return null;
+}
+
+// --- P2: Email validation ---
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254;
+}
+
 async function getAccessToken(supabaseAdmin: any): Promise<{ token: string; email: string } | null> {
   const clientId = Deno.env.get("GMAIL_CLIENT_ID");
   const clientSecret = Deno.env.get("GMAIL_CLIENT_SECRET");
@@ -104,13 +162,18 @@ async function getAccessToken(supabaseAdmin: any): Promise<{ token: string; emai
     const newTokens = await refreshRes.json();
     const newExpiry = new Date(Date.now() + newTokens.expires_in * 1000);
 
-    await supabaseAdmin
+    // P6: Check token update result
+    const { error: tokenUpdateError } = await supabaseAdmin
       .from("gmail_tokens")
       .update({
         access_token: newTokens.access_token,
         token_expiry: newExpiry.toISOString(),
       })
       .eq("id", tokenData.id);
+
+    if (tokenUpdateError) {
+      console.error("Failed to persist refreshed Gmail token:", tokenUpdateError);
+    }
 
     return { token: newTokens.access_token, email: tokenData.email_address || "" };
   }
@@ -119,7 +182,6 @@ async function getAccessToken(supabaseAdmin: any): Promise<{ token: string; emai
 }
 
 function candidateNameFromFilename(filename: string): string {
-  // "John_Doe_CV.pdf" → "John Doe CV", "resume-jane-smith.docx" → "resume jane smith"
   return filename
     .replace(/\.(pdf|docx?|rtf)$/i, "")
     .replace(/[_\-\.]+/g, " ")
@@ -179,7 +241,7 @@ serve(async (req) => {
       );
     }
 
-    const headers = { Authorization: `Bearer ${credentials.token}` };
+    const gmailHeaders = { Authorization: `Bearer ${credentials.token}` };
 
     // Parse optional role_id from request body
     let filterRoleId: string | null = null;
@@ -218,7 +280,7 @@ serve(async (req) => {
     searchUrl.searchParams.set("q", query);
     searchUrl.searchParams.set("maxResults", "50");
 
-    const searchRes = await fetch(searchUrl.toString(), { headers });
+    const searchRes = await fetch(searchUrl.toString(), { headers: gmailHeaders });
     if (!searchRes.ok) {
       throw new Error(`Gmail search failed: ${await searchRes.text()}`);
     }
@@ -228,11 +290,13 @@ serve(async (req) => {
 
     let ingested = 0;
     let skipped = 0;
+    let unmatched = 0;
+    let parseFailed = 0;
     const results: any[] = [];
 
     for (const msg of messages) {
       // Fetch full message
-      const msgRes = await fetch(`${GMAIL_API}/messages/${msg.id}?format=full`, { headers });
+      const msgRes = await fetch(`${GMAIL_API}/messages/${msg.id}?format=full`, { headers: gmailHeaders });
       if (!msgRes.ok) continue;
       const msgData = await msgRes.json();
 
@@ -242,21 +306,14 @@ serve(async (req) => {
       const from = msgHeaders.find((h: any) => h.name.toLowerCase() === "from")?.value || "";
       const senderEmail = extractSenderEmail(from);
 
-      // Match job role from subject line
-      let matchedRoleId: string | null = null;
-      const subjectLower = subject.toLowerCase();
-      for (const role of activeRoles) {
-        if (subjectLower.includes(role.title.toLowerCase())) {
-          matchedRoleId = role.id;
-          break;
-        }
-      }
+      // P1: Improved role matching with confidence scoring
+      const roleMatch = matchRoleToSubject(subject, activeRoles);
+      const matchedRoleId = roleMatch?.roleId || null;
 
-      // Collect ALL CV attachments from the email (not just the first one)
+      // Collect ALL CV attachments from the email
       const cvAttachments: CvAttachment[] = [];
       function isCvFile(name: string): boolean {
         const lower = name.toLowerCase();
-        // Match .pdf, .docx, .doc — including double extensions like abc.docx.pdf
         return /\.(pdf|docx?)(\.pdf)?$/i.test(lower);
       }
       function collectAttachments(parts: any[]) {
@@ -269,7 +326,6 @@ serve(async (req) => {
               mimeType: part.mimeType,
             });
           }
-          // Recurse into nested parts (multipart messages)
           if (part.parts) {
             collectAttachments(part.parts);
           }
@@ -284,25 +340,34 @@ serve(async (req) => {
 
       // Process each CV attachment as a separate candidate
       for (const cv of cvAttachments) {
-        // Dedup by gmail_message_id + original filename (storage path has timestamp prefix)
+        // P5: Improved deduplication — exact gmail_message_id + filename match
         const { data: existing } = await supabaseAdmin
           .from("candidates")
-          .select("id")
+          .select("id, status")
           .eq("gmail_message_id", msg.id)
           .like("cv_storage_path", `%_${cv.filename}`)
           .maybeSingle();
 
+        // P9: Allow reprocessing of failed candidates, skip successful ones
         if (existing) {
-          skipped++;
-          continue;
+          if (existing.status !== "parse_failed") {
+            skipped++;
+            continue;
+          }
+          // Delete failed candidate to allow re-ingestion
+          console.log(`Re-processing previously failed candidate ${existing.id}`);
+          await supabaseAdmin.from("candidates").delete().eq("id", existing.id);
         }
 
         // Download attachment
         const attachRes = await fetch(
           `${GMAIL_API}/messages/${msg.id}/attachments/${cv.attachmentId}`,
-          { headers }
+          { headers: gmailHeaders }
         );
-        if (!attachRes.ok) continue;
+        if (!attachRes.ok) {
+          console.error(`Failed to download attachment ${cv.attachmentId} from message ${msg.id}`);
+          continue;
+        }
         const attachData = await attachRes.json();
 
         // Decode base64url to binary
@@ -313,7 +378,7 @@ serve(async (req) => {
           bytes[i] = binaryStr.charCodeAt(i);
         }
 
-        // Upload to storage
+        // P6: Upload to storage with error tracking
         const storagePath = `${Date.now()}_${cv.filename}`;
         const { error: uploadError } = await supabaseAdmin.storage
           .from("cvs")
@@ -323,7 +388,16 @@ serve(async (req) => {
           });
 
         if (uploadError) {
-          console.error("Upload error:", uploadError);
+          console.error(`Storage upload failed for ${cv.filename}:`, uploadError);
+          // Track the failure as a candidate record so it can be retried
+          await supabaseAdmin.from("candidates").insert({
+            name: candidateNameFromFilename(cv.filename),
+            gmail_message_id: msg.id,
+            email_subject: subject,
+            job_role_id: matchedRoleId,
+            status: "parse_failed",
+          });
+          parseFailed++;
           continue;
         }
 
@@ -346,17 +420,22 @@ serve(async (req) => {
         // Use filename as temporary candidate name
         const candidateName = candidateNameFromFilename(cv.filename);
 
+        // P2: Do NOT set sender email as candidate email — leave null until parsed
+        // P1: Set status based on match result
+        const candidateStatus = matchedRoleId ? "pending" : "unmatched";
+        if (!matchedRoleId) unmatched++;
+
         // Insert candidate — one per CV attachment
         const { data: candidate, error: insertError } = await supabaseAdmin
           .from("candidates")
           .insert({
             name: candidateName,
-            email: senderEmail,
+            email: null, // P2: Do not use sender email; wait for CV parse
             gmail_message_id: msg.id,
             email_subject: subject,
             cv_storage_path: storagePath,
             job_role_id: matchedRoleId,
-            status: matchedRoleId ? "pending" : "unmatched",
+            status: candidateStatus,
           })
           .select()
           .single();
@@ -392,10 +471,23 @@ serve(async (req) => {
             }
             console.log(`Parsed CV for ${candidate.id}: name=${parseData.parsed_name}, email=${parseData.parsed_email}`);
           } else {
+            // P6: Track parse failure in DB
             console.warn(`CV parse returned ${parseRes.status} for candidate ${candidate.id}`);
+            const { error: parseFailUpdate } = await supabaseAdmin
+              .from("candidates")
+              .update({ status: "parse_failed" })
+              .eq("id", candidate.id);
+            if (parseFailUpdate) console.error("Failed to update parse_failed status:", parseFailUpdate);
+            parseFailed++;
           }
         } catch (parseErr) {
-          console.warn("CV parse failed (non-blocking):", parseErr);
+          console.warn("CV parse failed:", parseErr);
+          const { error: parseFailUpdate } = await supabaseAdmin
+            .from("candidates")
+            .update({ status: "parse_failed" })
+            .eq("id", candidate.id);
+          if (parseFailUpdate) console.error("Failed to update parse_failed status:", parseFailUpdate);
+          parseFailed++;
         }
 
         results.push(candidate);
@@ -408,6 +500,8 @@ serve(async (req) => {
         success: true,
         ingested,
         skipped,
+        unmatched,
+        parse_failed: parseFailed,
         total_messages: messages.length,
         candidates: results,
       }),

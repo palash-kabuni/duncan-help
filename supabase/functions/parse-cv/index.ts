@@ -18,11 +18,20 @@ function uint8ToBase64(bytes: Uint8Array): string {
 
 function getMimeType(filename: string): string {
   const lower = filename.toLowerCase();
-  // Handle double extensions like abc.docx.pdf — use the last real extension
   if (lower.endsWith(".pdf")) return "application/pdf";
   if (lower.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   if (lower.endsWith(".doc")) return "application/msword";
   return "application/octet-stream";
+}
+
+// P8: Validate email format
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254;
+}
+
+// P8: Validate name is reasonable
+function isValidName(name: string): boolean {
+  return name.length >= 2 && name.length <= 200 && !/^\d+$/.test(name);
 }
 
 serve(async (req) => {
@@ -60,6 +69,11 @@ serve(async (req) => {
 
     if (downloadError || !fileData) {
       console.error("Download error:", downloadError);
+      // P6: Update candidate status to reflect failure
+      await supabaseAdmin
+        .from("candidates")
+        .update({ status: "parse_failed" })
+        .eq("id", candidate_id);
       return new Response(
         JSON.stringify({ error: "Failed to download CV file" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -72,8 +86,6 @@ serve(async (req) => {
     const filename = storage_path.split("/").pop() || "cv.pdf";
     const mimeType = getMimeType(filename);
 
-    // Send the file directly to GPT-4.1 using the file content type
-    // This works for PDF, DOCX, DOC and other document formats
     const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -174,15 +186,38 @@ Always return the result by calling the extract_candidate_info function.`,
       }
     }
 
+    // P8: Validate parsed values before storing
+    if (parsedName && !isValidName(parsedName)) {
+      console.warn(`Invalid parsed name rejected: "${parsedName}"`);
+      parsedName = null;
+    }
+
+    if (parsedEmail && !isValidEmail(parsedEmail)) {
+      console.warn(`Invalid parsed email rejected: "${parsedEmail}"`);
+      parsedEmail = null;
+    }
+
     if (!parsedName) {
+      // P6: Mark as parse_failed instead of silently succeeding
+      await supabaseAdmin
+        .from("candidates")
+        .update({ status: "parse_failed" })
+        .eq("id", candidate_id);
       return new Response(
         JSON.stringify({ error: "Could not extract candidate name from CV", candidate_id }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const updateData: Record<string, string> = { name: parsedName };
-    if (parsedEmail) updateData.email = parsedEmail;
+    // P4: Update status to "parsed" after successful parse
+    const updateData: Record<string, any> = {
+      name: parsedName,
+      status: "parsed",
+    };
+    // P2: Only set email if valid, otherwise leave null
+    if (parsedEmail) {
+      updateData.email = parsedEmail;
+    }
 
     const { error: updateError } = await supabaseAdmin
       .from("candidates")
