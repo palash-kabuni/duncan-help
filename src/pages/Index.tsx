@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Brain, Trash2, Loader2, Download, Copy, Check,
+  Trash2, Loader2, Download, Copy, Check,
   FileText, Receipt, Users, FolderOpen,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";

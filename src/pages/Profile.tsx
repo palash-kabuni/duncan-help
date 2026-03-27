@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { User, Briefcase, Building2, Brain, Save, Loader2 } from "lucide-react";
+import { User, Briefcase, Building2, Save, Loader2 } from "lucide-react";
+import duncanAvatar from "@/assets/duncan-avatar.jpeg";
 import AppLayout from "@/components/AppLayout";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";

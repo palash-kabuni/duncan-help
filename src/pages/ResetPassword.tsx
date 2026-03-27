@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Brain, Loader2, Lock, ArrowRight, CheckCircle } from "lucide-react";
+import { Loader2, Lock, ArrowRight, CheckCircle } from "lucide-react";
+import duncanAvatar from "@/assets/duncan-avatar.jpeg";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
