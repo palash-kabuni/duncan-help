@@ -69,8 +69,8 @@ const MessageBubble = ({
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
       {msg.role === "assistant" && (
-        <div className="mr-2 sm:mr-3 mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 border border-primary/20">
-          <Brain className="h-3.5 w-3.5 text-primary" />
+        <div className="mr-2 sm:mr-3 mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg overflow-hidden border border-primary/20">
+          <img src={duncanAvatar} alt="Duncan" className="h-full w-full object-cover object-[50%_30%] scale-150" />
         </div>
       )}
       <div className={`max-w-[90%] sm:max-w-[85%] rounded-xl px-4 sm:px-5 py-3 sm:py-4 text-sm ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-card border border-border text-foreground"}`}>
