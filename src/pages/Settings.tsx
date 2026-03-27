@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Settings as SettingsIcon, User, Bell, Shield, LogOut } from "lucide-react";
-import Sidebar from "@/components/Sidebar";
+import AppLayout from "@/components/AppLayout";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { Switch } from "@/components/ui/switch";
