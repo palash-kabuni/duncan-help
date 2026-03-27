@@ -196,8 +196,8 @@ const Index = () => {
         <div ref={scrollRef} className="relative z-10 flex-1 overflow-y-auto px-4 sm:px-8 py-4 sm:py-6">
           {!hasMessages ? (
             <div className="mx-auto max-w-3xl flex flex-col items-center justify-center h-full">
-              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 border border-primary/20 glow-primary mb-6">
-                <Brain className="h-7 w-7 text-primary" />
+              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex h-14 w-14 items-center justify-center rounded-2xl overflow-hidden border border-primary/20 glow-primary mb-6">
+                <img src={duncanAvatar} alt="Duncan" className="h-full w-full object-cover object-[50%_30%] scale-150" />
               </motion.div>
               <motion.p initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="text-sm text-muted-foreground mb-8 text-center max-w-md px-4">
                 Ask Duncan anything, or use a quick action below.
