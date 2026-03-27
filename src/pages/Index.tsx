@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Brain, Trash2, Loader2, Download, Copy, Check,
@@ -13,6 +13,8 @@ import { useNormanChat } from "@/hooks/useNormanChat";
 import type { ChatAttachment } from "@/hooks/useNormanChat";
 import ChatInput from "@/components/chat/ChatInput";
 import { supabase } from "@/integrations/supabase/client";
+
+const VoiceAgent = lazy(() => import("@/components/chat/VoiceAgent"));
 
 
 const quickActions = [
