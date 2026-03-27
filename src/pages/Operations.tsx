@@ -6,7 +6,7 @@ import {
   Clock, RefreshCw, Loader2, Activity,
   ArrowUpRight, ArrowDownRight, Filter, ChevronLeft, ChevronRight, Search,
 } from "lucide-react";
-import Sidebar from "@/components/Sidebar";
+import AppLayout from "@/components/AppLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
@@ -151,12 +151,11 @@ const Operations = () => {
   
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <Sidebar />
-      <main className="ml-64 flex-1">
-        <div className="pointer-events-none fixed top-0 left-64 right-0 h-72 gradient-radial z-0" />
+    <AppLayout>
+      <main className="flex-1 overflow-y-auto">
+        <div className="pointer-events-none fixed top-0 lg:left-64 left-0 right-0 h-72 gradient-radial z-0" />
 
-        <div className="relative z-10 px-8 py-8 max-w-7xl">
+        <div className="relative z-10 px-4 sm:px-8 py-6 sm:py-8 max-w-7xl">
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             <div className="flex items-center justify-between mb-6">
               <div>
@@ -464,7 +463,7 @@ const Operations = () => {
           </Tabs>
         </div>
       </main>
-    </div>
+    </AppLayout>
   );
 };
 
