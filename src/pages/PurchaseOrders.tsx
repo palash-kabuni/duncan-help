@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Plus, FileText, CheckCircle, Clock, XCircle, Upload, TrendingUp } from "lucide-react";
-import Sidebar from "@/components/Sidebar";
+import AppLayout from "@/components/AppLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
