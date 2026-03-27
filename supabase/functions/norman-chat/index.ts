@@ -449,7 +449,7 @@ const BASECAMP_TOOLS = [
     type: "function",
     function: {
       name: "list_basecamp_projects",
-      description: "List all projects in Basecamp. Returns project names, IDs, statuses, and their dock items (todosets, message boards, etc.). Use this first to discover project IDs and dock IDs needed for other Basecamp tools.",
+      description: "List all projects in Basecamp. Returns project names, IDs, statuses, and their dock items (todosets, message boards, card_tables, etc.). Use this first to discover project IDs and dock IDs needed for other Basecamp tools.",
       parameters: { type: "object", properties: {}, required: [] },
     },
   },
@@ -472,12 +472,13 @@ const BASECAMP_TOOLS = [
     type: "function",
     function: {
       name: "get_basecamp_todos",
-      description: "Get all to-do items within a specific to-do list. Returns title, completion status, assignees, and due dates.",
+      description: "Get to-do items within a specific to-do list. Returns both completed and incomplete todos. Returns title, completion status, assignees, and due dates.",
       parameters: {
         type: "object",
         properties: {
           project_id: { type: "number", description: "The Basecamp project ID" },
           todolist_id: { type: "number", description: "The to-do list ID" },
+          completed_only: { type: "boolean", description: "If true, fetch only completed todos. Default fetches incomplete todos." },
         },
         required: ["project_id", "todolist_id"],
       },
@@ -502,15 +503,15 @@ const BASECAMP_TOOLS = [
     type: "function",
     function: {
       name: "get_basecamp_card_table_cards",
-      description: "Get all cards from a Basecamp Card Table (Kanban board). Returns all columns and their cards with titles, assignees, due dates, and colors. Optionally pass column_id to fetch only one column's cards. First use list_basecamp_projects to find the project and its 'kanban_board' dock item ID.",
+      description: "Get all cards from a Basecamp Card Table. Returns all columns and their cards with titles, assignees, due dates, and colors. First use list_basecamp_projects to find the project and its 'card_table' dock item. Pass the card_table dock item ID.",
       parameters: {
         type: "object",
         properties: {
           project_id: { type: "number", description: "The Basecamp project ID" },
-          kanban_board_id: { type: "number", description: "The Card Table (kanban_board) ID from the project's dock items" },
-          column_id: { type: "number", description: "Optional. A specific column ID to fetch cards for. Omit to get column summaries only." },
+          card_table_id: { type: "number", description: "The Card Table ID from the project's dock items (name: 'card_table')" },
+          column_id: { type: "number", description: "Optional. A specific column ID to fetch cards for." },
         },
-        required: ["project_id", "kanban_board_id"],
+        required: ["project_id", "card_table_id"],
       },
     },
   },
