@@ -18,12 +18,12 @@ export default function VoiceAgent() {
     onDisconnect: () => {
       setIsConnecting(false);
     },
-    onMessage: (message) => {
-      if (message.type === "user_transcript") {
-        const text = (message as any).user_transcription_event?.user_transcript;
+    onMessage: (message: any) => {
+      if (message?.type === "user_transcript") {
+        const text = message?.user_transcription_event?.user_transcript;
         if (text) setTranscript((prev) => [...prev, `You: ${text}`]);
-      } else if (message.type === "agent_response") {
-        const text = (message as any).agent_response_event?.agent_response;
+      } else if (message?.type === "agent_response") {
+        const text = message?.agent_response_event?.agent_response;
         if (text) setTranscript((prev) => [...prev, `Duncan: ${text}`]);
       }
     },
