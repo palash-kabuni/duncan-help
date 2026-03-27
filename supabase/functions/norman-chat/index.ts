@@ -1939,7 +1939,7 @@ serve(async (req) => {
     if (notionToken) {
       tools.push(...NOTION_TOOLS);
     }
-    if (basecampCreds) {
+    if (basecampConnected) {
       tools.push(...BASECAMP_TOOLS);
     }
     // Meeting tools always available (Gmail connection checked at execution time)
