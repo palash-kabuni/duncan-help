@@ -15,9 +15,12 @@ Deno.serve(async (req) => {
     const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
     const ELEVENLABS_AGENT_ID = Deno.env.get("ELEVENLABS_AGENT_ID");
 
+    console.log("API Key present:", !!ELEVENLABS_API_KEY, "length:", ELEVENLABS_API_KEY?.length || 0, "prefix:", ELEVENLABS_API_KEY?.substring(0, 4));
+    console.log("Agent ID present:", !!ELEVENLABS_AGENT_ID, "length:", ELEVENLABS_AGENT_ID?.length || 0);
+
     if (!ELEVENLABS_API_KEY || !ELEVENLABS_AGENT_ID) {
       return new Response(
-        JSON.stringify({ error: "ElevenLabs not configured" }),
+        JSON.stringify({ error: "ElevenLabs not configured", hasKey: !!ELEVENLABS_API_KEY, hasAgent: !!ELEVENLABS_AGENT_ID }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
