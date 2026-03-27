@@ -117,9 +117,9 @@ const Auth = () => {
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="flex h-20 w-20 mx-auto items-center justify-center rounded-2xl bg-primary/10 border border-primary/20 glow-primary mb-8"
+            className="flex h-20 w-20 mx-auto items-center justify-center rounded-2xl overflow-hidden border border-primary/20 glow-primary mb-8"
           >
-            <Brain className="h-10 w-10 text-primary" />
+            <img src={duncanAvatar} alt="Duncan" className="h-full w-full object-cover object-[50%_30%] scale-150" />
           </motion.div>
           <motion.h1
             initial={{ opacity: 0, y: 10 }}
