@@ -95,8 +95,8 @@ const Sidebar = ({ mobileOpen, onMobileClose }: { mobileOpen?: boolean; onMobile
       {/* Brand */}
       <div className="flex items-center justify-between px-6 py-6">
         <div className="flex items-center gap-3">
-          <div className="relative flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 glow-primary-sm">
-            <Brain className="h-5 w-5 text-primary" />
+          <div className="relative flex h-9 w-9 items-center justify-center rounded-lg overflow-hidden glow-primary-sm">
+            <img src={duncanAvatar} alt="Duncan" className="h-full w-full object-cover object-[50%_30%] scale-150" />
             <div className="absolute inset-0 rounded-lg border border-primary/20" />
           </div>
           <div>
