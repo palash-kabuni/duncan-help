@@ -107,7 +107,7 @@ const FeedbackIssues = () => {
             </CardContent>
           </Card>
         </main>
-      </div>
+      </AppLayout>
     );
   }
 
