@@ -13,6 +13,7 @@ export default function VoiceAgent() {
   const conversation = useConversation({
     onConnect: () => {
       setError(null);
+      setIsConnecting(false);
       setTranscript([]);
     },
     onDisconnect: () => {
