@@ -6,7 +6,7 @@ import {
   Clock, RefreshCw, Loader2, Activity,
   ArrowUpRight, ArrowDownRight, Filter, ChevronLeft, ChevronRight, Search,
 } from "lucide-react";
-import Sidebar from "@/components/Sidebar";
+import AppLayout from "@/components/AppLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
