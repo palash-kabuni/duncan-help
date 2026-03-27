@@ -448,7 +448,7 @@ const Recruitment = () => {
                       const vals = details?.values;
                       const comps = details?.competencies;
                       const compEntries = comps ? (Object.entries(comps) as [string, any][]) : [];
-                      const isEligible = c.email && c.hireflix_status !== "invited" && c.hireflix_status !== "completed";
+                      const isEligible = isInviteEligible(c);
 
                       return (
                         <TableRow key={c.id} className="border-border/30 group">
