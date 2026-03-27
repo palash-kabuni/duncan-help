@@ -1295,69 +1295,40 @@ async function executeNdaTool(
   }
 }
 
-async function getBasecampAccessToken(supabaseAdmin: any): Promise<{ accessToken: string; accountId: string } | null> {
-  const { data: tokenRow, error } = await supabaseAdmin
+async function isBasecampConnected(supabaseAdmin: any): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
     .from("basecamp_tokens")
-    .select("*")
+    .select("id")
     .limit(1)
     .maybeSingle();
-
-  if (error || !tokenRow) return null;
-
-  let accessToken = tokenRow.access_token;
-
-  // Refresh if expired
-  if (new Date(tokenRow.token_expiry) <= new Date()) {
-    const clientId = Deno.env.get("BASECAMP_CLIENT_ID");
-    const clientSecret = Deno.env.get("BASECAMP_CLIENT_SECRET");
-    if (!clientId || !clientSecret) return null;
-
-    const refreshRes = await fetch("https://launchpad.37signals.com/authorization/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: "refresh",
-        refresh_token: tokenRow.refresh_token,
-        client_id: clientId,
-        client_secret: clientSecret,
-      }),
-    });
-
-    if (!refreshRes.ok) return null;
-    const refreshed = await refreshRes.json();
-    accessToken = refreshed.access_token;
-
-    await supabaseAdmin
-      .from("basecamp_tokens")
-      .update({
-        access_token: refreshed.access_token,
-        refresh_token: refreshed.refresh_token || tokenRow.refresh_token,
-        token_expiry: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-      })
-      .eq("id", tokenRow.id);
-  }
-
-  return { accessToken, accountId: tokenRow.account_id || Deno.env.get("BASECAMP_ACCOUNT_ID") || "" };
+  return !error && !!data;
 }
 
-async function executeBasecampTool(toolName: string, args: any, accessToken: string, accountId: string): Promise<any> {
-  const baseUrl = `https://3.basecampapi.com/${accountId}`;
-  const headers = {
-    Authorization: `Bearer ${accessToken}`,
-    "Content-Type": "application/json",
-    "User-Agent": "Duncan (duncan.help)",
-  };
-
-  async function bcFetch(endpoint: string) {
-    const url = `${baseUrl}/${endpoint}.json`;
-    const res = await fetch(url, { headers });
-    if (!res.ok) throw new Error(`Basecamp API error ${res.status}: ${await res.text()}`);
+async function executeBasecampTool(
+  toolName: string,
+  args: any,
+  supabaseUrl: string,
+  authHeader: string
+): Promise<any> {
+  async function bcCall(endpoint: string, paginate = true) {
+    const res = await fetch(`${supabaseUrl}/functions/v1/basecamp-api`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: authHeader,
+      },
+      body: JSON.stringify({ endpoint, method: "GET", paginate }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Basecamp API error: ${res.status}`);
+    }
     return res.json();
   }
 
   switch (toolName) {
     case "list_basecamp_projects": {
-      const projects = await bcFetch("projects");
+      const projects = await bcCall("projects");
       return (projects || []).map((p: any) => ({
         id: p.id,
         name: p.name,
@@ -1372,7 +1343,7 @@ async function executeBasecampTool(toolName: string, args: any, accessToken: str
       }));
     }
     case "get_basecamp_todolists": {
-      const lists = await bcFetch(`buckets/${args.project_id}/todosets/${args.todoset_id}/todolists`);
+      const lists = await bcCall(`buckets/${args.project_id}/todosets/${args.todoset_id}/todolists`);
       return (lists || []).map((l: any) => ({
         id: l.id,
         title: l.title,
@@ -1382,18 +1353,21 @@ async function executeBasecampTool(toolName: string, args: any, accessToken: str
       }));
     }
     case "get_basecamp_todos": {
-      const todos = await bcFetch(`buckets/${args.project_id}/todolists/${args.todolist_id}/todos`);
-      return (todos || []).map((t: any) => ({
-        id: t.id,
-        title: t.title,
-        completed: t.completed,
-        due_on: t.due_on,
-        assignees: (t.assignees || []).map((a: any) => a.name),
-        creator: t.creator?.name,
-      }));
+      const baseEndpoint = `buckets/${args.project_id}/todolists/${args.todolist_id}/todos`;
+      if (args.completed_only) {
+        const completed = await bcCall(`${baseEndpoint}?completed=true`);
+        return (completed || []).map(mapTodo);
+      }
+      // Fetch both incomplete and completed
+      const [incomplete, completed] = await Promise.all([
+        bcCall(baseEndpoint),
+        bcCall(`${baseEndpoint}?completed=true`),
+      ]);
+      const all = [...(incomplete || []).map(mapTodo), ...(completed || []).map(mapTodo)];
+      return all;
     }
     case "get_basecamp_messages": {
-      const msgs = await bcFetch(`buckets/${args.project_id}/message_boards/${args.message_board_id}/messages`);
+      const msgs = await bcCall(`buckets/${args.project_id}/message_boards/${args.message_board_id}/messages`);
       return (msgs || []).map((m: any) => ({
         id: m.id,
         title: m.title,
@@ -1403,65 +1377,65 @@ async function executeBasecampTool(toolName: string, args: any, accessToken: str
       }));
     }
     case "get_basecamp_card_table_cards": {
-      console.log(`Fetching card table: buckets/${args.project_id}/card_tables/${args.kanban_board_id}`);
-      const cardTable = await bcFetch(`buckets/${args.project_id}/card_tables/${args.kanban_board_id}`);
-      console.log(`Card table response keys: ${Object.keys(cardTable).join(", ")}`);
-      console.log(`Card table title: ${cardTable.title}, lists count: ${cardTable.lists?.length ?? "no lists"}`);
+      // Fetch the card table resource
+      const cardTable = await bcCall(`buckets/${args.project_id}/card_tables/${args.card_table_id}`, false);
 
       if (!cardTable.lists || !Array.isArray(cardTable.lists)) {
-        console.log("No lists found, returning raw card table keys:", Object.keys(cardTable));
-        return { card_table: cardTable.title || "Unknown", columns: [], raw_keys: Object.keys(cardTable) };
+        return { card_table: cardTable.title || "Unknown", columns: [], message: "Card table has no columns or may not be available for this project." };
       }
 
-      // If a specific column_id is provided, fetch only that column's cards
       if (args.column_id) {
         const list = cardTable.lists.find((l: any) => l.id === args.column_id);
         if (!list) return { error: `Column ${args.column_id} not found` };
         const cardsUrl = list.cards_url;
-        console.log(`Fetching cards for column ${list.title} from: ${cardsUrl}`);
-        const res = await fetch(cardsUrl, { headers });
-        if (!res.ok) { const t = await res.text(); console.error("Cards fetch failed:", t); return { error: `Failed: ${res.status}` }; }
-        const cards = await res.json();
+        if (!cardsUrl) return { column: list.title, cards: [], error: "No cards URL" };
+        const cards = await bcCall(cardsUrl, false);
         return {
-          column: list.title, color: list.color, cards_count: cards.length,
-          cards: cards.map((c: any) => ({
-            id: c.id, title: c.title, due_on: c.due_on, completed: c.completed,
-            assignees: (c.assignees || []).map((a: any) => a.name),
-            creator: c.creator?.name,
-            description: (c.content || c.description || "").slice(0, 300),
-          })),
+          column: list.title, color: list.color, cards_count: (cards || []).length,
+          cards: (cards || []).map(mapCard),
         };
       }
 
-      // Fetch ALL columns' cards in parallel (with a 3-card preview per column to stay within timeout)
+      // Fetch all columns' cards via the proxy (cards_url is a full URL)
       const columnsWithCards = await Promise.all(
         cardTable.lists.map(async (list: any) => {
           try {
-            const cardsUrl = list.cards_url;
-            if (!cardsUrl) return { id: list.id, title: list.title, color: list.color, cards_count: list.cards_count || 0, cards: [], error: "no cards_url" };
-            const res = await fetch(cardsUrl, { headers });
-            if (!res.ok) { await res.text(); return { id: list.id, title: list.title, color: list.color, cards_count: list.cards_count || 0, cards: [], error: `fetch failed ${res.status}` }; }
-            const cards = await res.json();
+            if (!list.cards_url) return { id: list.id, title: list.title, color: list.color, cards: [], error: "no cards_url" };
+            const cards = await bcCall(list.cards_url, false);
             return {
-              id: list.id, title: list.title, color: list.color, cards_count: cards.length,
-              cards: cards.map((c: any) => ({
-                id: c.id, title: c.title, due_on: c.due_on, completed: c.completed,
-                assignees: (c.assignees || []).map((a: any) => a.name),
-                creator: c.creator?.name,
-              })),
+              id: list.id, title: list.title, color: list.color, cards_count: (cards || []).length,
+              cards: (cards || []).map(mapCard),
             };
           } catch (e) {
-            return { id: list.id, title: list.title, color: list.color, cards_count: list.cards_count || 0, cards: [], error: String(e) };
+            return { id: list.id, title: list.title, color: list.color, cards: [], error: String(e) };
           }
         })
       );
-
-      console.log(`Fetched cards for ${columnsWithCards.length} columns`);
       return { card_table: cardTable.title, columns: columnsWithCards };
     }
     default:
       throw new Error(`Unknown Basecamp tool: ${toolName}`);
   }
+}
+
+function mapTodo(t: any) {
+  return {
+    id: t.id,
+    title: t.title,
+    completed: t.completed,
+    due_on: t.due_on,
+    assignees: (t.assignees || []).map((a: any) => a.name),
+    creator: t.creator?.name,
+  };
+}
+
+function mapCard(c: any) {
+  return {
+    id: c.id, title: c.title, due_on: c.due_on, completed: c.completed,
+    assignees: (c.assignees || []).map((a: any) => a.name),
+    creator: c.creator?.name,
+    description: (c.content || c.description || "").slice(0, 300),
+  };
 }
 
 async function getNotionToken(supabaseAdmin: any): Promise<string | null> {
