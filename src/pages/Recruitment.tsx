@@ -239,9 +239,15 @@ const Recruitment = () => {
     });
   };
 
+  const selectedRole = jobRoles?.find((r: any) => r.id === selectedRoleId);
+  const roleIsLinked = !!selectedRole?.hireflix_position_id;
+
+  const isInviteEligible = (c: any) =>
+    c.email && roleIsLinked && c.hireflix_status !== "invited" && c.hireflix_status !== "completed";
+
   const toggleAll = () => {
     if (!candidates) return;
-    const eligible = candidates.filter((c: any) => c.email && c.hireflix_status !== "invited" && c.hireflix_status !== "completed");
+    const eligible = candidates.filter(isInviteEligible);
     if (selectedCandidates.size === eligible.length) {
       setSelectedCandidates(new Set());
     } else {
@@ -264,7 +270,18 @@ const Recruitment = () => {
       });
       if (res.error) throw res.error;
       const d = res.data;
-      toast.success(`Invited ${d.invited} candidate(s).${d.skipped ? ` ${d.skipped} skipped.` : ""}${d.failed ? ` ${d.failed} failed.` : ""}`);
+      if (d.invited > 0) {
+        toast.success(`Invited ${d.invited} candidate(s).`);
+      }
+      if (d.failed > 0) {
+        const failedItems = (d.results || []).filter((r: any) => r.status === "failed");
+        for (const item of failedItems) {
+          toast.error(`${item.name}: ${item.reason}`);
+        }
+      }
+      if (d.skipped > 0) {
+        toast.info(`${d.skipped} skipped (already invited).`);
+      }
       setSelectedCandidates(new Set());
       refetchCandidates();
     } catch (err: any) {
@@ -292,7 +309,7 @@ const Recruitment = () => {
   const isGmailConnected = gmailStatus?.status === "connected";
   const roleMap = new Map((jobRoles ?? []).map((r: any) => [r.id, r.title]));
 
-  const eligibleCount = candidates?.filter((c: any) => c.email && c.hireflix_status !== "invited" && c.hireflix_status !== "completed").length ?? 0;
+  const eligibleCount = candidates?.filter(isInviteEligible).length ?? 0;
 
   // Top 3 candidates by interview score
   const top3 = (candidates || [])
@@ -388,7 +405,7 @@ const Recruitment = () => {
                 {syncingInterviews ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart3 className="h-4 w-4" />}
                 Sync Interviews
               </Button>
-              {selectedCandidates.size > 0 && (
+              {selectedCandidates.size > 0 && roleIsLinked && (
                 <Button
                   size="sm"
                   onClick={sendHireflixInvites}
@@ -398,6 +415,11 @@ const Recruitment = () => {
                   {sendingInvites ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}
                   Send Hireflix Invite ({selectedCandidates.size})
                 </Button>
+              )}
+              {selectedCandidates.size > 0 && !roleIsLinked && (
+                <Badge variant="destructive" className="text-xs gap-1">
+                  <AlertCircle className="h-3 w-3" /> Role not linked to Hireflix
+                </Badge>
               )}
             </div>
           </CardHeader>
@@ -431,7 +453,7 @@ const Recruitment = () => {
                       const vals = details?.values;
                       const comps = details?.competencies;
                       const compEntries = comps ? (Object.entries(comps) as [string, any][]) : [];
-                      const isEligible = c.email && c.hireflix_status !== "invited" && c.hireflix_status !== "completed";
+                      const isEligible = isInviteEligible(c);
 
                       return (
                         <TableRow key={c.id} className="border-border/30 group">
@@ -571,10 +593,12 @@ const Recruitment = () => {
                                 <Badge variant="outline" className="text-[11px] border-primary/30 text-primary gap-1">
                                   <CheckCircle className="h-3 w-3" /> Done
                                 </Badge>
-                                {c.hireflix_interview_url && (
-                                  <a href={c.hireflix_interview_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground hover:text-primary flex items-center gap-0.5">
-                                    <ExternalLink className="h-3 w-3" /> Video
+                                {c.hireflix_playback_url ? (
+                                  <a href={c.hireflix_playback_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground hover:text-primary flex items-center gap-0.5">
+                                    <ExternalLink className="h-3 w-3" /> Watch
                                   </a>
+                                ) : (
+                                  <span className="text-[10px] text-muted-foreground">No video yet</span>
                                 )}
                               </div>
                             ) : (
@@ -671,9 +695,9 @@ const Recruitment = () => {
                             })}
                           </div>
                         )}
-                        {c.hireflix_interview_url && (
+                        {c.hireflix_playback_url && (
                           <a
-                            href={c.hireflix_interview_url}
+                            href={c.hireflix_playback_url}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1 text-xs text-primary hover:underline"

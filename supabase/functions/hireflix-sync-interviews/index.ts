@@ -8,18 +8,18 @@ const corsHeaders = {
 
 const HIREFLIX_GQL_URL = "https://api.hireflix.com/me";
 
-async function hireflixQuery(apiKey: string, query: string, variables?: Record<string, any>) {
+async function hireflixQuery(apiKey: string, query: string) {
   const res = await fetch(HIREFLIX_GQL_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-API-KEY": apiKey },
-    body: JSON.stringify({ query, variables }),
+    body: JSON.stringify({ query }),
   });
   const data = await res.json();
   if (data.errors) throw new Error(data.errors[0]?.message || "Hireflix API error");
   return data.data;
 }
 
-// Fetch all interviews for a position
+// Fetch all interviews for a position — includes playback URL and candidate id
 async function fetchPositionInterviews(apiKey: string, positionId: string) {
   const query = `
     query {
@@ -28,8 +28,13 @@ async function fetchPositionInterviews(apiKey: string, positionId: string) {
           id
           status
           candidate {
+            id
             email
             name
+          }
+          url {
+            review
+            public
           }
           questions {
             id
@@ -47,7 +52,7 @@ async function fetchPositionInterviews(apiKey: string, positionId: string) {
   return data?.position?.interviews || [];
 }
 
-// Score transcript using Lovable AI
+// Score transcript using AI
 async function scoreTranscript(transcript: string): Promise<any> {
   const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
   if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not configured");
@@ -176,42 +181,12 @@ Return ONLY valid JSON in this exact structure:
     "gap": "<what could improve, or 'None notable' if strong>",
     "evidence_quote": "<a quote showing their ability>"
   },
-  "structured_thinking": {
-    "score": <number>,
-    "strength": "<what they did well>",
-    "gap": "<what could improve, or 'None notable' if strong>",
-    "evidence_quote": "<a quote showing their ability>"
-  },
-  "role_knowledge": {
-    "score": <number>,
-    "strength": "<what they did well>",
-    "gap": "<what could improve, or 'None notable' if strong>",
-    "evidence_quote": "<a quote showing their ability>"
-  },
-  "problem_solving": {
-    "score": <number>,
-    "strength": "<what they did well>",
-    "gap": "<what could improve, or 'None notable' if strong>",
-    "evidence_quote": "<a quote showing their ability>"
-  },
-  "confidence_professionalism": {
-    "score": <number>,
-    "strength": "<what they did well>",
-    "gap": "<what could improve, or 'None notable' if strong>",
-    "evidence_quote": "<a quote showing their ability>"
-  },
-  "culture_alignment": {
-    "score": <number>,
-    "strength": "<what they did well>",
-    "gap": "<what could improve, or 'None notable' if strong>",
-    "evidence_quote": "<a quote showing their ability>"
-  },
-  "conciseness_focus": {
-    "score": <number>,
-    "strength": "<what they did well>",
-    "gap": "<what could improve, or 'None notable' if strong>",
-    "evidence_quote": "<a quote showing their ability>"
-  },
+  "structured_thinking": { "score": <number>, "strength": "...", "gap": "...", "evidence_quote": "..." },
+  "role_knowledge": { "score": <number>, "strength": "...", "gap": "...", "evidence_quote": "..." },
+  "problem_solving": { "score": <number>, "strength": "...", "gap": "...", "evidence_quote": "..." },
+  "confidence_professionalism": { "score": <number>, "strength": "...", "gap": "...", "evidence_quote": "..." },
+  "culture_alignment": { "score": <number>, "strength": "...", "gap": "...", "evidence_quote": "..." },
+  "conciseness_focus": { "score": <number>, "strength": "...", "gap": "...", "evidence_quote": "..." },
   "final_score": <number>,
   "overall_impression": "<2-3 sentences: lead with strengths, then mention 1-2 areas for growth>"
 }
@@ -246,14 +221,11 @@ Do not include any explanation outside JSON.`;
 
   const aiData = await response.json();
   const content = aiData.choices?.[0]?.message?.content || "";
-
-  // Extract JSON from response (handle markdown code blocks)
   const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, content];
   const jsonStr = (jsonMatch[1] || content).trim();
 
   try {
     const scores = JSON.parse(jsonStr);
-    // Recalculate final_score as average of 7 metrics
     const metrics = [
       "communication_clarity", "structured_thinking", "role_knowledge",
       "problem_solving", "confidence_professionalism", "culture_alignment", "conciseness_focus"
@@ -281,7 +253,7 @@ serve(async (req) => {
       });
     }
 
-    // Auth check
+    // Auth check using getUser()
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -293,26 +265,23 @@ serve(async (req) => {
     });
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {
-      console.error("Auth error:", userError?.message);
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    console.log("Authenticated user:", user.email);
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Get request body to check for force re-score
     let forceRescore = false;
     try {
       const body = await req.json();
       forceRescore = body?.force_rescore === true;
     } catch { /* no body is fine */ }
 
-    // Get candidates: invited ones always, plus completed ones if force re-scoring
+    // Get candidates with invited or completed status
     let candidateQuery = supabaseAdmin
       .from("candidates")
-      .select("id, name, email, job_role_id, hireflix_status, hireflix_interview_id, interview_final_score");
+      .select("id, name, email, job_role_id, hireflix_status, hireflix_interview_id, hireflix_candidate_id, interview_final_score");
 
     if (forceRescore) {
       candidateQuery = candidateQuery.in("hireflix_status", ["invited", "completed"]);
@@ -321,16 +290,15 @@ serve(async (req) => {
     }
 
     const { data: candidates, error: candErr } = await candidateQuery;
-
     if (candErr) throw candErr;
-    console.log(`Found candidates (force_rescore=${forceRescore}):`, candidates?.length || 0, candidates?.map((c: any) => ({ id: c.id, name: c.name, email: c.email, status: c.hireflix_status })));
+
     if (!candidates || candidates.length === 0) {
       return new Response(JSON.stringify({ synced: 0, scored: 0, message: "No candidates to sync" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Get unique job role IDs and their hireflix position IDs
+    // Get role → position mapping
     const roleIds = [...new Set(candidates.map((c: any) => c.job_role_id).filter(Boolean))];
     const { data: roles } = await supabaseAdmin
       .from("job_roles")
@@ -338,81 +306,87 @@ serve(async (req) => {
       .in("id", roleIds);
 
     const rolePositionMap = new Map((roles || []).map((r: any) => [r.id, r.hireflix_position_id]));
-    console.log("Role-position map:", JSON.stringify(Object.fromEntries(rolePositionMap)));
 
     // Group candidates by position
     const positionCandidates = new Map<string, any[]>();
     for (const c of candidates) {
       const posId = rolePositionMap.get(c.job_role_id);
-      if (!posId) {
-        console.log(`Candidate ${c.name} has no mapped position (role: ${c.job_role_id})`);
-        continue;
-      }
+      if (!posId) continue;
       if (!positionCandidates.has(posId)) positionCandidates.set(posId, []);
       positionCandidates.get(posId)!.push(c);
     }
-
-    console.log("Positions to check:", [...positionCandidates.keys()]);
 
     let synced = 0;
     let scored = 0;
     let failed = 0;
     const results: any[] = [];
 
-    // For each position, fetch all interviews
     for (const [positionId, posCandidates] of positionCandidates) {
       let interviews: any[];
       try {
         interviews = await fetchPositionInterviews(HIREFLIX_API_KEY, positionId);
-        console.log(`Position ${positionId}: found ${interviews.length} interviews`, 
-          interviews.map((i: any) => ({ email: i.candidate?.email, status: i.status })));
       } catch (e) {
         console.error(`Failed to fetch interviews for position ${positionId}:`, e);
         failed += posCandidates.length;
+        for (const c of posCandidates) {
+          results.push({ id: c.id, name: c.name, status: "failed", reason: `API error: ${e.message}` });
+        }
         continue;
       }
 
-      // Match interviews to candidates by email
       for (const candidate of posCandidates) {
+        // Match interview to candidate using hireflix_candidate_id (primary) or email (fallback)
+        let interview = null;
+
+        if (candidate.hireflix_candidate_id) {
+          interview = interviews.find(
+            (i: any) => i.candidate?.id === candidate.hireflix_candidate_id &&
+              (i.status === "finished" || i.status === "completed")
+          );
+        }
+
+        if (!interview && candidate.email) {
+          interview = interviews.find(
+            (i: any) => i.candidate?.email?.toLowerCase() === candidate.email?.toLowerCase() &&
+              (i.status === "finished" || i.status === "completed")
+          );
+        }
+
+        if (!interview) {
+          // Still invited, no completed interview yet
+          if (candidate.hireflix_status !== "completed" || !forceRescore) {
+            continue;
+          }
+        }
+
+        // Build transcript
         let transcript = "";
         let interviewId = candidate.hireflix_interview_id;
+        let playbackUrl: string | null = null;
+        let hireflixCandidateId = candidate.hireflix_candidate_id;
 
-        if (candidate.hireflix_status === "completed" && forceRescore) {
-          // For re-scoring, try to get fresh transcript from Hireflix first
-          const interview = interviews.find(
-            (i: any) => i.candidate?.email?.toLowerCase() === candidate.email?.toLowerCase() && (i.status === "finished" || i.status === "completed")
-          );
-          if (interview) {
-            transcript = (interview.questions || [])
-              .map((q: any) => q.answer?.transcription?.text || "")
-              .filter((t: string) => t.length > 0)
-              .join("\n\n");
-            interviewId = interview.id;
-          }
-          // Fall back to existing transcript if Hireflix doesn't return one
-          if (!transcript) {
-            const { data: existing } = await supabaseAdmin
-              .from("candidates")
-              .select("interview_transcript")
-              .eq("id", candidate.id)
-              .single();
-            transcript = existing?.interview_transcript || "";
-          }
-        } else {
-          // Normal flow for invited candidates
-          const interview = interviews.find(
-            (i: any) => i.candidate?.email?.toLowerCase() === candidate.email?.toLowerCase() && (i.status === "finished" || i.status === "completed")
-          );
-          if (!interview) continue;
+        if (interview) {
           transcript = (interview.questions || [])
             .map((q: any) => q.answer?.transcription?.text || "")
             .filter((t: string) => t.length > 0)
             .join("\n\n");
           interviewId = interview.id;
+          playbackUrl = interview.url?.review || interview.url?.public || null;
+          hireflixCandidateId = interview.candidate?.id || hireflixCandidateId;
+        }
+
+        // Fallback to existing transcript for re-scoring
+        if (!transcript && forceRescore) {
+          const { data: existing } = await supabaseAdmin
+            .from("candidates")
+            .select("interview_transcript")
+            .eq("id", candidate.id)
+            .single();
+          transcript = existing?.interview_transcript || "";
         }
 
         if (!transcript) {
-          console.log(`No transcript for candidate ${candidate.id}`);
+          results.push({ id: candidate.id, name: candidate.name, status: "skipped", reason: "No transcript available" });
           continue;
         }
 
@@ -427,6 +401,8 @@ serve(async (req) => {
             .update({
               hireflix_status: "completed",
               hireflix_interview_id: interviewId,
+              hireflix_candidate_id: hireflixCandidateId,
+              hireflix_playback_url: playbackUrl,
               interview_transcript: transcript,
               interview_scores: scores,
               interview_final_score: scores.final_score,
@@ -438,12 +414,14 @@ serve(async (req) => {
           results.push({ id: candidate.id, name: candidate.name, status: "scored", final_score: scores.final_score });
         } catch (e) {
           console.error(`Failed to score candidate ${candidate.id}:`, e);
-          // Still save transcript and mark completed even if scoring fails
+          // Save transcript + playback even if scoring fails
           await supabaseAdmin
             .from("candidates")
             .update({
               hireflix_status: "completed",
               hireflix_interview_id: interviewId,
+              hireflix_candidate_id: hireflixCandidateId,
+              hireflix_playback_url: playbackUrl,
               interview_transcript: transcript,
             })
             .eq("id", candidate.id);
@@ -453,10 +431,10 @@ serve(async (req) => {
       }
     }
 
-    // After scoring, determine top 3 and return them
+    // Top 3 candidates
     const { data: topCandidates } = await supabaseAdmin
       .from("candidates")
-      .select("id, name, email, interview_final_score, hireflix_interview_url, interview_scores")
+      .select("id, name, email, interview_final_score, hireflix_playback_url, interview_scores")
       .not("interview_final_score", "is", null)
       .order("interview_final_score", { ascending: false })
       .limit(3);
