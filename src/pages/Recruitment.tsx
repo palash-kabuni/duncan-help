@@ -588,10 +588,12 @@ const Recruitment = () => {
                                 <Badge variant="outline" className="text-[11px] border-primary/30 text-primary gap-1">
                                   <CheckCircle className="h-3 w-3" /> Done
                                 </Badge>
-                                {c.hireflix_interview_url && (
-                                  <a href={c.hireflix_interview_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground hover:text-primary flex items-center gap-0.5">
-                                    <ExternalLink className="h-3 w-3" /> Video
+                                {c.hireflix_playback_url ? (
+                                  <a href={c.hireflix_playback_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground hover:text-primary flex items-center gap-0.5">
+                                    <ExternalLink className="h-3 w-3" /> Watch
                                   </a>
+                                ) : (
+                                  <span className="text-[10px] text-muted-foreground">No video yet</span>
                                 )}
                               </div>
                             ) : (
