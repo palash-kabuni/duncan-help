@@ -40,12 +40,11 @@ const Profile = () => {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen bg-background">
-        <Sidebar />
-        <main className="ml-64 flex-1 flex items-center justify-center">
+      <AppLayout>
+        <main className="flex-1 flex items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </main>
-      </div>
+      </AppLayout>
     );
   }
 
