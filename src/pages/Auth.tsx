@@ -157,8 +157,8 @@ const Auth = () => {
         >
           {/* Mobile logo */}
           <div className="lg:hidden flex flex-col items-center gap-2 mb-6 sm:mb-8">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 border border-primary/20 glow-primary-sm">
-              <Brain className="h-6 w-6 text-primary" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl overflow-hidden border border-primary/20 glow-primary-sm">
+              <img src={duncanAvatar} alt="Duncan" className="h-full w-full object-cover object-[50%_30%] scale-150" />
             </div>
             <h1 className="text-xl font-bold text-foreground">Duncan</h1>
             <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">

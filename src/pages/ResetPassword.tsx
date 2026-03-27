@@ -78,8 +78,8 @@ const ResetPassword = () => {
         className="w-full max-w-sm"
       >
         <div className="flex items-center gap-3 mb-8">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-            <Brain className="h-5 w-5 text-primary" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg overflow-hidden">
+            <img src={duncanAvatar} alt="Duncan" className="h-full w-full object-cover object-[50%_30%] scale-150" />
           </div>
           <h1 className="text-lg font-bold text-foreground">Norman</h1>
         </div>

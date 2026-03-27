@@ -222,8 +222,8 @@ const Index = () => {
               </AnimatePresence>
               {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-3">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 border border-primary/20">
-                    <Brain className="h-3.5 w-3.5 text-primary" />
+                   <div className="flex h-7 w-7 items-center justify-center rounded-lg overflow-hidden border border-primary/20">
+                     <img src={duncanAvatar} alt="Duncan" className="h-full w-full object-cover object-[50%_30%] scale-150" />
                   </div>
                   <div className="flex items-center gap-2 text-muted-foreground text-sm">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" /> Duncan is thinking…
