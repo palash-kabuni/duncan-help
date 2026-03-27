@@ -2123,10 +2123,10 @@ serve(async (req) => {
           } else if (ndaToolNames.includes(tc.function.name)) {
             result = await executeNdaTool(tc.function.name, args, supabaseAdmin, userId || "", userEmail, authHeader || "");
           } else if (basecampToolNames.includes(tc.function.name)) {
-            if (!basecampCreds) {
+            if (!basecampConnected) {
               result = { error: "Basecamp is not connected. An admin needs to connect it via the Integrations page." };
             } else {
-              result = await executeBasecampTool(tc.function.name, args, basecampCreds.accessToken, basecampCreds.accountId);
+              result = await executeBasecampTool(tc.function.name, args, supabaseUrl, authHeader || "");
               console.log(`Basecamp tool ${tc.function.name} result preview:`, JSON.stringify(result).slice(0, 500));
             }
           } else if (meetingToolNames.includes(tc.function.name)) {
