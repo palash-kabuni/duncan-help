@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Brain, Loader2, Mail, Lock, User, ArrowRight } from "lucide-react";
+import { Loader2, Mail, Lock, User, ArrowRight } from "lucide-react";
+import duncanAvatar from "@/assets/duncan-avatar.jpeg";
 import { supabase } from "@/integrations/supabase/client";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -116,9 +117,9 @@ const Auth = () => {
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="flex h-20 w-20 mx-auto items-center justify-center rounded-2xl bg-primary/10 border border-primary/20 glow-primary mb-8"
+            className="flex h-20 w-20 mx-auto items-center justify-center rounded-2xl overflow-hidden border border-primary/20 glow-primary mb-8"
           >
-            <Brain className="h-10 w-10 text-primary" />
+            <img src={duncanAvatar} alt="Duncan" className="h-full w-full object-cover object-[50%_30%] scale-150" />
           </motion.div>
           <motion.h1
             initial={{ opacity: 0, y: 10 }}
@@ -156,8 +157,8 @@ const Auth = () => {
         >
           {/* Mobile logo */}
           <div className="lg:hidden flex flex-col items-center gap-2 mb-6 sm:mb-8">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 border border-primary/20 glow-primary-sm">
-              <Brain className="h-6 w-6 text-primary" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl overflow-hidden border border-primary/20 glow-primary-sm">
+              <img src={duncanAvatar} alt="Duncan" className="h-full w-full object-cover object-[50%_30%] scale-150" />
             </div>
             <h1 className="text-xl font-bold text-foreground">Duncan</h1>
             <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">

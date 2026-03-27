@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useCallback, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Brain, Trash2, Loader2, Download, Copy, Check,
+  Trash2, Loader2, Download, Copy, Check,
   FileText, Receipt, Users, FolderOpen,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import duncanAvatar from "@/assets/duncan-avatar.jpeg";
 import remarkGfm from "remark-gfm";
 import { useNavigate } from "react-router-dom";
 import Sidebar, { MobileMenuButton } from "@/components/Sidebar";
@@ -68,8 +69,8 @@ const MessageBubble = ({
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
       {msg.role === "assistant" && (
-        <div className="mr-2 sm:mr-3 mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 border border-primary/20">
-          <Brain className="h-3.5 w-3.5 text-primary" />
+        <div className="mr-2 sm:mr-3 mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg overflow-hidden border border-primary/20">
+          <img src={duncanAvatar} alt="Duncan" className="h-full w-full object-cover object-[50%_30%] scale-150" />
         </div>
       )}
       <div className={`max-w-[90%] sm:max-w-[85%] rounded-xl px-4 sm:px-5 py-3 sm:py-4 text-sm ${msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-card border border-border text-foreground"}`}>
@@ -195,8 +196,8 @@ const Index = () => {
         <div ref={scrollRef} className="relative z-10 flex-1 overflow-y-auto px-4 sm:px-8 py-4 sm:py-6">
           {!hasMessages ? (
             <div className="mx-auto max-w-3xl flex flex-col items-center justify-center h-full">
-              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 border border-primary/20 glow-primary mb-6">
-                <Brain className="h-7 w-7 text-primary" />
+              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="flex h-14 w-14 items-center justify-center rounded-2xl overflow-hidden border border-primary/20 glow-primary mb-6">
+                <img src={duncanAvatar} alt="Duncan" className="h-full w-full object-cover object-[50%_30%] scale-150" />
               </motion.div>
               <motion.p initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="text-sm text-muted-foreground mb-8 text-center max-w-md px-4">
                 Ask Duncan anything, or use a quick action below.
@@ -221,8 +222,8 @@ const Index = () => {
               </AnimatePresence>
               {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-3">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 border border-primary/20">
-                    <Brain className="h-3.5 w-3.5 text-primary" />
+                   <div className="flex h-7 w-7 items-center justify-center rounded-lg overflow-hidden border border-primary/20">
+                     <img src={duncanAvatar} alt="Duncan" className="h-full w-full object-cover object-[50%_30%] scale-150" />
                   </div>
                   <div className="flex items-center gap-2 text-muted-foreground text-sm">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" /> Duncan is thinking…

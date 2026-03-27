@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { User, Briefcase, Building2, Brain, Save, Loader2 } from "lucide-react";
+import { User, Briefcase, Building2, Save, Loader2 } from "lucide-react";
+import duncanAvatar from "@/assets/duncan-avatar.jpeg";
 import AppLayout from "@/components/AppLayout";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -119,7 +120,7 @@ const Profile = () => {
             {/* Duncan context */}
             <div className="space-y-2">
               <Label className="flex items-center gap-2 text-foreground">
-                <Brain className="h-4 w-4 text-primary" /> Duncan Personalisation
+                <img src={duncanAvatar} alt="Duncan" className="h-4 w-4 rounded-sm object-cover object-[50%_30%] scale-150" /> Duncan Personalisation
               </Label>
               <p className="text-xs text-muted-foreground">
                 Anything else Duncan should know — communication style, priorities, projects you're focused on.
