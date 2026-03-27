@@ -11,10 +11,6 @@ const navItems = [{
   label: "Dashboard",
   to: "/"
 }, {
-  icon: ShoppingCart,
-  label: "Purchase Orders",
-  to: "/purchase-orders"
-}, {
   icon: Users,
   label: "Recruitment",
   to: "/recruitment"
