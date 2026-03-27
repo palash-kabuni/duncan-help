@@ -309,7 +309,7 @@ const Recruitment = () => {
   const isGmailConnected = gmailStatus?.status === "connected";
   const roleMap = new Map((jobRoles ?? []).map((r: any) => [r.id, r.title]));
 
-  const eligibleCount = candidates?.filter((c: any) => c.email && c.hireflix_status !== "invited" && c.hireflix_status !== "completed").length ?? 0;
+  const eligibleCount = candidates?.filter(isInviteEligible).length ?? 0;
 
   // Top 3 candidates by interview score
   const top3 = (candidates || [])
