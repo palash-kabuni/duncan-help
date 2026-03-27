@@ -239,9 +239,15 @@ const Recruitment = () => {
     });
   };
 
+  const selectedRole = jobRoles?.find((r: any) => r.id === selectedRoleId);
+  const roleIsLinked = !!selectedRole?.hireflix_position_id;
+
+  const isInviteEligible = (c: any) =>
+    c.email && roleIsLinked && c.hireflix_status !== "invited" && c.hireflix_status !== "completed";
+
   const toggleAll = () => {
     if (!candidates) return;
-    const eligible = candidates.filter((c: any) => c.email && c.hireflix_status !== "invited" && c.hireflix_status !== "completed");
+    const eligible = candidates.filter(isInviteEligible);
     if (selectedCandidates.size === eligible.length) {
       setSelectedCandidates(new Set());
     } else {
