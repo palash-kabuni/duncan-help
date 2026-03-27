@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Paperclip, X, FileText, Image as ImageIcon, Loader2 } from "lucide-react";
+import { Send, Paperclip, X, FileText, Image as ImageIcon, Loader2, Mic } from "lucide-react";
 import type { ChatAttachment } from "@/hooks/useNormanChat";
 
 interface ChatInputProps {
   onSubmit: (input: string, attachments: ChatAttachment[]) => void;
   isLoading: boolean;
+  onVoiceToggle?: () => void;
+  isVoiceActive?: boolean;
 }
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -29,7 +31,7 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-export default function ChatInput({ onSubmit, isLoading }: ChatInputProps) {
+export default function ChatInput({ onSubmit, isLoading, onVoiceToggle, isVoiceActive }: ChatInputProps) {
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -171,6 +173,21 @@ export default function ChatInput({ onSubmit, isLoading }: ChatInputProps) {
           >
             <Send className="h-3.5 w-3.5" />
           </button>
+
+          {onVoiceToggle && (
+            <button
+              type="button"
+              onClick={onVoiceToggle}
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-all ${
+                isVoiceActive
+                  ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  : "bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80"
+              }`}
+              title={isVoiceActive ? "End voice mode" : "Start voice mode"}
+            >
+              <Mic className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
         <p className="mt-2 text-center text-[10px] font-mono text-muted-foreground/40">
           Shift+Enter for new line · Attach files for analysis · Powered by Duncan AI Engine

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Brain, Trash2, Loader2, Download, Copy, Check,
@@ -13,6 +13,8 @@ import { useNormanChat } from "@/hooks/useNormanChat";
 import type { ChatAttachment } from "@/hooks/useNormanChat";
 import ChatInput from "@/components/chat/ChatInput";
 import { supabase } from "@/integrations/supabase/client";
+
+const VoiceAgent = lazy(() => import("@/components/chat/VoiceAgent"));
 
 
 const quickActions = [
@@ -110,6 +112,7 @@ const Index = () => {
   
   const [downloadingUrl, setDownloadingUrl] = useState<string | null>(null);
   const [weather, setWeather] = useState<{ temp: number; description: string } | null>(null);
+  const [voiceMode, setVoiceMode] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -229,8 +232,22 @@ const Index = () => {
           )}
         </div>
 
+        {/* Voice agent overlay */}
+        {voiceMode && (
+          <Suspense fallback={null}>
+            <div className="relative z-10 border-t border-border bg-card/50 backdrop-blur-sm">
+              <VoiceAgent />
+            </div>
+          </Suspense>
+        )}
+
         {/* Prompt input */}
-        <ChatInput onSubmit={handleChatSubmit} isLoading={isLoading} />
+        <ChatInput
+          onSubmit={handleChatSubmit}
+          isLoading={isLoading}
+          onVoiceToggle={() => setVoiceMode((v) => !v)}
+          isVoiceActive={voiceMode}
+        />
       </main>
     </div>
   );
