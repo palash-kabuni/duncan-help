@@ -194,7 +194,7 @@ const FeedbackIssues = () => {
           </form>
         </div>
       </main>
-    </div>
+    </AppLayout>
   );
 };
 

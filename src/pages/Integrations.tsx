@@ -513,7 +513,7 @@ const Integrations = () => {
           )}
         </AnimatePresence>
       </main>
-    </div>
+    </AppLayout>
   );
 };
 

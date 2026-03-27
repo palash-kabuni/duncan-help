@@ -80,7 +80,7 @@ const PurchaseOrders = () => {
           {showForm && <POForm onClose={() => setShowForm(false)} />}
         </div>
       </main>
-    </div>
+    </AppLayout>
   );
 };
 

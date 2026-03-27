@@ -145,7 +145,7 @@ const Profile = () => {
           </p>
         </div>
       </main>
-    </div>
+    </AppLayout>
   );
 };
 

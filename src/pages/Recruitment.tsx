@@ -753,7 +753,7 @@ const Recruitment = () => {
           </DialogContent>
         </Dialog>
       </main>
-    </div>
+    </AppLayout>
   );
 };
 

@@ -463,7 +463,7 @@ const Operations = () => {
           </Tabs>
         </div>
       </main>
-    </div>
+    </AppLayout>
   );
 };
 
