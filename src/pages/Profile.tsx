@@ -49,12 +49,11 @@ const Profile = () => {
   }
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <Sidebar />
-      <main className="ml-64 flex-1">
-        <div className="pointer-events-none fixed top-0 left-64 right-0 h-72 gradient-radial z-0" />
+    <AppLayout>
+      <main className="flex-1 overflow-y-auto">
+        <div className="pointer-events-none fixed top-0 lg:left-64 left-0 right-0 h-72 gradient-radial z-0" />
 
-        <div className="relative z-10 px-8 py-8 max-w-2xl">
+        <div className="relative z-10 px-4 sm:px-8 py-6 sm:py-8 max-w-2xl">
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
             <h2 className="text-2xl font-bold text-foreground tracking-tight mb-1">Your Profile</h2>
             <p className="text-sm text-muted-foreground mb-8">

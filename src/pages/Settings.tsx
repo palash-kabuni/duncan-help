@@ -121,8 +121,9 @@ const Settings = () => {
             Duncan · KabuniOS v0.1
           </p>
         </div>
+        </div>
       </main>
-    </div>
+    </AppLayout>
   );
 };
 
