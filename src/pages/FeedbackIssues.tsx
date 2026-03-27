@@ -96,9 +96,8 @@ const FeedbackIssues = () => {
 
   if (submitted) {
     return (
-      <div className="flex min-h-screen bg-background">
-        <Sidebar />
-        <main className="flex-1 ml-64 flex items-center justify-center p-8">
+      <AppLayout>
+        <main className="flex-1 flex items-center justify-center p-4 sm:p-8">
           <Card className="max-w-md w-full text-center">
             <CardContent className="pt-8 pb-8 space-y-4">
               <CheckCircle className="h-12 w-12 text-primary mx-auto" />
