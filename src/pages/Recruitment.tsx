@@ -270,7 +270,18 @@ const Recruitment = () => {
       });
       if (res.error) throw res.error;
       const d = res.data;
-      toast.success(`Invited ${d.invited} candidate(s).${d.skipped ? ` ${d.skipped} skipped.` : ""}${d.failed ? ` ${d.failed} failed.` : ""}`);
+      if (d.invited > 0) {
+        toast.success(`Invited ${d.invited} candidate(s).`);
+      }
+      if (d.failed > 0) {
+        const failedItems = (d.results || []).filter((r: any) => r.status === "failed");
+        for (const item of failedItems) {
+          toast.error(`${item.name}: ${item.reason}`);
+        }
+      }
+      if (d.skipped > 0) {
+        toast.info(`${d.skipped} skipped (already invited).`);
+      }
       setSelectedCandidates(new Set());
       refetchCandidates();
     } catch (err: any) {
