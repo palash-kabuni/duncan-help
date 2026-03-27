@@ -1832,7 +1832,7 @@ serve(async (req) => {
     let calendarAccessToken: string | null = null;
     let azureStorageAvailable = false;
     let notionToken: string | null = null;
-    let basecampCreds: { accessToken: string; accountId: string } | null = null;
+    let basecampConnected = false;
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
