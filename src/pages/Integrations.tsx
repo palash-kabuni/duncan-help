@@ -7,7 +7,7 @@ import {
   GitBranch, Receipt
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
-import Sidebar from "@/components/Sidebar";
+import AppLayout from "@/components/AppLayout";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
