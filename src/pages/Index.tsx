@@ -5,6 +5,7 @@ import {
   FileText, Receipt, Users, FolderOpen,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import duncanAvatar from "@/assets/duncan-avatar.jpeg";
 import remarkGfm from "remark-gfm";
 import { useNavigate } from "react-router-dom";
 import Sidebar, { MobileMenuButton } from "@/components/Sidebar";
