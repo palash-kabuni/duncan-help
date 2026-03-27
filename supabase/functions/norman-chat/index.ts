@@ -1854,8 +1854,8 @@ serve(async (req) => {
     // Get Notion token (company-wide)
     notionToken = await getNotionToken(supabaseAdmin);
 
-    // Get Basecamp credentials (company-wide)
-    basecampCreds = await getBasecampAccessToken(supabaseAdmin);
+    // Check Basecamp connection (company-wide)
+    basecampConnected = await isBasecampConnected(supabaseAdmin);
     // Get available Google Forms and inject into system prompt
     const { data: googleForms } = await supabaseAdmin
       .from("google_forms")
