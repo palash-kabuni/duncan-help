@@ -107,7 +107,7 @@ const Auth = () => {
   };
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex min-h-[100dvh] bg-background">
       {/* Left - branding */}
       <div className="hidden lg:flex lg:w-1/2 flex-col justify-center items-center relative overflow-hidden">
         <div className="absolute inset-0 bg-grid opacity-30" />
@@ -148,24 +148,27 @@ const Auth = () => {
       </div>
 
       {/* Right - form */}
-      <div className="flex-1 flex items-center justify-center px-8">
+      <div className="flex-1 flex items-center justify-center px-5 sm:px-8 py-8 sm:py-12">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="w-full max-w-sm"
         >
           {/* Mobile logo */}
-          <div className="lg:hidden flex items-center gap-3 mb-8">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 glow-primary-sm">
-              <Brain className="h-5 w-5 text-primary" />
+          <div className="lg:hidden flex flex-col items-center gap-2 mb-6 sm:mb-8">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 border border-primary/20 glow-primary-sm">
+              <Brain className="h-6 w-6 text-primary" />
             </div>
-            <h1 className="text-lg font-bold text-foreground">Duncan</h1>
+            <h1 className="text-xl font-bold text-foreground">Duncan</h1>
+            <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">
+              Internal Operating System
+            </p>
           </div>
 
-          <h2 className="text-2xl font-bold text-foreground tracking-tight mb-1">
+          <h2 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight mb-1 text-center lg:text-left">
             {isLogin ? "Welcome back" : "Join Duncan"}
           </h2>
-          <p className="text-sm text-muted-foreground mb-8">
+          <p className="text-sm text-muted-foreground mb-6 sm:mb-8 text-center lg:text-left">
             {isLogin ? "Sign in to your account" : "Create your team account"}
           </p>
 
