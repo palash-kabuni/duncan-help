@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Brain, LayoutDashboard, Plug, Settings, LogOut, UserCircle, Users, Activity, Bug, X } from "lucide-react";
+import { Brain, LayoutDashboard, Plug, Settings, LogOut, UserCircle, Bug, X } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 import { NavLink as RouterNavLink, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -10,14 +10,6 @@ const navItems = [{
   icon: LayoutDashboard,
   label: "Dashboard",
   to: "/"
-}, {
-  icon: Users,
-  label: "Recruitment",
-  to: "/recruitment"
-}, {
-  icon: Activity,
-  label: "Operations",
-  to: "/operations"
 }, {
   icon: Plug,
   label: "Integrations",
