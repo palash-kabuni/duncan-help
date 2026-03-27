@@ -55,7 +55,6 @@ export default function VoiceAgent() {
 
       await conversation.startSession({
         conversationToken: data.token,
-        connectionType: "webrtc",
       });
     } catch (err: any) {
       console.error("Failed to start voice:", err);
