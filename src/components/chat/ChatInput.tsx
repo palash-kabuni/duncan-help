@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Send, Paperclip, X, FileText, Image as ImageIcon, Loader2 } from "lucide-react";
+import { Send, Paperclip, X, FileText, Image as ImageIcon, Loader2, Mic } from "lucide-react";
 import type { ChatAttachment } from "@/hooks/useNormanChat";
 
 interface ChatInputProps {
   onSubmit: (input: string, attachments: ChatAttachment[]) => void;
   isLoading: boolean;
+  onVoiceToggle?: () => void;
+  isVoiceActive?: boolean;
 }
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
