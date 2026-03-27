@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Brain, LayoutDashboard, Plug, Settings, LogOut, UserCircle, Users, Activity, Bug, X } from "lucide-react";
+import { Brain, LayoutDashboard, Plug, Settings, LogOut, UserCircle, Bug, X } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 import { NavLink as RouterNavLink, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
