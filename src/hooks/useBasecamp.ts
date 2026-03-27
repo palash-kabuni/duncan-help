@@ -56,15 +56,15 @@ export function useBasecamp() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const callBasecampApi = useCallback(async (endpoint: string, method = "GET", body?: any) => {
+  const callBasecampApi = useCallback(async (endpoint: string, method = "GET", body?: any, paginate = false) => {
     setLoading(true);
     setError(null);
     try {
       const { data, error: fnError } = await supabase.functions.invoke("basecamp-api", {
-        body: { endpoint, method, body },
+        body: { endpoint, method, body, paginate },
       });
       if (fnError) throw new Error(fnError.message);
-      if (data?.error) throw new Error(data.error);
+      if (data?.error) throw new Error(data.details ? `${data.error}: ${data.details}` : data.error);
       return data;
     } catch (err: any) {
       setError(err.message);
@@ -75,19 +75,30 @@ export function useBasecamp() {
   }, []);
 
   const fetchProjects = useCallback(async (): Promise<BasecampProject[] | null> => {
-    return callBasecampApi("projects");
+    return callBasecampApi("projects", "GET", undefined, true);
   }, [callBasecampApi]);
 
   const fetchTodoLists = useCallback(async (projectId: number, todoSetId: number): Promise<BasecampTodoList[] | null> => {
-    return callBasecampApi(`buckets/${projectId}/todosets/${todoSetId}/todolists`);
+    return callBasecampApi(`buckets/${projectId}/todosets/${todoSetId}/todolists`, "GET", undefined, true);
   }, [callBasecampApi]);
 
-  const fetchTodos = useCallback(async (projectId: number, todoListId: number): Promise<BasecampTodo[] | null> => {
-    return callBasecampApi(`buckets/${projectId}/todolists/${todoListId}/todos`);
+  const fetchTodos = useCallback(async (projectId: number, todoListId: number, includeCompleted = true): Promise<BasecampTodo[] | null> => {
+    if (!includeCompleted) {
+      return callBasecampApi(`buckets/${projectId}/todolists/${todoListId}/todos`, "GET", undefined, true);
+    }
+    // Fetch both incomplete and completed todos
+    const [incomplete, completed] = await Promise.all([
+      callBasecampApi(`buckets/${projectId}/todolists/${todoListId}/todos`, "GET", undefined, true),
+      callBasecampApi(`buckets/${projectId}/todolists/${todoListId}/todos?completed=true`, "GET", undefined, true),
+    ]);
+    const all: BasecampTodo[] = [];
+    if (incomplete) all.push(...incomplete);
+    if (completed) all.push(...completed);
+    return all.length > 0 ? all : incomplete;
   }, [callBasecampApi]);
 
   const fetchMessages = useCallback(async (projectId: number, messageBoardId: number): Promise<BasecampMessage[] | null> => {
-    return callBasecampApi(`buckets/${projectId}/message_boards/${messageBoardId}/messages`);
+    return callBasecampApi(`buckets/${projectId}/message_boards/${messageBoardId}/messages`, "GET", undefined, true);
   }, [callBasecampApi]);
 
   return {
