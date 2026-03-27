@@ -31,16 +31,15 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
 
-    const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData, error: claimsError } = await supabaseUser.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) {
+    const { data: { user }, error: userError } = await supabaseUser.auth.getUser();
+    if (userError || !user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const { endpoint, method = "GET", body } = await req.json();
+    const { endpoint, method = "GET", body, paginate = false } = await req.json();
 
     if (!endpoint) {
       return new Response(JSON.stringify({ error: "endpoint is required" }), {
@@ -127,13 +126,70 @@ Deno.serve(async (req) => {
     const baseUrl = `https://3.basecampapi.com/${accountId}`;
     const apiUrl = endpoint.startsWith("http") ? endpoint : `${baseUrl}/${endpoint}.json`;
 
+    const basecampHeaders: Record<string, string> = {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      "User-Agent": "Duncan (duncan.help)",
+    };
+
+    // If paginate is true, follow Link headers to get all pages
+    if (paginate && method === "GET") {
+      let allData: any[] = [];
+      let nextUrl: string | null = apiUrl;
+
+      while (nextUrl) {
+        const fetchOptions: RequestInit = {
+          method: "GET",
+          headers: basecampHeaders,
+        };
+
+        const apiResponse = await fetch(nextUrl, fetchOptions);
+
+        if (!apiResponse.ok) {
+          const errorText = await apiResponse.text();
+          console.error(`Basecamp API error [${apiResponse.status}]:`, errorText);
+          return new Response(
+            JSON.stringify({
+              error: `Basecamp API error: ${apiResponse.status}`,
+              details: errorText,
+            }),
+            {
+              status: apiResponse.status,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            }
+          );
+        }
+
+        const pageData = await apiResponse.json();
+        if (Array.isArray(pageData)) {
+          allData = allData.concat(pageData);
+        } else {
+          // Non-array response, return directly (no pagination for single objects)
+          return new Response(JSON.stringify(pageData), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        // Parse Link header for next page
+        const linkHeader = apiResponse.headers.get("Link");
+        nextUrl = null;
+        if (linkHeader) {
+          const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+          if (nextMatch) {
+            nextUrl = nextMatch[1];
+          }
+        }
+      }
+
+      return new Response(JSON.stringify(allData), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Standard single-page request
     const fetchOptions: RequestInit = {
       method,
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-        "User-Agent": "Duncan (duncan.help)",
-      },
+      headers: basecampHeaders,
     };
 
     if (body && method !== "GET") {
@@ -158,6 +214,19 @@ Deno.serve(async (req) => {
     }
 
     const data = await apiResponse.json();
+
+    // Include pagination info in response if available
+    const linkHeader = apiResponse.headers.get("Link");
+    let hasMore = false;
+    if (linkHeader) {
+      hasMore = linkHeader.includes('rel="next"');
+    }
+
+    if (hasMore) {
+      return new Response(JSON.stringify({ data, has_more: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     return new Response(JSON.stringify(data), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
