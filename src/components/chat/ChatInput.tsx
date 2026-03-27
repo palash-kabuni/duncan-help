@@ -31,7 +31,7 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-export default function ChatInput({ onSubmit, isLoading }: ChatInputProps) {
+export default function ChatInput({ onSubmit, isLoading, onVoiceToggle, isVoiceActive }: ChatInputProps) {
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
