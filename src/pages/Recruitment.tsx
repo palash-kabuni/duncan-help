@@ -405,7 +405,7 @@ const Recruitment = () => {
                 {syncingInterviews ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart3 className="h-4 w-4" />}
                 Sync Interviews
               </Button>
-              {selectedCandidates.size > 0 && (
+              {selectedCandidates.size > 0 && roleIsLinked && (
                 <Button
                   size="sm"
                   onClick={sendHireflixInvites}
@@ -415,6 +415,11 @@ const Recruitment = () => {
                   {sendingInvites ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}
                   Send Hireflix Invite ({selectedCandidates.size})
                 </Button>
+              )}
+              {selectedCandidates.size > 0 && !roleIsLinked && (
+                <Badge variant="destructive" className="text-xs gap-1">
+                  <AlertCircle className="h-3 w-3" /> Role not linked to Hireflix
+                </Badge>
               )}
             </div>
           </CardHeader>
