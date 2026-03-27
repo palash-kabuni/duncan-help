@@ -690,9 +690,9 @@ const Recruitment = () => {
                             })}
                           </div>
                         )}
-                        {c.hireflix_interview_url && (
+                        {c.hireflix_playback_url && (
                           <a
-                            href={c.hireflix_interview_url}
+                            href={c.hireflix_playback_url}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
