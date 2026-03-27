@@ -6,26 +6,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-async function fetchHireflixPositions(apiKey: string): Promise<any[]> {
-  const query = `query { positions { id name } }`;
-  const res = await fetch("https://api.hireflix.com/me", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-API-KEY": apiKey,
-    },
-    body: JSON.stringify({ query }),
-  });
-  const rawText = await res.text();
-  console.log("Hireflix raw API response status:", res.status, "body:", rawText);
-  try {
-    const data = JSON.parse(rawText);
-    return data.data?.positions || [];
-  } catch {
-    return [];
-  }
-}
-
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -40,20 +20,18 @@ serve(async (req) => {
       });
     }
 
+    // Auth: use getUser() instead of broken getClaims()
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
     const supabase = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: authHeader } },
     });
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(
-      authHeader.replace("Bearer ", "")
-    );
-    if (claimsError || !claimsData?.claims) {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -69,7 +47,7 @@ serve(async (req) => {
       });
     }
 
-    // Fetch candidates with their job role info
+    // Fetch candidates
     const { data: candidates, error: fetchError } = await supabaseAdmin
       .from("candidates")
       .select("id, name, email, hireflix_status, job_role_id")
@@ -81,10 +59,8 @@ serve(async (req) => {
       });
     }
 
-    // Get unique job_role_ids from selected candidates
+    // Get role → hireflix_position_id mapping (NO fuzzy matching)
     const roleIds = [...new Set(candidates.map((c: any) => c.job_role_id).filter(Boolean))];
-
-    // Fetch job roles to get hireflix_position_id and title
     const { data: roles } = await supabaseAdmin
       .from("job_roles")
       .select("id, title, hireflix_position_id")
@@ -92,46 +68,30 @@ serve(async (req) => {
 
     const roleMap = new Map((roles || []).map((r: any) => [r.id, r]));
 
-    // Check if any roles are missing hireflix_position_id — auto-match from Hireflix
-    const unmappedRoles = (roles || []).filter((r: any) => !r.hireflix_position_id);
-    if (unmappedRoles.length > 0) {
-      const hfPositions = await fetchHireflixPositions(HIREFLIX_API_KEY);
-      console.log("Hireflix positions returned:", JSON.stringify(hfPositions.map((p: any) => ({ id: p.id, name: p.name, status: p.status }))));
-      console.log("Unmapped roles to match:", JSON.stringify(unmappedRoles.map((r: any) => ({ id: r.id, title: r.title }))));
-
-      for (const role of unmappedRoles) {
-        // Fuzzy match: case-insensitive title contains
-        const match = hfPositions.find((p: any) =>
-          p.name?.toLowerCase().includes(role.title.toLowerCase()) ||
-          role.title.toLowerCase().includes(p.name?.toLowerCase())
-        );
-        if (match) {
-          // Save the mapping for future use
-          await supabaseAdmin
-            .from("job_roles")
-            .update({ hireflix_position_id: match.id })
-            .eq("id", role.id);
-          role.hireflix_position_id = match.id;
-          roleMap.set(role.id, role);
-        }
-      }
-    }
-
     let invited = 0;
     let failed = 0;
     let skipped = 0;
     const results: any[] = [];
 
     for (const candidate of candidates) {
+      // Skip if no email
       if (!candidate.email) {
-        skipped++;
-        results.push({ id: candidate.id, name: candidate.name, status: "skipped", reason: "no email" });
+        failed++;
+        results.push({ id: candidate.id, name: candidate.name, status: "failed", reason: "Candidate email missing" });
         continue;
       }
 
+      // Skip already invited/completed
       if (candidate.hireflix_status === "invited" || candidate.hireflix_status === "completed") {
         skipped++;
-        results.push({ id: candidate.id, name: candidate.name, status: "skipped", reason: `already ${candidate.hireflix_status}` });
+        results.push({ id: candidate.id, name: candidate.name, status: "skipped", reason: `Already ${candidate.hireflix_status}` });
+        continue;
+      }
+
+      // Check role mapping - MUST have hireflix_position_id
+      if (!candidate.job_role_id) {
+        failed++;
+        results.push({ id: candidate.id, name: candidate.name, status: "failed", reason: "No job role assigned" });
         continue;
       }
 
@@ -140,20 +100,24 @@ serve(async (req) => {
 
       if (!positionId) {
         failed++;
-        const reason = !candidate.job_role_id
-          ? "candidate has no job role assigned"
-          : `no Hireflix position matched for role "${role?.title || "unknown"}"`;
-        results.push({ id: candidate.id, name: candidate.name, status: "failed", reason });
+        results.push({
+          id: candidate.id,
+          name: candidate.name,
+          status: "failed",
+          reason: `Role "${role?.title || "unknown"}" not linked to Hireflix. Link it first in Job Roles.`,
+        });
         continue;
       }
 
+      // Send invite via GraphQL - properly escaped variables
       try {
-        const fullName = (candidate.name || "").trim();
+        const fullName = (candidate.name || "").trim().replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+        const email = candidate.email.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 
         const mutation = `
           mutation {
             Position(id: "${positionId}") {
-              invite(candidate: { name: "${fullName}", email: "${candidate.email}" }) {
+              invite(candidate: { name: "${fullName}", email: "${email}" }) {
                 id
                 url {
                   public
@@ -176,30 +140,50 @@ serve(async (req) => {
         const gqlData = await gqlResponse.json();
 
         if (gqlData.errors) {
-          console.error(`Hireflix error for ${candidate.id}:`, JSON.stringify(gqlData.errors));
+          console.error(`Hireflix API error for ${candidate.id}:`, JSON.stringify(gqlData.errors));
           failed++;
-          results.push({ id: candidate.id, name: candidate.name, status: "failed", reason: gqlData.errors[0]?.message });
+          results.push({
+            id: candidate.id,
+            name: candidate.name,
+            status: "failed",
+            reason: `Hireflix API: ${gqlData.errors[0]?.message || "Unknown API error"}`,
+          });
           continue;
         }
 
         const interview = gqlData.data?.Position?.invite;
         const interviewUrl = interview?.url?.short || interview?.url?.public || null;
+        const hireflixCandidateId = interview?.id || null;
 
         await supabaseAdmin
           .from("candidates")
           .update({
             hireflix_status: "invited",
             hireflix_interview_url: interviewUrl,
+            hireflix_candidate_id: hireflixCandidateId,
             hireflix_invited_at: new Date().toISOString(),
+            failure_reason: null,
           })
           .eq("id", candidate.id);
 
         invited++;
-        results.push({ id: candidate.id, name: candidate.name, status: "invited", url: interviewUrl });
+        results.push({
+          id: candidate.id,
+          name: candidate.name,
+          status: "invited",
+          url: interviewUrl,
+          hireflix_candidate_id: hireflixCandidateId,
+        });
       } catch (err) {
         console.error(`Error inviting candidate ${candidate.id}:`, err);
         failed++;
-        results.push({ id: candidate.id, name: candidate.name, status: "failed", reason: err.message });
+        const reason = err.message || "Unknown error during invite";
+        // Store failure reason in DB
+        await supabaseAdmin
+          .from("candidates")
+          .update({ failure_reason: reason })
+          .eq("id", candidate.id);
+        results.push({ id: candidate.id, name: candidate.name, status: "failed", reason });
       }
     }
 
