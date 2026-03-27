@@ -122,7 +122,7 @@ export default function VoiceAgent() {
               </>
             ) : (
               <>
-                <Mic className="h-4 w-4 text-green-500" />
+                <Mic className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
                 Listening…
               </>
             )}
