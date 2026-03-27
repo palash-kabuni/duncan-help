@@ -1893,7 +1893,7 @@ serve(async (req) => {
       systemContent += "\n\nNote: Notion is not connected. If the user asks about Notion data, let them know an admin needs to connect Notion first via the Integrations page.";
     }
 
-    if (!basecampCreds) {
+    if (!basecampConnected) {
       systemContent += "\n\nNote: Basecamp is not connected. If the user asks about Basecamp projects, to-dos, or messages, let them know an admin needs to connect Basecamp first via the Integrations page.";
     }
 
