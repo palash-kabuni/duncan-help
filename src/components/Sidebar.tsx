@@ -88,9 +88,12 @@ const Sidebar = () => {
               <div className="min-w-0">
                 <p className="text-xs font-medium text-foreground truncate">{user.email}</p>
               </div>
-              <button onClick={signOut} className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors" title="Sign out">
-                <LogOut className="h-3.5 w-3.5" />
-              </button>
+              <div className="flex items-center gap-1">
+                <ThemeToggle />
+                <button onClick={signOut} className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors" title="Sign out">
+                  <LogOut className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
           )}
           <button
