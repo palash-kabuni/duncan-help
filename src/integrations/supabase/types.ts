@@ -194,9 +194,11 @@ export type Database = {
           email_subject: string | null
           failure_reason: string | null
           gmail_message_id: string | null
+          hireflix_candidate_id: string | null
           hireflix_interview_id: string | null
           hireflix_interview_url: string | null
           hireflix_invited_at: string | null
+          hireflix_playback_url: string | null
           hireflix_status: string | null
           id: string
           interview_final_score: number | null
@@ -220,9 +222,11 @@ export type Database = {
           email_subject?: string | null
           failure_reason?: string | null
           gmail_message_id?: string | null
+          hireflix_candidate_id?: string | null
           hireflix_interview_id?: string | null
           hireflix_interview_url?: string | null
           hireflix_invited_at?: string | null
+          hireflix_playback_url?: string | null
           hireflix_status?: string | null
           id?: string
           interview_final_score?: number | null
@@ -246,9 +250,11 @@ export type Database = {
           email_subject?: string | null
           failure_reason?: string | null
           gmail_message_id?: string | null
+          hireflix_candidate_id?: string | null
           hireflix_interview_id?: string | null
           hireflix_interview_url?: string | null
           hireflix_invited_at?: string | null
+          hireflix_playback_url?: string | null
           hireflix_status?: string | null
           id?: string
           interview_final_score?: number | null
