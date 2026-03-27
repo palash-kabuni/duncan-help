@@ -232,8 +232,22 @@ const Index = () => {
           )}
         </div>
 
+        {/* Voice agent overlay */}
+        {voiceMode && (
+          <Suspense fallback={null}>
+            <div className="relative z-10 border-t border-border bg-card/50 backdrop-blur-sm">
+              <VoiceAgent />
+            </div>
+          </Suspense>
+        )}
+
         {/* Prompt input */}
-        <ChatInput onSubmit={handleChatSubmit} isLoading={isLoading} />
+        <ChatInput
+          onSubmit={handleChatSubmit}
+          isLoading={isLoading}
+          onVoiceToggle={() => setVoiceMode((v) => !v)}
+          isVoiceActive={voiceMode}
+        />
       </main>
     </div>
   );

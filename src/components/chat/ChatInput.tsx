@@ -173,6 +173,21 @@ export default function ChatInput({ onSubmit, isLoading, onVoiceToggle, isVoiceA
           >
             <Send className="h-3.5 w-3.5" />
           </button>
+
+          {onVoiceToggle && (
+            <button
+              type="button"
+              onClick={onVoiceToggle}
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-all ${
+                isVoiceActive
+                  ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  : "bg-secondary text-muted-foreground hover:text-foreground hover:bg-secondary/80"
+              }`}
+              title={isVoiceActive ? "End voice mode" : "Start voice mode"}
+            >
+              <Mic className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
         <p className="mt-2 text-center text-[10px] font-mono text-muted-foreground/40">
           Shift+Enter for new line · Attach files for analysis · Powered by Duncan AI Engine
