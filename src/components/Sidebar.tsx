@@ -1,20 +1,24 @@
-import { useState } from "react";
-import { Brain, LayoutDashboard, Plug, Settings, LogOut, UserCircle, Bug, X } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Brain, LayoutDashboard, Plug, Settings, LogOut, UserCircle, Bug, X, ChevronDown, CheckCircle2, Mail, FileText, MessageSquare, Calendar, FolderOpen, GitBranch, Receipt, Zap } from "lucide-react";
 import ThemeToggle from "@/components/ThemeToggle";
 import { NavLink as RouterNavLink, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 
-const navItems = [{
-  icon: LayoutDashboard,
-  label: "Dashboard",
-  to: "/"
-}, {
-  icon: Plug,
-  label: "Integrations",
-  to: "/integrations"
-}];
+const integrationMeta: Record<string, { label: string; icon: React.ElementType }> = {
+  "google-workspace": { label: "Google Workspace", icon: Mail },
+  "gmail": { label: "Gmail", icon: Mail },
+  "notion": { label: "Notion", icon: FileText },
+  "slack": { label: "Slack", icon: MessageSquare },
+  "linear": { label: "Linear", icon: Zap },
+  "google-calendar": { label: "Google Calendar", icon: Calendar },
+  "azure-blob": { label: "Azure Blob", icon: FolderOpen },
+  "basecamp": { label: "Basecamp", icon: FolderOpen },
+  "azure-devops": { label: "Azure DevOps", icon: GitBranch },
+  "xero": { label: "Xero", icon: Receipt },
+};
 
 const settingsMenuItems = [
   { icon: Settings, label: "Settings", to: "/settings" },
@@ -26,6 +30,48 @@ const Sidebar = () => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [showModal, setShowModal] = useState(false);
+  const [integrationsOpen, setIntegrationsOpen] = useState(false);
+  const [connectedApps, setConnectedApps] = useState<string[]>([]);
+
+  useEffect(() => {
+    const fetchConnected = async () => {
+      try {
+        const { data: company } = await supabase
+          .from("company_integrations")
+          .select("integration_id")
+          .eq("status", "connected");
+        
+        const { data: userInt } = await supabase
+          .from("user_integrations")
+          .select("integration_id")
+          .eq("status", "connected");
+
+        const ids = new Set<string>();
+        company?.forEach(c => ids.add(c.integration_id));
+        userInt?.forEach(u => ids.add(u.integration_id));
+        
+        // Also check token tables for OAuth integrations
+        const [{ data: basecamp }, { data: gcal }, { data: gmail }, { data: azureDevops }, { data: xero }] = await Promise.all([
+          supabase.from("basecamp_tokens").select("id").limit(1),
+          supabase.from("google_calendar_tokens").select("id").limit(1),
+          supabase.from("gmail_tokens").select("id").limit(1),
+          supabase.from("azure_devops_tokens").select("id").limit(1),
+          supabase.from("xero_tokens").select("id").limit(1),
+        ]);
+        
+        if (basecamp?.length) ids.add("basecamp");
+        if (gcal?.length) ids.add("google-calendar");
+        if (gmail?.length) ids.add("gmail");
+        if (azureDevops?.length) ids.add("azure-devops");
+        if (xero?.length) ids.add("xero");
+        
+        setConnectedApps(Array.from(ids));
+      } catch {
+        // silent
+      }
+    };
+    if (user) fetchConnected();
+  }, [user]);
 
   return (
     <>
@@ -53,20 +99,62 @@ const Sidebar = () => {
 
         {/* Nav */}
         <nav className="flex-1 space-y-1 px-3 py-4">
-          {navItems.map(item => (
-            <RouterNavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                cn("flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all duration-150",
-                  isActive ? "bg-primary/10 text-primary glow-primary-sm" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                )
-              }
+          <RouterNavLink
+            to="/"
+            className={({ isActive }) =>
+              cn("flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all duration-150",
+                isActive ? "bg-primary/10 text-primary glow-primary-sm" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              )
+            }
+          >
+            <LayoutDashboard className="h-4 w-4" />
+            Dashboard
+          </RouterNavLink>
+
+          {/* Integrations dropdown */}
+          <div>
+            <button
+              onClick={() => setIntegrationsOpen(!integrationsOpen)}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all duration-150",
+                "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              )}
             >
-              <item.icon className="h-4 w-4" />
-              {item.label}
-            </RouterNavLink>
-          ))}
+              <Plug className="h-4 w-4" />
+              <span className="flex-1 text-left">Integrations</span>
+              <ChevronDown className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform duration-200", integrationsOpen && "rotate-180")} />
+            </button>
+            {integrationsOpen && (
+              <div className="ml-4 mt-1 space-y-0.5 border-l border-border pl-3">
+                {connectedApps.length === 0 ? (
+                  <p className="px-3 py-2 text-[11px] text-muted-foreground">No apps connected</p>
+                ) : (
+                  connectedApps.map(id => {
+                    const meta = integrationMeta[id];
+                    if (!meta) return null;
+                    const Icon = meta.icon;
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => navigate("/integrations")}
+                        className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-xs font-medium text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors"
+                      >
+                        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className="flex-1 text-left truncate">{meta.label}</span>
+                        <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />
+                      </button>
+                    );
+                  })
+                )}
+                <button
+                  onClick={() => navigate("/integrations")}
+                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-[11px] font-medium text-primary hover:bg-primary/5 transition-colors"
+                >
+                  Manage all →
+                </button>
+              </div>
+            )}
+          </div>
         </nav>
 
         {/* User */}
