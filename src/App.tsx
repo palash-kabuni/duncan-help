@@ -15,7 +15,7 @@ import Profile from "./pages/Profile";
 import ResetPassword from "./pages/ResetPassword";
 import Settings from "./pages/Settings";
 
-import PurchaseOrders from "./pages/PurchaseOrders";
+
 import Recruitment from "./pages/Recruitment";
 import Operations from "./pages/Operations";
 import FeedbackIssues from "./pages/FeedbackIssues";
