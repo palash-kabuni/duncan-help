@@ -107,8 +107,9 @@ const MessageBubble = ({
 
 /* ── Main Page ── */
 const Index = () => {
-  const { messages, isLoading, send, clearMessages } = useNormanChat();
+  const { messages, isLoading, send, sendBriefing, clearMessages } = useNormanChat();
   const navigate = useNavigate();
+  const briefingTriggered = useRef(false);
   
   const [downloadingUrl, setDownloadingUrl] = useState<string | null>(null);
   const [weather, setWeather] = useState<{ temp: number; description: string } | null>(null);
