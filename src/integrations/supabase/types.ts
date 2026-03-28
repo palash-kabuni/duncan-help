@@ -468,6 +468,45 @@ export type Database = {
         }
         Relationships: []
       }
+      hireflix_retry_queue: {
+        Row: {
+          attempts: number
+          completed_at: string | null
+          created_at: string
+          id: string
+          last_error: string | null
+          max_attempts: number
+          next_retry_at: string
+          operation: string
+          payload: Json
+          status: string
+        }
+        Insert: {
+          attempts?: number
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          next_retry_at?: string
+          operation: string
+          payload?: Json
+          status?: string
+        }
+        Update: {
+          attempts?: number
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          next_retry_at?: string
+          operation?: string
+          payload?: Json
+          status?: string
+        }
+        Relationships: []
+      }
       integration_audit_logs: {
         Row: {
           action: string
