@@ -1911,13 +1911,21 @@ serve(async (req) => {
     }
 
     if (mode === "briefing") {
-      systemContent += `\n\nYou are generating a personalized morning briefing for ${userProfile?.display_name || "a team member"}. Present a warm, concise briefing covering:
-1. **Meetings & Action Items** — Recent meetings and any action items assigned to this user
-2. **Project Updates** — Recent changes to their work items in Azure DevOps
-3. **Financial Overview** — Outstanding invoices or bills needing attention
-4. **Basecamp Tasks** — Any to-dos assigned or relevant to them
+      systemContent += `\n\nYou are generating a personalized morning briefing for ${userProfile?.display_name || "a team member"}. Present a warm, concise briefing covering ALL of these sections (skip only if truly empty):
 
-Use the briefing data provided in the user message. Format it as a natural, readable summary with clear sections. Use emojis sparingly for visual structure (📅 for meetings, 🎯 for action items, 💼 for work items, 💰 for invoices, ✅ for todos). If a section has no data, briefly note "No recent updates" for that area. Keep it actionable and concise. Address the user by name.`;
+1. 📅 **Today's Calendar** — Upcoming events/meetings scheduled for today
+2. 📋 **Meetings & Action Items** — Recent meeting summaries and action items assigned to this user
+3. 💼 **Project Updates** — Recent changes to their Azure DevOps work items
+4. 🛒 **Purchase Orders** — POs they submitted (pending/approved) and POs awaiting their approval
+5. 💰 **Finance** — Outstanding invoices/bills from Xero and any contacts with overdue balances
+6. ✅ **Basecamp Tasks** — To-dos assigned or relevant to them
+7. 💬 **Basecamp Messages** — Recent messages mentioning this user
+8. 🐛 **Issues & Feedback** — Issues they've submitted recently
+9. 👥 **Recruitment** — Candidate updates for job roles they created
+10. 📝 **NDAs** — Any NDA submissions in progress
+11. 📚 **Wiki Updates** — Recently updated wiki pages
+
+Use the briefing data provided in the user message. Format it as a natural, readable summary with clear sections. If a section has no data, briefly note "No recent updates" for that area. Keep it actionable and concise. Address the user by name. Highlight anything urgent (overdue items, pending approvals, items due today).`;
     } else if (mode === "reason") {
       systemContent += "\n\nYou are in REASONING mode. Think deeply and step-by-step. Show your reasoning chain explicitly using numbered steps. Consider multiple angles before concluding.";
     } else if (mode === "automate") {
