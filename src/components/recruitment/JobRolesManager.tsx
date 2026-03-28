@@ -233,10 +233,14 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
           }
         } catch (err: any) {
           // Queue for retry silently
-          await supabase.from("hireflix_retry_queue" as any).insert({
-            operation: "delete_position",
-            payload: { hireflix_position_id: hireflixPositionId },
-          }).catch(() => {});
+          try {
+            await supabase.from("hireflix_retry_queue" as any).insert({
+              operation: "delete_position",
+              payload: { hireflix_position_id: hireflixPositionId },
+            });
+          } catch {
+            // Silent fallback
+          }
           console.error("Hireflix delete error, queued for retry:", err.message);
         }
       }
