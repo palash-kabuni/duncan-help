@@ -11,7 +11,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Mail, RefreshCw, Users, Briefcase, Loader2, CheckCircle, AlertCircle, Star, Target, FileText, Video, ExternalLink, Trophy, BarChart3 } from "lucide-react";
+import { Mail, RefreshCw, Users, Briefcase, Loader2, CheckCircle, AlertCircle, Star, Target, FileText, Video, ExternalLink, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { JobRolesManager } from "@/components/recruitment/JobRolesManager";
 
@@ -101,7 +101,6 @@ const Recruitment = () => {
   const [scoringCompetencies, setScoringCompetencies] = useState(false);
   const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(new Set());
   const [sendingInvites, setSendingInvites] = useState(false);
-  const [syncingInterviews, setSyncingInterviews] = useState(false);
   const [interviewDetailCandidate, setInterviewDetailCandidate] = useState<any>(null);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [hasFetched, setHasFetched] = useState(false);
@@ -132,6 +131,7 @@ const Recruitment = () => {
       return data ?? [];
     },
     enabled: !!selectedRoleId && hasFetched,
+    refetchInterval: 30000, // Auto-refresh every 30s to pick up cron sync updates
   });
 
   const { data: jobRoles } = useQuery({
@@ -291,20 +291,7 @@ const Recruitment = () => {
     }
   };
 
-  const syncInterviews = async () => {
-    setSyncingInterviews(true);
-    try {
-      const res = await supabase.functions.invoke("hireflix-sync-interviews", { body: { force_rescore: true } });
-      if (res.error) throw res.error;
-      const d = res.data;
-      toast.success(`Synced ${d.synced} interview(s), scored ${d.scored}.${d.failed ? ` ${d.failed} failed.` : ""}`);
-      refetchCandidates();
-    } catch (err: any) {
-      toast.error("Failed to sync interviews: " + err.message);
-    } finally {
-      setSyncingInterviews(false);
-    }
-  };
+  // Interview sync is now automatic via cron — no manual button needed
 
   const isGmailConnected = gmailStatus?.status === "connected";
   const roleMap = new Map((jobRoles ?? []).map((r: any) => [r.id, r.title]));
@@ -400,10 +387,6 @@ const Recruitment = () => {
                   </Button>
                 </>
               )}
-              <Button size="sm" variant="outline" onClick={syncInterviews} disabled={syncingInterviews} className="gap-1.5">
-                {syncingInterviews ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart3 className="h-4 w-4" />}
-                Sync Interviews
-              </Button>
               {selectedCandidates.size > 0 && roleIsLinked && (
                 <Button
                   size="sm"
@@ -414,11 +397,6 @@ const Recruitment = () => {
                   {sendingInvites ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}
                   Send Hireflix Invite ({selectedCandidates.size})
                 </Button>
-              )}
-              {selectedCandidates.size > 0 && !roleIsLinked && (
-                <Badge variant="destructive" className="text-xs gap-1">
-                  <AlertCircle className="h-3 w-3" /> Role not linked to Hireflix
-                </Badge>
               )}
             </div>
           </CardHeader>

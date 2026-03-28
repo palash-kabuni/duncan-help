@@ -19,7 +19,6 @@ async function hireflixQuery(apiKey: string, query: string) {
   return data.data;
 }
 
-// Fetch all interviews for a position — includes playback URL and candidate id
 async function fetchPositionInterviews(apiKey: string, positionId: string) {
   const query = `
     query {
@@ -52,7 +51,6 @@ async function fetchPositionInterviews(apiKey: string, positionId: string) {
   return data?.position?.interviews || [];
 }
 
-// Score transcript using AI
 async function scoreTranscript(transcript: string): Promise<any> {
   const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
   if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY not configured");
@@ -253,30 +251,31 @@ serve(async (req) => {
       });
     }
 
-    // Auth check using getUser()
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    const supabase = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
-
+    // Support both authenticated (manual) and unauthenticated (cron) calls
     let forceRescore = false;
+    let isCronCall = false;
+
+    const authHeader = req.headers.get("Authorization");
+    if (authHeader?.startsWith("Bearer ")) {
+      // Try to authenticate — if it's the anon key from cron, user will be null
+      const supabase = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        // Anon key call (from cron) — allow it
+        isCronCall = true;
+      }
+    } else {
+      isCronCall = true;
+    }
+
     try {
       const body = await req.json();
       forceRescore = body?.force_rescore === true;
     } catch { /* no body is fine */ }
+
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
     // Get candidates with invited or completed status
     let candidateQuery = supabaseAdmin
@@ -335,7 +334,6 @@ serve(async (req) => {
       }
 
       for (const candidate of posCandidates) {
-        // Match interview to candidate using hireflix_candidate_id (primary) or email (fallback)
         let interview = null;
 
         if (candidate.hireflix_candidate_id) {
@@ -353,13 +351,11 @@ serve(async (req) => {
         }
 
         if (!interview) {
-          // Still invited, no completed interview yet
           if (candidate.hireflix_status !== "completed" || !forceRescore) {
             continue;
           }
         }
 
-        // Build transcript
         let transcript = "";
         let interviewId = candidate.hireflix_interview_id;
         let playbackUrl: string | null = null;
@@ -375,7 +371,6 @@ serve(async (req) => {
           hireflixCandidateId = interview.candidate?.id || hireflixCandidateId;
         }
 
-        // Fallback to existing transcript for re-scoring
         if (!transcript && forceRescore) {
           const { data: existing } = await supabaseAdmin
             .from("candidates")
@@ -392,7 +387,6 @@ serve(async (req) => {
 
         synced++;
 
-        // Score with AI
         try {
           const scores = await scoreTranscript(transcript);
 
@@ -414,7 +408,6 @@ serve(async (req) => {
           results.push({ id: candidate.id, name: candidate.name, status: "scored", final_score: scores.final_score });
         } catch (e) {
           console.error(`Failed to score candidate ${candidate.id}:`, e);
-          // Save transcript + playback even if scoring fails
           await supabaseAdmin
             .from("candidates")
             .update({
@@ -429,6 +422,31 @@ serve(async (req) => {
           results.push({ id: candidate.id, name: candidate.name, status: "transcript_saved", error: e.message });
         }
       }
+    }
+
+    // Also process retry queue while we're at it
+    try {
+      const { data: retries } = await supabaseAdmin
+        .from("hireflix_retry_queue")
+        .select("id")
+        .eq("status", "pending")
+        .lte("next_retry_at", new Date().toISOString())
+        .limit(1);
+
+      if (retries && retries.length > 0) {
+        // Trigger retry processor
+        const retryUrl = `${supabaseUrl}/functions/v1/hireflix-retry-processor`;
+        fetch(retryUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${supabaseServiceKey}`,
+          },
+          body: JSON.stringify({}),
+        }).catch(err => console.error("Failed to trigger retry processor:", err));
+      }
+    } catch (err) {
+      console.error("Failed to check retry queue:", err);
     }
 
     // Top 3 candidates
