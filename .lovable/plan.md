@@ -1,63 +1,60 @@
 
 
-## Personalized Login Briefing from Duncan
+## Expand Daily Briefing to Scan All Systems
 
-### What it does
-When a user logs in (once per session), Duncan automatically generates a personalized company briefing covering:
-- Emails handled by Duncan (drafted, replied)
-- Relevant Slack messages
-- Meeting summaries with action items assigned to the user
-- Key updates from Basecamp/Azure DevOps relevant to the user
+### Current Coverage (4 sources)
+- Meetings + action items (last 48h)
+- Azure DevOps work items assigned to user
+- Xero outstanding invoices
+- Basecamp to-dos
 
-### Architecture
+### Missing Sources to Add
 
-```text
-Login → Index page loads → Session check (sessionStorage) 
-  → If first visit this session:
-      1. Create a new edge function "daily-briefing" that queries across systems
-      2. Auto-send a briefing prompt to norman-chat
-      3. Display the response as the first message
+1. **Google Calendar** — Today's upcoming events so the user knows their schedule
+2. **Purchase Orders** — POs the user submitted (pending/approved) and POs awaiting their approval
+3. **Issues/Feedback** — Any issues submitted by or relevant to the user
+4. **Candidates/Recruitment** — Recent candidate updates for jobs the user created
+5. **NDA Submissions** — Any NDAs the user submitted and their status
+6. **Basecamp Messages** — Recent messages mentioning the user (not just to-dos)
+7. **Wiki Updates** — Recently updated wiki pages relevant to the user's department
+8. **Xero Contacts with Overdue Balances** — Flag any contacts with overdue amounts
+
+### Implementation
+
+**File: `supabase/functions/daily-briefing/index.ts`**
+
+Add 5 new parallel queries to the existing `Promise.all`:
+- `google_calendar_tokens` → if user has a token, call `google-calendar-api` to fetch today's events
+- `purchase_orders` where `requester_id = user.id` or pending approval in user's department (last 7 days)
+- `issues` where `user_id = user.id` (recent, last 7 days)
+- `candidates` joined with `job_roles` where `created_by = user.id` and recently updated
+- `nda_submissions` where `submitter_id = user.id` and status != 'completed'
+
+Also expand Basecamp fetching to include recent messages (via message boards) that mention the user's name.
+
+Add all new data sections to the briefing JSON response:
+```
+calendar: { todays_events: [...] }
+purchase_orders: { my_pending: [...], awaiting_my_approval: [...] }
+issues: { my_recent: [...] }
+recruitment: { active_candidates: [...] }
+ndas: { pending: [...] }
+basecamp: { my_todos: [...], messages_mentioning_me: [...] }
 ```
 
-### Implementation Plan
+**File: `supabase/functions/norman-chat/index.ts`**
 
-**1. Create `supabase/functions/daily-briefing/index.ts`**
-
-A new edge function that aggregates cross-system data for the logged-in user:
-- Query `meetings` table for recent meetings (last 24-48h) with action items assigned to the user
-- Query `xero_invoices` for any outstanding items relevant to the user
-- Query `azure_work_items` for items assigned to the user that changed recently
-- Query Basecamp via the existing proxy for recent to-dos assigned to the user
-- Return a structured JSON summary
-
-**2. Update `src/pages/Index.tsx`**
-
-- On first load per session (using `sessionStorage` flag, separate from the welcome modal), automatically trigger a briefing request
-- Instead of building a separate UI, send a structured prompt to `norman-chat` like: *"Generate my personalized morning briefing. Here is the latest data: {briefing_data}"*
-- This leverages Duncan's existing reasoning capabilities to produce a natural, personalized summary
-- The briefing appears as the first assistant message in the chat
-
-**3. Update `src/hooks/useNormanChat.ts`**
-
-- Add a `sendBriefing` method that sends the briefing prompt without adding a visible user message (so it looks like Duncan proactively speaks)
-- The assistant response streams in naturally as the first message
-
-**4. Update `supabase/functions/norman-chat/index.ts`**
-
-- Add a `daily_briefing` tool that the chat can call, or accept a `mode: "briefing"` that automatically gathers cross-system data
-- When mode is "briefing", the system prompt is augmented with: "Generate a concise, personalized morning briefing for this user covering: meetings & action items, recent relevant messages, project updates, and any items needing attention"
+Update the briefing mode system prompt to include new sections:
+- 📅 Today's Calendar
+- 📋 Purchase Orders needing attention
+- 🐛 Issues & Feedback
+- 👥 Recruitment updates
+- 📝 NDA status
+- 💬 Basecamp messages mentioning the user
 
 ### Technical Details
-
-- **Session gating**: `sessionStorage.getItem("duncan_briefing_shown")` prevents repeat triggers
-- **Data sources**: meetings table (action_items JSON), azure_work_items (assigned_to), xero_invoices (status), Basecamp to-dos
-- **User matching**: Uses the user's email and profile display_name to match across systems (e.g., `assigned_to` in Azure DevOps, action items in meetings)
-- **Performance**: The briefing edge function runs all queries in parallel (`Promise.all`) and returns within 2-3 seconds; the norman-chat then synthesizes it
-- **Fallback**: If no data is available for any source, Duncan gracefully notes "No recent updates" for that section
-
-### Files to create/modify
-- **Create**: `supabase/functions/daily-briefing/index.ts`
-- **Modify**: `src/pages/Index.tsx` — auto-trigger briefing on session start
-- **Modify**: `src/hooks/useNormanChat.ts` — add `sendBriefing()` method
-- **Modify**: `supabase/functions/norman-chat/index.ts` — add briefing mode/tool
+- All new queries run in parallel via `Promise.all` — no performance impact on existing queries
+- Google Calendar fetch reuses the existing `google-calendar-api` edge function proxy
+- User matching uses `user.id` for DB records and `displayName` for text-based matching (Basecamp messages, meeting action items)
+- Graceful fallback: if any source returns no data or errors, it's reported as "No updates" rather than failing the whole briefing
 
