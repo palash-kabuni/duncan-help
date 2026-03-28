@@ -3,7 +3,7 @@ import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/integrations/supabase/client";
 
 type Message = { role: "user" | "assistant"; content: string };
-type Mode = "general" | "reason" | "automate" | "analyze";
+type Mode = "general" | "reason" | "automate" | "analyze" | "briefing";
 
 export interface ChatAttachment {
   name: string;
