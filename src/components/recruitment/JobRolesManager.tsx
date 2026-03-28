@@ -9,8 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Briefcase, Plus, Loader2, Trash2, Upload, FileText, Sparkles, Download, Link2, AlertCircle } from "lucide-react";
+import { Briefcase, Plus, Loader2, Trash2, Upload, FileText, Sparkles, Download } from "lucide-react";
 import { toast } from "sonner";
 
 export function JobRolesManager() {
@@ -24,9 +23,6 @@ export function JobRolesManager() {
   const [jdFile, setJdFile] = useState<File | null>(null);
   const [generatedJd, setGeneratedJd] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [linkingRole, setLinkingRole] = useState<any>(null);
-  const [hireflixPositionId, setHireflixPositionId] = useState("");
-  const [savingLink, setSavingLink] = useState(false);
 
   const { data: jobRoles, isLoading } = useQuery({
     queryKey: ["job-roles"],
@@ -154,7 +150,7 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
         }
       }
 
-      // Auto-create Hireflix position
+      // Auto-create Hireflix position — queue retry on failure
       if (newRole) {
         toast.info("Creating Hireflix interview position...");
         try {
@@ -173,12 +169,32 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
           });
           if (res.error) throw res.error;
           if (res.data?.success) {
-            toast.success(`Hireflix position "${title.trim()}" created with interview questions`);
+            toast.success(`Hireflix position created automatically`);
           } else {
-            toast.warning("Hireflix position creation returned: " + (res.data?.error || "unknown issue"));
+            throw new Error(res.data?.error || "Unknown issue");
           }
         } catch (err: any) {
-          toast.warning("Role created but Hireflix setup failed: " + err.message);
+          // Queue for retry — don't leave the user with a broken state
+          console.error("Hireflix position creation failed, queuing retry:", err.message);
+          try {
+            const { data: roleData } = await supabase
+              .from("job_roles")
+              .select("competencies")
+              .eq("id", newRole.id)
+              .single();
+
+            await supabase.from("hireflix_retry_queue" as any).insert({
+              operation: "create_position",
+              payload: {
+                job_role_id: newRole.id,
+                title: title.trim(),
+                competencies: roleData?.competencies || [],
+              },
+            });
+            toast.warning("Hireflix position will be created automatically (queued for retry)");
+          } catch (retryErr: any) {
+            toast.error("Failed to queue Hireflix retry: " + retryErr.message);
+          }
         }
       }
 
@@ -196,10 +212,35 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
     }
   };
 
-  const handleDelete = async (id: string, roleTitle: string) => {
+  const handleDelete = async (id: string, roleTitle: string, hireflixPositionId: string | null) => {
     try {
       const { error } = await supabase.from("job_roles").delete().eq("id", id);
       if (error) throw error;
+
+      // Delete the corresponding Hireflix position
+      if (hireflixPositionId) {
+        try {
+          const res = await supabase.functions.invoke("delete-hireflix-position", {
+            body: { hireflix_position_id: hireflixPositionId },
+          });
+          if (res.error) {
+            // Queue for retry
+            await supabase.from("hireflix_retry_queue" as any).insert({
+              operation: "delete_position",
+              payload: { hireflix_position_id: hireflixPositionId },
+            });
+            console.error("Hireflix delete failed, queued for retry");
+          }
+        } catch (err: any) {
+          // Queue for retry silently
+          await supabase.from("hireflix_retry_queue" as any).insert({
+            operation: "delete_position",
+            payload: { hireflix_position_id: hireflixPositionId },
+          }).catch(() => {});
+          console.error("Hireflix delete error, queued for retry:", err.message);
+        }
+      }
+
       toast.success(`Role "${roleTitle}" deleted`);
       queryClient.invalidateQueries({ queryKey: ["job-roles"] });
     } catch (err: any) {
@@ -207,241 +248,184 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
     }
   };
 
-  const handleLinkHireflix = async () => {
-    if (!linkingRole || !hireflixPositionId.trim()) return;
-    setSavingLink(true);
-    try {
-      const { error } = await supabase
-        .from("job_roles")
-        .update({ hireflix_position_id: hireflixPositionId.trim() })
-        .eq("id", linkingRole.id);
-      if (error) throw error;
-      toast.success(`Linked "${linkingRole.title}" to Hireflix position`);
-      setLinkingRole(null);
-      setHireflixPositionId("");
-      queryClient.invalidateQueries({ queryKey: ["job-roles"] });
-    } catch (err: any) {
-      toast.error("Failed to link: " + err.message);
-    } finally {
-      setSavingLink(false);
-    }
-  };
-
   return (
-    <>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <div>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Briefcase className="h-4 w-4" />
-              Job Roles
-            </CardTitle>
-            <CardDescription>
-              Define roles — Duncan searches Gmail for CVs and auto-creates Hireflix positions
-            </CardDescription>
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <div>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Briefcase className="h-4 w-4" />
+            Job Roles
+          </CardTitle>
+          <CardDescription>
+            Define roles — Duncan auto-creates Hireflix positions and syncs interviews
+          </CardDescription>
+        </div>
+        {!adding && (
+          <Button size="sm" onClick={() => setAdding(true)}>
+            <Plus className="h-4 w-4 mr-1" /> Add Role
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {adding && (
+          <div className="border border-border rounded-lg p-4 space-y-3 bg-muted/30">
+            <div className="space-y-1.5">
+              <Label htmlFor="role-title">Role Title</Label>
+              <Input
+                id="role-title"
+                placeholder="e.g. Interior Designer, Project Manager"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Gmail will be searched for emails with this title in the subject line
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Job Description</Label>
+              <div className="flex items-center gap-2">
+                <Button type="button" size="sm" variant="outline" onClick={handleGenerateJd} disabled={generating || !title.trim()}>
+                  {generating ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Sparkles className="h-4 w-4 mr-1" />}
+                  {generating ? "Generating..." : "Generate JD"}
+                </Button>
+                <span className="text-xs text-muted-foreground">or</span>
+                <input ref={fileInputRef} type="file" accept=".pdf,.docx,.doc" className="hidden" onChange={(e) => { setJdFile(e.target.files?.[0] || null); setGeneratedJd(null); }} />
+                <Button type="button" size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}>
+                  <Upload className="h-4 w-4 mr-1" />
+                  {jdFile ? "Change File" : "Upload JD"}
+                </Button>
+                {jdFile && (
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <FileText className="h-3 w-3" /> {jdFile.name}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">Generate a JD from the role title using AI, or upload your own (PDF/DOCX)</p>
+            </div>
+
+            {generatedJd && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label>Generated JD Preview</Label>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => downloadJdPdf(title, generatedJd)}>
+                    <Download className="h-4 w-4 mr-1" /> Download
+                  </Button>
+                </div>
+                <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={8} className="text-xs font-mono" />
+              </div>
+            )}
+
+            {!generatedJd && (
+              <div className="space-y-1.5">
+                <Label htmlFor="role-desc">Description (optional)</Label>
+                <Textarea id="role-desc" placeholder="Brief description of the role..." value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button size="sm" onClick={handleCreate} disabled={saving}>
+                {saving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+                Save Role
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => { setAdding(false); setTitle(""); setDescription(""); setJdFile(null); setGeneratedJd(null); }}>
+                Cancel
+              </Button>
+            </div>
           </div>
-          {!adding && (
-            <Button size="sm" onClick={() => setAdding(true)}>
-              <Plus className="h-4 w-4 mr-1" /> Add Role
-            </Button>
-          )}
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {adding && (
-            <div className="border border-border rounded-lg p-4 space-y-3 bg-muted/30">
-              <div className="space-y-1.5">
-                <Label htmlFor="role-title">Role Title</Label>
-                <Input
-                  id="role-title"
-                  placeholder="e.g. Interior Designer, Project Manager"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Gmail will be searched for emails with this title in the subject line
-                </p>
-              </div>
+        )}
 
-              <div className="space-y-1.5">
-                <Label>Job Description</Label>
-                <div className="flex items-center gap-2">
-                  <Button type="button" size="sm" variant="outline" onClick={handleGenerateJd} disabled={generating || !title.trim()}>
-                    {generating ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Sparkles className="h-4 w-4 mr-1" />}
-                    {generating ? "Generating..." : "Generate JD"}
-                  </Button>
-                  <span className="text-xs text-muted-foreground">or</span>
-                  <input ref={fileInputRef} type="file" accept=".pdf,.docx,.doc" className="hidden" onChange={(e) => { setJdFile(e.target.files?.[0] || null); setGeneratedJd(null); }} />
-                  <Button type="button" size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}>
-                    <Upload className="h-4 w-4 mr-1" />
-                    {jdFile ? "Change File" : "Upload JD"}
-                  </Button>
-                  {jdFile && (
-                    <span className="text-xs text-muted-foreground flex items-center gap-1">
-                      <FileText className="h-3 w-3" /> {jdFile.name}
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground">Generate a JD from the role title using AI, or upload your own (PDF/DOCX)</p>
-              </div>
-
-              {generatedJd && (
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label>Generated JD Preview</Label>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => downloadJdPdf(title, generatedJd)}>
-                      <Download className="h-4 w-4 mr-1" /> Download
-                    </Button>
-                  </div>
-                  <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={8} className="text-xs font-mono" />
-                </div>
-              )}
-
-              {!generatedJd && (
-                <div className="space-y-1.5">
-                  <Label htmlFor="role-desc">Description (optional)</Label>
-                  <Textarea id="role-desc" placeholder="Brief description of the role..." value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
-                </div>
-              )}
-
-              <div className="flex gap-2">
-                <Button size="sm" onClick={handleCreate} disabled={saving}>
-                  {saving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
-                  Save Role
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => { setAdding(false); setTitle(""); setDescription(""); setJdFile(null); setGeneratedJd(null); }}>
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {isLoading ? (
-            <div className="flex justify-center py-4">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : jobRoles && jobRoles.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Competencies</TableHead>
-                  <TableHead>JD</TableHead>
-                  <TableHead>Hireflix</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="w-10" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {jobRoles.map((role: any) => {
-                  const competencies = Array.isArray(role.competencies) ? role.competencies : [];
-                  const isLinked = !!role.hireflix_position_id;
-                  return (
-                    <TableRow key={role.id}>
-                      <TableCell className="font-medium">{role.title}</TableCell>
-                      <TableCell>
-                        {competencies.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {competencies.slice(0, 3).map((c: any, i: number) => (
-                              <Badge key={i} variant="outline" className="text-[10px]">
-                                {typeof c === "string" ? c : c.name || c.title}
-                              </Badge>
-                            ))}
-                            {competencies.length > 3 && (
-                              <Badge variant="secondary" className="text-[10px]">+{competencies.length - 3}</Badge>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {role.jd_storage_path ? (
-                          <Badge variant="outline" className="text-[10px]">
-                            <FileText className="h-3 w-3 mr-1" /> Uploaded
-                          </Badge>
-                        ) : role.description && role.description.length > 100 ? (
-                          <Badge variant="outline" className="text-[10px]">
-                            <Sparkles className="h-3 w-3 mr-1" /> Generated
-                            <Button type="button" size="icon" variant="ghost" className="h-5 w-5 ml-1" onClick={() => downloadJdPdf(role.title, role.description)}>
-                              <Download className="h-3 w-3" />
-                            </Button>
-                          </Badge>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {isLinked ? (
-                          <Badge variant="default" className="text-[10px] gap-1">
-                            ✅ Linked
-                          </Badge>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-6 text-[10px] gap-1 border-destructive/30 text-destructive hover:text-destructive"
-                            onClick={() => { setLinkingRole(role); setHireflixPositionId(""); }}
-                          >
-                            <AlertCircle className="h-3 w-3" /> Not Linked
-                          </Button>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={role.status === "active" ? "default" : "secondary"}>
-                          {role.status}
+        {isLoading ? (
+          <div className="flex justify-center py-4">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : jobRoles && jobRoles.length > 0 ? (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Title</TableHead>
+                <TableHead>Competencies</TableHead>
+                <TableHead>JD</TableHead>
+                <TableHead>Hireflix</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead className="w-10" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {jobRoles.map((role: any) => {
+                const competencies = Array.isArray(role.competencies) ? role.competencies : [];
+                const isLinked = !!role.hireflix_position_id;
+                return (
+                  <TableRow key={role.id}>
+                    <TableCell className="font-medium">{role.title}</TableCell>
+                    <TableCell>
+                      {competencies.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {competencies.slice(0, 3).map((c: any, i: number) => (
+                            <Badge key={i} variant="outline" className="text-[10px]">
+                              {typeof c === "string" ? c : c.name || c.title}
+                            </Badge>
+                          ))}
+                          {competencies.length > 3 && (
+                            <Badge variant="secondary" className="text-[10px]">+{competencies.length - 3}</Badge>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {role.jd_storage_path ? (
+                        <Badge variant="outline" className="text-[10px]">
+                          <FileText className="h-3 w-3 mr-1" /> Uploaded
                         </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {new Date(role.created_at).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell>
-                        <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDelete(role.id, role.title)}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          ) : (
-            <p className="text-sm text-muted-foreground py-4 text-center">
-              No roles yet. Add a role to start matching CVs from Gmail.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Manual Hireflix Linking Dialog */}
-      <Dialog open={!!linkingRole} onOpenChange={(open) => !open && setLinkingRole(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Link2 className="h-4 w-4" /> Link to Hireflix
-            </DialogTitle>
-            <DialogDescription>
-              Enter the Hireflix Position ID for "{linkingRole?.title}". You can find this in your Hireflix dashboard under the position settings.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="hireflix-id">Hireflix Position ID</Label>
-            <Input
-              id="hireflix-id"
-              placeholder="e.g. 6478a3f2b1c..."
-              value={hireflixPositionId}
-              onChange={(e) => setHireflixPositionId(e.target.value)}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setLinkingRole(null)}>Cancel</Button>
-            <Button onClick={handleLinkHireflix} disabled={savingLink || !hireflixPositionId.trim()}>
-              {savingLink && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
-              Link Position
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+                      ) : role.description && role.description.length > 100 ? (
+                        <Badge variant="outline" className="text-[10px]">
+                          <Sparkles className="h-3 w-3 mr-1" /> Generated
+                          <Button type="button" size="icon" variant="ghost" className="h-5 w-5 ml-1" onClick={() => downloadJdPdf(role.title, role.description)}>
+                            <Download className="h-3 w-3" />
+                          </Button>
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {isLinked ? (
+                        <Badge variant="default" className="text-[10px] gap-1">
+                          ✅ Linked
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="text-[10px] gap-1">
+                          <Loader2 className="h-3 w-3 animate-spin" /> Syncing...
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={role.status === "active" ? "default" : "secondary"}>
+                        {role.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {new Date(role.created_at).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell>
+                      <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDelete(role.id, role.title, role.hireflix_position_id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        ) : (
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            No roles yet. Add a role to start matching CVs from Gmail.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
