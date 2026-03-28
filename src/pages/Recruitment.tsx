@@ -101,7 +101,6 @@ const Recruitment = () => {
   const [scoringCompetencies, setScoringCompetencies] = useState(false);
   const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(new Set());
   const [sendingInvites, setSendingInvites] = useState(false);
-  const [syncingInterviews, setSyncingInterviews] = useState(false);
   const [interviewDetailCandidate, setInterviewDetailCandidate] = useState<any>(null);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [hasFetched, setHasFetched] = useState(false);
