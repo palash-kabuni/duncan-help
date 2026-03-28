@@ -131,6 +131,7 @@ const Recruitment = () => {
       return data ?? [];
     },
     enabled: !!selectedRoleId && hasFetched,
+    refetchInterval: 30000, // Auto-refresh every 30s to pick up cron sync updates
   });
 
   const { data: jobRoles } = useQuery({
