@@ -107,14 +107,49 @@ const MessageBubble = ({
 
 /* ── Main Page ── */
 const Index = () => {
-  const { messages, isLoading, send, clearMessages } = useNormanChat();
+  const { messages, isLoading, send, sendBriefing, clearMessages } = useNormanChat();
   const navigate = useNavigate();
+  const briefingTriggered = useRef(false);
   
   const [downloadingUrl, setDownloadingUrl] = useState<string | null>(null);
   const [weather, setWeather] = useState<{ temp: number; description: string } | null>(null);
   const [voiceMode, setVoiceMode] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-trigger daily briefing once per session
+  useEffect(() => {
+    if (briefingTriggered.current) return;
+    if (sessionStorage.getItem("duncan_briefing_shown")) return;
+    briefingTriggered.current = true;
+
+    const fetchBriefing = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        const resp = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/daily-briefing`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+          }
+        );
+
+        if (!resp.ok) throw new Error("Briefing fetch failed");
+        const briefingData = await resp.json();
+        sessionStorage.setItem("duncan_briefing_shown", "true");
+        sendBriefing(briefingData);
+      } catch (err) {
+        console.error("Briefing auto-trigger error:", err);
+      }
+    };
+
+    fetchBriefing();
+  }, [sendBriefing]);
 
   useEffect(() => {
     navigator.geolocation?.getCurrentPosition(

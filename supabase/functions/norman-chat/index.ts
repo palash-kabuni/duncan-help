@@ -1910,7 +1910,15 @@ serve(async (req) => {
       }
     }
 
-    if (mode === "reason") {
+    if (mode === "briefing") {
+      systemContent += `\n\nYou are generating a personalized morning briefing for ${userProfile?.display_name || "a team member"}. Present a warm, concise briefing covering:
+1. **Meetings & Action Items** — Recent meetings and any action items assigned to this user
+2. **Project Updates** — Recent changes to their work items in Azure DevOps
+3. **Financial Overview** — Outstanding invoices or bills needing attention
+4. **Basecamp Tasks** — Any to-dos assigned or relevant to them
+
+Use the briefing data provided in the user message. Format it as a natural, readable summary with clear sections. Use emojis sparingly for visual structure (📅 for meetings, 🎯 for action items, 💼 for work items, 💰 for invoices, ✅ for todos). If a section has no data, briefly note "No recent updates" for that area. Keep it actionable and concise. Address the user by name.`;
+    } else if (mode === "reason") {
       systemContent += "\n\nYou are in REASONING mode. Think deeply and step-by-step. Show your reasoning chain explicitly using numbered steps. Consider multiple angles before concluding.";
     } else if (mode === "automate") {
       systemContent += "\n\nYou are in AUTOMATION mode. Focus on creating actionable automation plans. For each step, specify: the trigger, the action, the target system, and expected outcome. Format as a clear workflow.";
