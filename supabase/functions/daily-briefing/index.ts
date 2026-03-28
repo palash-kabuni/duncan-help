@@ -48,12 +48,26 @@ serve(async (req) => {
       .maybeSingle();
 
     const displayName = profile?.display_name || userName;
+    const firstName = displayName.toLowerCase().split(" ")[0];
     const now = new Date();
     const twoDaysAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Run all queries in parallel
-    const [meetingsResult, workItemsResult, invoicesResult, basecampTodosResult] = await Promise.all([
-      // Recent meetings with action items
+    // Run ALL queries in parallel
+    const [
+      meetingsResult,
+      workItemsResult,
+      invoicesResult,
+      basecampTodosResult,
+      calendarResult,
+      purchaseOrdersResult,
+      issuesResult,
+      candidatesResult,
+      ndaResult,
+      wikiResult,
+      xeroContactsResult,
+    ] = await Promise.all([
+      // 1. Recent meetings with action items
       supabaseAdmin
         .from("meetings")
         .select("id, title, meeting_date, summary, action_items, analysis, status")
@@ -61,7 +75,7 @@ serve(async (req) => {
         .order("meeting_date", { ascending: false })
         .limit(10),
 
-      // Azure DevOps work items assigned to user (recently changed)
+      // 2. Azure DevOps work items assigned to user (recently changed)
       supabaseAdmin
         .from("azure_work_items")
         .select("external_id, title, state, work_item_type, priority, changed_date, project_name, assigned_to")
@@ -70,7 +84,7 @@ serve(async (req) => {
         .order("changed_date", { ascending: false })
         .limit(15),
 
-      // Outstanding Xero invoices
+      // 3. Outstanding Xero invoices
       supabaseAdmin
         .from("xero_invoices")
         .select("invoice_number, contact_name, total, amount_due, due_date, status, type, currency_code")
@@ -78,101 +92,52 @@ serve(async (req) => {
         .order("due_date", { ascending: true })
         .limit(10),
 
-      // Fetch Basecamp todos via the proxy (if connected)
-      (async () => {
-        try {
-          const { data: basecampToken } = await supabaseAdmin
-            .from("basecamp_tokens")
-            .select("id")
-            .limit(1)
-            .maybeSingle();
-          
-          if (!basecampToken) return null;
+      // 4. Basecamp todos + messages
+      fetchBasecampData(supabaseUrl, supabaseAdmin, authHeader, displayName),
 
-          // Call basecamp-api to get projects, then extract recent todos
-          const projectsResp = await fetch(`${supabaseUrl}/functions/v1/basecamp-api`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: authHeader,
-            },
-            body: JSON.stringify({ endpoint: "projects", method: "GET", paginate: true }),
-          });
+      // 5. Google Calendar - today's events
+      fetchCalendarEvents(supabaseUrl, supabaseAdmin, authHeader, user.id),
 
-          if (!projectsResp.ok) return null;
-          const projects = await projectsResp.json();
-          if (!Array.isArray(projects) || projects.length === 0) return null;
+      // 6. Purchase orders - user's POs + awaiting approval
+      fetchPurchaseOrders(supabaseAdmin, user.id),
 
-          // Get todos from first 3 projects
-          const todoPromises = projects.slice(0, 3).map(async (project: any) => {
-            const todoSet = project.dock?.find((d: any) => d.name === "todoset" && d.enabled);
-            if (!todoSet) return [];
+      // 7. Issues submitted by user (last 7 days)
+      supabaseAdmin
+        .from("issues")
+        .select("id, title, issue_type, severity, frequency, created_at, updated_at")
+        .eq("user_id", user.id)
+        .gte("created_at", sevenDaysAgo)
+        .order("created_at", { ascending: false })
+        .limit(10),
 
-            const listsResp = await fetch(`${supabaseUrl}/functions/v1/basecamp-api`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: authHeader,
-              },
-              body: JSON.stringify({
-                endpoint: `buckets/${project.id}/todosets/${todoSet.id}/todolists`,
-                method: "GET",
-                paginate: true,
-              }),
-            });
+      // 8. Candidates for jobs created by user (recently updated)
+      fetchRecruitmentUpdates(supabaseAdmin, user.id, sevenDaysAgo),
 
-            if (!listsResp.ok) return [];
-            const lists = await listsResp.json();
-            if (!Array.isArray(lists)) return [];
+      // 9. NDA submissions by user (non-completed)
+      supabaseAdmin
+        .from("nda_submissions")
+        .select("id, receiving_party_name, purpose, status, created_at, updated_at")
+        .eq("submitter_id", user.id)
+        .neq("status", "completed")
+        .order("updated_at", { ascending: false })
+        .limit(10),
 
-            // Get todos from first 2 lists per project
-            const todosFromLists = await Promise.all(
-              lists.slice(0, 2).map(async (list: any) => {
-                const todosResp = await fetch(`${supabaseUrl}/functions/v1/basecamp-api`, {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: authHeader,
-                  },
-                  body: JSON.stringify({
-                    endpoint: `buckets/${project.id}/todolists/${list.id}/todos`,
-                    method: "GET",
-                    paginate: true,
-                  }),
-                });
+      // 10. Recently updated wiki pages
+      supabaseAdmin
+        .from("wiki_pages")
+        .select("id, title, summary, updated_at, tags")
+        .eq("is_published", true)
+        .gte("updated_at", sevenDaysAgo)
+        .order("updated_at", { ascending: false })
+        .limit(10),
 
-                if (!todosResp.ok) return [];
-                const todos = await todosResp.json();
-                if (!Array.isArray(todos)) return [];
-
-                return todos
-                  .filter((t: any) => !t.completed)
-                  .map((t: any) => ({
-                    title: t.title,
-                    due_on: t.due_on,
-                    project_name: project.name,
-                    list_name: list.title,
-                    assignees: t.assignees?.map((a: any) => a.name) || [],
-                  }));
-              })
-            );
-
-            return todosFromLists.flat();
-          });
-
-          const allTodos = (await Promise.all(todoPromises)).flat();
-          // Filter to todos assigned to or relevant to the user
-          return allTodos.filter((t: any) => {
-            if (t.assignees.length === 0) return true; // unassigned = relevant to all
-            return t.assignees.some((a: string) =>
-              a.toLowerCase().includes(displayName.toLowerCase().split(" ")[0])
-            );
-          }).slice(0, 15);
-        } catch (err) {
-          console.error("Basecamp briefing error:", err);
-          return null;
-        }
-      })(),
+      // 11. Xero contacts with overdue balances
+      supabaseAdmin
+        .from("xero_contacts")
+        .select("name, email, overdue_balance, outstanding_balance")
+        .gt("overdue_balance", 0)
+        .order("overdue_balance", { ascending: false })
+        .limit(10),
     ]);
 
     // Extract action items assigned to user from meetings
@@ -183,7 +148,7 @@ serve(async (req) => {
           for (const item of meeting.action_items as any[]) {
             const assignee = (item.assignee || item.owner || "").toLowerCase();
             if (
-              assignee.includes(displayName.toLowerCase().split(" ")[0]) ||
+              assignee.includes(firstName) ||
               assignee.includes(userEmail.toLowerCase())
             ) {
               userActionItems.push({
@@ -198,12 +163,15 @@ serve(async (req) => {
       }
     }
 
-    // Build briefing data
+    // Build comprehensive briefing data
     const briefing = {
       user: {
         name: displayName,
         role: profile?.role_title || null,
         department: profile?.department || null,
+      },
+      calendar: {
+        todays_events: calendarResult || [],
       },
       meetings: {
         recent: meetingsResult.data?.map((m) => ({
@@ -224,6 +192,7 @@ serve(async (req) => {
           project: w.project_name,
         })) || [],
       },
+      purchase_orders: purchaseOrdersResult || { my_pending: [], awaiting_my_approval: [] },
       invoices: {
         outstanding: invoicesResult.data?.map((inv) => ({
           number: inv.invoice_number,
@@ -234,9 +203,39 @@ serve(async (req) => {
           type: inv.type === "ACCPAY" ? "Bill to pay" : "Receivable",
           currency: inv.currency_code,
         })) || [],
+        overdue_contacts: xeroContactsResult.data?.map((c) => ({
+          name: c.name,
+          overdue: c.overdue_balance,
+          outstanding: c.outstanding_balance,
+        })) || [],
       },
-      basecamp: {
-        my_todos: basecampTodosResult || [],
+      issues: {
+        my_recent: issuesResult.data?.map((i) => ({
+          title: i.title,
+          type: i.issue_type,
+          severity: i.severity,
+          created: i.created_at,
+        })) || [],
+      },
+      recruitment: {
+        active_candidates: candidatesResult || [],
+      },
+      ndas: {
+        pending: ndaResult.data?.map((n) => ({
+          receiving_party: n.receiving_party_name,
+          purpose: n.purpose,
+          status: n.status,
+          updated: n.updated_at,
+        })) || [],
+      },
+      basecamp: basecampTodosResult || { my_todos: [], messages_mentioning_me: [] },
+      wiki: {
+        recently_updated: wikiResult.data?.map((w) => ({
+          title: w.title,
+          summary: w.summary,
+          updated: w.updated_at,
+          tags: w.tags,
+        })) || [],
       },
       generated_at: now.toISOString(),
     };
@@ -252,3 +251,305 @@ serve(async (req) => {
     );
   }
 });
+
+// ── Helper: Fetch Google Calendar events for today ──
+async function fetchCalendarEvents(
+  supabaseUrl: string,
+  supabaseAdmin: any,
+  authHeader: string,
+  userId: string
+): Promise<any[]> {
+  try {
+    const { data: calToken } = await supabaseAdmin
+      .from("google_calendar_tokens")
+      .select("id")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (!calToken) return [];
+
+    const now = new Date();
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(now);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const resp = await fetch(`${supabaseUrl}/functions/v1/google-calendar-api`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: authHeader,
+      },
+      body: JSON.stringify({
+        action: "list",
+        timeMin: startOfDay.toISOString(),
+        timeMax: endOfDay.toISOString(),
+        maxResults: 20,
+      }),
+    });
+
+    if (!resp.ok) return [];
+    const result = await resp.json();
+    const events = result.items || result || [];
+    if (!Array.isArray(events)) return [];
+
+    return events.map((e: any) => ({
+      title: e.summary || "No title",
+      start: e.start?.dateTime || e.start?.date,
+      end: e.end?.dateTime || e.end?.date,
+      location: e.location || null,
+      attendees: e.attendees?.length || 0,
+    }));
+  } catch (err) {
+    console.error("Calendar briefing error:", err);
+    return [];
+  }
+}
+
+// ── Helper: Fetch purchase orders relevant to user ──
+async function fetchPurchaseOrders(supabaseAdmin: any, userId: string) {
+  try {
+    const [myPOs, deptResult] = await Promise.all([
+      // POs the user submitted that are active
+      supabaseAdmin
+        .from("purchase_orders")
+        .select("po_number, vendor_name, description, total_amount, status, category, created_at")
+        .eq("requester_id", userId)
+        .in("status", ["draft", "pending_approval", "approved"])
+        .order("created_at", { ascending: false })
+        .limit(10),
+
+      // Departments the user owns (for approval queue)
+      supabaseAdmin
+        .from("departments")
+        .select("id")
+        .eq("owner_user_id", userId),
+    ]);
+
+    let awaitingApproval: any[] = [];
+    if (deptResult.data && deptResult.data.length > 0) {
+      const deptIds = deptResult.data.map((d: any) => d.id);
+      const { data: pendingPOs } = await supabaseAdmin
+        .from("purchase_orders")
+        .select("po_number, vendor_name, description, total_amount, status, category, created_at")
+        .in("department_id", deptIds)
+        .eq("status", "pending_approval")
+        .neq("requester_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(10);
+      awaitingApproval = pendingPOs || [];
+    }
+
+    return {
+      my_pending: myPOs.data?.map((p: any) => ({
+        po_number: p.po_number,
+        vendor: p.vendor_name,
+        amount: p.total_amount,
+        status: p.status,
+        category: p.category,
+      })) || [],
+      awaiting_my_approval: awaitingApproval.map((p: any) => ({
+        po_number: p.po_number,
+        vendor: p.vendor_name,
+        amount: p.total_amount,
+        category: p.category,
+      })),
+    };
+  } catch (err) {
+    console.error("PO briefing error:", err);
+    return { my_pending: [], awaiting_my_approval: [] };
+  }
+}
+
+// ── Helper: Fetch recruitment updates for jobs the user created ──
+async function fetchRecruitmentUpdates(supabaseAdmin: any, userId: string, since: string) {
+  try {
+    // First get job roles created by user
+    const { data: userJobs } = await supabaseAdmin
+      .from("job_roles")
+      .select("id, title")
+      .eq("created_by", userId)
+      .eq("status", "active");
+
+    if (!userJobs || userJobs.length === 0) return [];
+
+    const jobIds = userJobs.map((j: any) => j.id);
+    const jobMap = Object.fromEntries(userJobs.map((j: any) => [j.id, j.title]));
+
+    const { data: candidates } = await supabaseAdmin
+      .from("candidates")
+      .select("name, email, status, total_score, job_role_id, updated_at, hireflix_status")
+      .in("job_role_id", jobIds)
+      .gte("updated_at", since)
+      .order("updated_at", { ascending: false })
+      .limit(15);
+
+    return (candidates || []).map((c: any) => ({
+      name: c.name,
+      status: c.status,
+      score: c.total_score,
+      job_title: jobMap[c.job_role_id] || "Unknown role",
+      interview_status: c.hireflix_status,
+      updated: c.updated_at,
+    }));
+  } catch (err) {
+    console.error("Recruitment briefing error:", err);
+    return [];
+  }
+}
+
+// ── Helper: Fetch Basecamp todos + messages mentioning user ──
+async function fetchBasecampData(
+  supabaseUrl: string,
+  supabaseAdmin: any,
+  authHeader: string,
+  displayName: string
+) {
+  try {
+    const { data: basecampToken } = await supabaseAdmin
+      .from("basecamp_tokens")
+      .select("id")
+      .limit(1)
+      .maybeSingle();
+
+    if (!basecampToken) return { my_todos: [], messages_mentioning_me: [] };
+
+    const projectsResp = await fetch(`${supabaseUrl}/functions/v1/basecamp-api`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: authHeader },
+      body: JSON.stringify({ endpoint: "projects", method: "GET", paginate: true }),
+    });
+
+    if (!projectsResp.ok) return { my_todos: [], messages_mentioning_me: [] };
+    const projects = await projectsResp.json();
+    if (!Array.isArray(projects) || projects.length === 0) return { my_todos: [], messages_mentioning_me: [] };
+
+    const firstName = displayName.toLowerCase().split(" ")[0];
+
+    // Process first 3 projects for todos + messages
+    const results = await Promise.all(
+      projects.slice(0, 3).map(async (project: any) => {
+        const todoSet = project.dock?.find((d: any) => d.name === "todoset" && d.enabled);
+        const messageBoard = project.dock?.find((d: any) => d.name === "message_board" && d.enabled);
+
+        const [todos, messages] = await Promise.all([
+          // Fetch todos
+          todoSet ? fetchProjectTodos(supabaseUrl, authHeader, project, todoSet) : Promise.resolve([]),
+          // Fetch messages
+          messageBoard ? fetchProjectMessages(supabaseUrl, authHeader, project, messageBoard, firstName) : Promise.resolve([]),
+        ]);
+
+        return { todos, messages };
+      })
+    );
+
+    const allTodos = results.flatMap((r) => r.todos);
+    const allMessages = results.flatMap((r) => r.messages);
+
+    // Filter todos relevant to user
+    const myTodos = allTodos.filter((t: any) => {
+      if (t.assignees.length === 0) return true;
+      return t.assignees.some((a: string) => a.toLowerCase().includes(firstName));
+    }).slice(0, 15);
+
+    return {
+      my_todos: myTodos,
+      messages_mentioning_me: allMessages.slice(0, 10),
+    };
+  } catch (err) {
+    console.error("Basecamp briefing error:", err);
+    return { my_todos: [], messages_mentioning_me: [] };
+  }
+}
+
+async function fetchProjectTodos(supabaseUrl: string, authHeader: string, project: any, todoSet: any) {
+  try {
+    const listsResp = await fetch(`${supabaseUrl}/functions/v1/basecamp-api`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: authHeader },
+      body: JSON.stringify({
+        endpoint: `buckets/${project.id}/todosets/${todoSet.id}/todolists`,
+        method: "GET",
+        paginate: true,
+      }),
+    });
+
+    if (!listsResp.ok) return [];
+    const lists = await listsResp.json();
+    if (!Array.isArray(lists)) return [];
+
+    const todosFromLists = await Promise.all(
+      lists.slice(0, 2).map(async (list: any) => {
+        const todosResp = await fetch(`${supabaseUrl}/functions/v1/basecamp-api`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: authHeader },
+          body: JSON.stringify({
+            endpoint: `buckets/${project.id}/todolists/${list.id}/todos`,
+            method: "GET",
+            paginate: true,
+          }),
+        });
+
+        if (!todosResp.ok) return [];
+        const todos = await todosResp.json();
+        if (!Array.isArray(todos)) return [];
+
+        return todos
+          .filter((t: any) => !t.completed)
+          .map((t: any) => ({
+            title: t.title,
+            due_on: t.due_on,
+            project_name: project.name,
+            list_name: list.title,
+            assignees: t.assignees?.map((a: any) => a.name) || [],
+          }));
+      })
+    );
+
+    return todosFromLists.flat();
+  } catch {
+    return [];
+  }
+}
+
+async function fetchProjectMessages(
+  supabaseUrl: string,
+  authHeader: string,
+  project: any,
+  messageBoard: any,
+  firstName: string
+) {
+  try {
+    const msgsResp = await fetch(`${supabaseUrl}/functions/v1/basecamp-api`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: authHeader },
+      body: JSON.stringify({
+        endpoint: `buckets/${project.id}/message_boards/${messageBoard.id}/messages`,
+        method: "GET",
+        paginate: true,
+      }),
+    });
+
+    if (!msgsResp.ok) return [];
+    const messages = await msgsResp.json();
+    if (!Array.isArray(messages)) return [];
+
+    // Filter to recent messages (last 7 days) mentioning user
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    return messages
+      .filter((m: any) => {
+        if (m.created_at < sevenDaysAgo) return false;
+        const content = ((m.content || "") + " " + (m.title || "")).toLowerCase();
+        return content.includes(firstName);
+      })
+      .slice(0, 5)
+      .map((m: any) => ({
+        title: m.title,
+        project_name: project.name,
+        author: m.creator?.name || "Unknown",
+        created_at: m.created_at,
+      }));
+  } catch {
+    return [];
+  }
+}
