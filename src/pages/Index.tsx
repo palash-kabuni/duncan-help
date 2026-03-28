@@ -121,13 +121,52 @@ const Index = () => {
   useEffect(() => {
     if (briefingTriggered.current) return;
     if (sessionStorage.getItem("duncan_briefing_shown")) return;
-    briefingTriggered.current = true;
 
-    const fetchBriefing = async () => {
+    // Listen for auth state to ensure session is ready
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (!session || briefingTriggered.current) return;
+        if (sessionStorage.getItem("duncan_briefing_shown")) return;
+        briefingTriggered.current = true;
+
+        try {
+          console.log("Duncan: Fetching daily briefing...");
+          const resp = await fetch(
+            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/daily-briefing`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${session.access_token}`,
+              },
+            }
+          );
+
+          if (!resp.ok) {
+            const errText = await resp.text();
+            console.error("Briefing response error:", resp.status, errText);
+            throw new Error("Briefing fetch failed");
+          }
+          const briefingData = await resp.json();
+          console.log("Duncan: Briefing data received, sending to chat...");
+          sessionStorage.setItem("duncan_briefing_shown", "true");
+          sendBriefing(briefingData);
+        } catch (err) {
+          console.error("Briefing auto-trigger error:", err);
+        }
+      }
+    );
+
+    // Also try immediately with existing session
+    (async () => {
+      if (briefingTriggered.current) return;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session || briefingTriggered.current) return;
+      if (sessionStorage.getItem("duncan_briefing_shown")) return;
+      briefingTriggered.current = true;
+
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-
+        console.log("Duncan: Fetching daily briefing (immediate)...");
         const resp = await fetch(
           `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/daily-briefing`,
           {
@@ -139,16 +178,21 @@ const Index = () => {
           }
         );
 
-        if (!resp.ok) throw new Error("Briefing fetch failed");
+        if (!resp.ok) {
+          const errText = await resp.text();
+          console.error("Briefing response error:", resp.status, errText);
+          throw new Error("Briefing fetch failed");
+        }
         const briefingData = await resp.json();
+        console.log("Duncan: Briefing data received, sending to chat...");
         sessionStorage.setItem("duncan_briefing_shown", "true");
         sendBriefing(briefingData);
       } catch (err) {
         console.error("Briefing auto-trigger error:", err);
       }
-    };
+    })();
 
-    fetchBriefing();
+    return () => subscription.unsubscribe();
   }, [sendBriefing]);
 
   useEffect(() => {
