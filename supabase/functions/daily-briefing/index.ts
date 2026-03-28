@@ -40,25 +40,43 @@ serve(async (req) => {
     const userEmail = user.email || "";
     const userName = user.user_metadata?.display_name || userEmail;
 
-    // Get user profile for matching
+    // Get user profile (including last_briefing_at from preferences)
     const { data: profile } = await supabaseAdmin
       .from("profiles")
-      .select("display_name, role_title, department")
+      .select("display_name, role_title, department, preferences")
       .eq("user_id", user.id)
       .maybeSingle();
 
     const displayName = profile?.display_name || userName;
     const firstName = displayName.toLowerCase().split(" ")[0];
     const now = new Date();
-    const twoDaysAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Determine the "since" window — use last_briefing_at if available, otherwise default 48h
+    const prefs = (profile?.preferences as Record<string, any>) || {};
+    const lastBriefingAt = prefs.last_briefing_at
+      ? new Date(prefs.last_briefing_at)
+      : null;
+
+    // For time-sensitive data (meetings, work items), use since last briefing or 48h
+    const defaultSince = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+    const sinceDatetime = lastBriefingAt && lastBriefingAt > defaultSince
+      ? lastBriefingAt
+      : defaultSince;
+    const sinceISO = sinceDatetime.toISOString();
+
+    // For slower-moving data (POs, issues, candidates), use a wider window
+    const widerDefault = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const widerSince = lastBriefingAt && lastBriefingAt > widerDefault
+      ? lastBriefingAt
+      : widerDefault;
+    const widerSinceISO = widerSince.toISOString();
 
     // Run ALL queries in parallel
     const [
       meetingsResult,
       workItemsResult,
       invoicesResult,
-      basecampTodosResult,
+      basecampData,
       calendarResult,
       purchaseOrdersResult,
       issuesResult,
@@ -67,24 +85,24 @@ serve(async (req) => {
       wikiResult,
       xeroContactsResult,
     ] = await Promise.all([
-      // 1. Recent meetings with action items
+      // 1. Meetings since last briefing
       supabaseAdmin
         .from("meetings")
         .select("id, title, meeting_date, summary, action_items, analysis, status")
-        .gte("meeting_date", twoDaysAgo)
+        .gte("meeting_date", sinceISO)
         .order("meeting_date", { ascending: false })
         .limit(10),
 
-      // 2. Azure DevOps work items assigned to user (recently changed)
+      // 2. Azure DevOps work items changed since last briefing
       supabaseAdmin
         .from("azure_work_items")
         .select("external_id, title, state, work_item_type, priority, changed_date, project_name, assigned_to")
         .or(`assigned_to.ilike.%${displayName}%,assigned_to.ilike.%${userEmail}%`)
-        .gte("changed_date", twoDaysAgo)
+        .gte("changed_date", sinceISO)
         .order("changed_date", { ascending: false })
         .limit(15),
 
-      // 3. Outstanding Xero invoices
+      // 3. Outstanding Xero invoices (always show current state)
       supabaseAdmin
         .from("xero_invoices")
         .select("invoice_number, contact_name, total, amount_due, due_date, status, type, currency_code")
@@ -98,22 +116,22 @@ serve(async (req) => {
       // 5. Google Calendar - today's events
       fetchCalendarEvents(supabaseUrl, supabaseAdmin, authHeader, user.id),
 
-      // 6. Purchase orders - user's POs + awaiting approval
+      // 6. Purchase orders
       fetchPurchaseOrders(supabaseAdmin, user.id),
 
-      // 7. Issues submitted by user (last 7 days)
+      // 7. Issues (since last briefing or 7 days)
       supabaseAdmin
         .from("issues")
         .select("id, title, issue_type, severity, frequency, created_at, updated_at")
         .eq("user_id", user.id)
-        .gte("created_at", sevenDaysAgo)
-        .order("created_at", { ascending: false })
+        .gte("updated_at", widerSinceISO)
+        .order("updated_at", { ascending: false })
         .limit(10),
 
-      // 8. Candidates for jobs created by user (recently updated)
-      fetchRecruitmentUpdates(supabaseAdmin, user.id, sevenDaysAgo),
+      // 8. Candidates updated since last briefing
+      fetchRecruitmentUpdates(supabaseAdmin, user.id, widerSinceISO),
 
-      // 9. NDA submissions by user (non-completed)
+      // 9. NDA submissions (non-completed, always show current state)
       supabaseAdmin
         .from("nda_submissions")
         .select("id, receiving_party_name, purpose, status, created_at, updated_at")
@@ -122,16 +140,16 @@ serve(async (req) => {
         .order("updated_at", { ascending: false })
         .limit(10),
 
-      // 10. Recently updated wiki pages
+      // 10. Wiki pages updated since last briefing
       supabaseAdmin
         .from("wiki_pages")
         .select("id, title, summary, updated_at, tags")
         .eq("is_published", true)
-        .gte("updated_at", sevenDaysAgo)
+        .gte("updated_at", widerSinceISO)
         .order("updated_at", { ascending: false })
         .limit(10),
 
-      // 11. Xero contacts with overdue balances
+      // 11. Xero contacts with overdue balances (always show current state)
       supabaseAdmin
         .from("xero_contacts")
         .select("name, email, overdue_balance, outstanding_balance")
@@ -139,6 +157,13 @@ serve(async (req) => {
         .order("overdue_balance", { ascending: false })
         .limit(10),
     ]);
+
+    // Update last_briefing_at in preferences
+    const updatedPrefs = { ...prefs, last_briefing_at: now.toISOString() };
+    await supabaseAdmin
+      .from("profiles")
+      .update({ preferences: updatedPrefs })
+      .eq("user_id", user.id);
 
     // Extract action items assigned to user from meetings
     const userActionItems: any[] = [];
@@ -170,6 +195,8 @@ serve(async (req) => {
         role: profile?.role_title || null,
         department: profile?.department || null,
       },
+      since: lastBriefingAt ? lastBriefingAt.toISOString() : null,
+      is_first_briefing: !lastBriefingAt,
       calendar: {
         todays_events: calendarResult || [],
       },
@@ -228,7 +255,7 @@ serve(async (req) => {
           updated: n.updated_at,
         })) || [],
       },
-      basecamp: basecampTodosResult || { my_todos: [], messages_mentioning_me: [] },
+      basecamp: basecampData || { my_todos: [], messages_mentioning_me: [] },
       wiki: {
         recently_updated: wikiResult.data?.map((w) => ({
           title: w.title,
@@ -310,7 +337,6 @@ async function fetchCalendarEvents(
 async function fetchPurchaseOrders(supabaseAdmin: any, userId: string) {
   try {
     const [myPOs, deptResult] = await Promise.all([
-      // POs the user submitted that are active
       supabaseAdmin
         .from("purchase_orders")
         .select("po_number, vendor_name, description, total_amount, status, category, created_at")
@@ -319,7 +345,6 @@ async function fetchPurchaseOrders(supabaseAdmin: any, userId: string) {
         .order("created_at", { ascending: false })
         .limit(10),
 
-      // Departments the user owns (for approval queue)
       supabaseAdmin
         .from("departments")
         .select("id")
@@ -364,7 +389,6 @@ async function fetchPurchaseOrders(supabaseAdmin: any, userId: string) {
 // ── Helper: Fetch recruitment updates for jobs the user created ──
 async function fetchRecruitmentUpdates(supabaseAdmin: any, userId: string, since: string) {
   try {
-    // First get job roles created by user
     const { data: userJobs } = await supabaseAdmin
       .from("job_roles")
       .select("id, title")
@@ -424,19 +448,16 @@ async function fetchBasecampData(
     const projects = await projectsResp.json();
     if (!Array.isArray(projects) || projects.length === 0) return { my_todos: [], messages_mentioning_me: [] };
 
-    const firstName = displayName.toLowerCase().split(" ")[0];
+    const firstNameLower = displayName.toLowerCase().split(" ")[0];
 
-    // Process first 3 projects for todos + messages
     const results = await Promise.all(
       projects.slice(0, 3).map(async (project: any) => {
         const todoSet = project.dock?.find((d: any) => d.name === "todoset" && d.enabled);
         const messageBoard = project.dock?.find((d: any) => d.name === "message_board" && d.enabled);
 
         const [todos, messages] = await Promise.all([
-          // Fetch todos
           todoSet ? fetchProjectTodos(supabaseUrl, authHeader, project, todoSet) : Promise.resolve([]),
-          // Fetch messages
-          messageBoard ? fetchProjectMessages(supabaseUrl, authHeader, project, messageBoard, firstName) : Promise.resolve([]),
+          messageBoard ? fetchProjectMessages(supabaseUrl, authHeader, project, messageBoard, firstNameLower) : Promise.resolve([]),
         ]);
 
         return { todos, messages };
@@ -446,10 +467,9 @@ async function fetchBasecampData(
     const allTodos = results.flatMap((r) => r.todos);
     const allMessages = results.flatMap((r) => r.messages);
 
-    // Filter todos relevant to user
     const myTodos = allTodos.filter((t: any) => {
       if (t.assignees.length === 0) return true;
-      return t.assignees.some((a: string) => a.toLowerCase().includes(firstName));
+      return t.assignees.some((a: string) => a.toLowerCase().includes(firstNameLower));
     }).slice(0, 15);
 
     return {
@@ -534,7 +554,6 @@ async function fetchProjectMessages(
     const messages = await msgsResp.json();
     if (!Array.isArray(messages)) return [];
 
-    // Filter to recent messages (last 7 days) mentioning user
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     return messages
       .filter((m: any) => {

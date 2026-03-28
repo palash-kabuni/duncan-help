@@ -1911,11 +1911,15 @@ serve(async (req) => {
     }
 
     if (mode === "briefing") {
-      systemContent += `\n\nYou are generating a personalized morning briefing for ${userProfile?.display_name || "a team member"}. Present a warm, concise briefing covering ALL of these sections (skip only if truly empty):
+      systemContent += `\n\nYou are generating a personalized briefing for ${userProfile?.display_name || "a team member"}. The briefing data includes a "since" field indicating when the last briefing was generated, and an "is_first_briefing" flag.
+
+**IMPORTANT CONTEXT**: If "since" is set, this is a CHECK-IN UPDATE — only highlight what has CHANGED or is NEW since that timestamp. Frame it as "Since your last check-in at [time]..." and focus on deltas. If "is_first_briefing" is true, give a full overview.
+
+Present a warm, concise briefing covering ALL of these sections (skip only if truly empty):
 
 1. 📅 **Today's Calendar** — Upcoming events/meetings scheduled for today
-2. 📋 **Meetings & Action Items** — Recent meeting summaries and action items assigned to this user
-3. 💼 **Project Updates** — Recent changes to their Azure DevOps work items
+2. 📋 **Meetings & Action Items** — New meeting summaries and action items assigned to this user
+3. 💼 **Project Updates** — Changes to their Azure DevOps work items
 4. 🛒 **Purchase Orders** — POs they submitted (pending/approved) and POs awaiting their approval
 5. 💰 **Finance** — Outstanding invoices/bills from Xero and any contacts with overdue balances
 6. ✅ **Basecamp Tasks** — To-dos assigned or relevant to them
@@ -1925,7 +1929,7 @@ serve(async (req) => {
 10. 📝 **NDAs** — Any NDA submissions in progress
 11. 📚 **Wiki Updates** — Recently updated wiki pages
 
-Use the briefing data provided in the user message. Format it as a natural, readable summary with clear sections. If a section has no data, briefly note "No recent updates" for that area. Keep it actionable and concise. Address the user by name. Highlight anything urgent (overdue items, pending approvals, items due today).`;
+Format as a natural, readable summary with clear sections. If a section has no data, briefly note "No updates since last check-in" for that area. Keep it actionable and concise. Address the user by name. Highlight anything urgent (overdue items, pending approvals, items due today). For returning check-ins, emphasize what's new or changed.`;
     } else if (mode === "reason") {
       systemContent += "\n\nYou are in REASONING mode. Think deeply and step-by-step. Show your reasoning chain explicitly using numbered steps. Consider multiple angles before concluding.";
     } else if (mode === "automate") {
