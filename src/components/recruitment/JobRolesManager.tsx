@@ -37,6 +37,63 @@ export function JobRolesManager() {
     },
   });
 
+  // Fetch retry queue entries for position creation
+  const { data: retryEntries } = useQuery({
+    queryKey: ["hireflix-retry-queue-roles"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("hireflix_retry_queue" as any)
+        .select("*")
+        .eq("operation", "create_position")
+        .in("status", ["pending", "processing", "failed"]);
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+    refetchInterval: 15000,
+  });
+
+  // Build a map: job_role_id → retry entry
+  const retryMap = new Map<string, any>();
+  (retryEntries ?? []).forEach((entry: any) => {
+    const roleId = entry.payload?.job_role_id;
+    if (roleId) retryMap.set(roleId, entry);
+  });
+
+  const handleRetryPosition = async (roleId: string, roleTitle: string) => {
+    try {
+      const { data: roleData } = await supabase
+        .from("job_roles")
+        .select("competencies")
+        .eq("id", roleId)
+        .single();
+
+      // Mark existing failed entry as completed before re-queuing
+      const existing = retryMap.get(roleId);
+      if (existing) {
+        await supabase
+          .from("hireflix_retry_queue" as any)
+          .update({ status: "completed", completed_at: new Date().toISOString() } as any)
+          .eq("id", existing.id);
+      }
+
+      await supabase.from("hireflix_retry_queue" as any).insert({
+        operation: "create_position",
+        payload: {
+          job_role_id: roleId,
+          title: roleTitle,
+          competencies: roleData?.competencies || [],
+        },
+        status: "pending",
+        next_retry_at: new Date().toISOString(),
+      } as any);
+
+      toast.success("Retry queued — position will be created shortly");
+      queryClient.invalidateQueries({ queryKey: ["hireflix-retry-queue-roles"] });
+    } catch (err: any) {
+      toast.error("Failed to queue retry: " + err.message);
+    }
+  };
+
   const handleGenerateJd = async () => {
     if (!title.trim()) {
       toast.error("Enter a role title first");
