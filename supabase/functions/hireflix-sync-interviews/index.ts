@@ -397,13 +397,17 @@ serve(async (req) => {
 
         synced++;
 
+        // DO NOT mark as "completed" if playback_url is NULL — keep as "invited" until video accessible
+        const shouldMarkCompleted = !!playbackUrl;
+        const newStatus = shouldMarkCompleted ? "completed" : candidate.hireflix_status;
+
         try {
           const scores = await scoreTranscript(transcript);
 
           await supabaseAdmin
             .from("candidates")
             .update({
-              hireflix_status: "completed",
+              hireflix_status: shouldMarkCompleted ? "completed" : "invited",
               hireflix_interview_id: interviewId,
               hireflix_candidate_id: hireflixCandidateId,
               hireflix_playback_url: playbackUrl,
@@ -415,13 +419,13 @@ serve(async (req) => {
             .eq("id", candidate.id);
 
           scored++;
-          results.push({ id: candidate.id, name: candidate.name, status: "scored", final_score: scores.final_score });
+          results.push({ id: candidate.id, name: candidate.name, status: shouldMarkCompleted ? "scored" : "scored_no_video", final_score: scores.final_score, has_playback: !!playbackUrl });
         } catch (e) {
           console.error(`Failed to score candidate ${candidate.id}:`, e);
           await supabaseAdmin
             .from("candidates")
             .update({
-              hireflix_status: "completed",
+              hireflix_status: shouldMarkCompleted ? "completed" : "invited",
               hireflix_interview_id: interviewId,
               hireflix_candidate_id: hireflixCandidateId,
               hireflix_playback_url: playbackUrl,
