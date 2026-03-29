@@ -471,6 +471,21 @@ serve(async (req) => {
       .order("interview_final_score", { ascending: false })
       .limit(3);
 
+    // FIX 6: Write to sync_logs
+    try {
+      await supabaseAdmin.from("sync_logs").insert({
+        integration: "hireflix",
+        sync_type: "interviews",
+        status: failed > 0 ? "partial" : "success",
+        records_synced: synced,
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        error_message: failed > 0 ? `${failed} candidate(s) failed` : null,
+      });
+    } catch (logErr) {
+      console.error("Failed to write sync_log:", logErr);
+    }
+
     return new Response(JSON.stringify({
       success: true,
       synced,
@@ -483,6 +498,20 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("Hireflix sync error:", error);
+
+    // Log failure to sync_logs
+    try {
+      const supabaseAdmin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+      await supabaseAdmin.from("sync_logs").insert({
+        integration: "hireflix",
+        sync_type: "interviews",
+        status: "failed",
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        error_message: error.message || "Unknown sync error",
+      });
+    } catch { /* best effort */ }
+
     return new Response(JSON.stringify({ error: error.message || "Failed to sync interviews" }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

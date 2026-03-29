@@ -138,6 +138,7 @@ serve(async (req) => {
         });
 
         const gqlData = await gqlResponse.json();
+        console.log(`Hireflix invite response for ${candidate.id}:`, JSON.stringify(gqlData));
 
         if (gqlData.errors) {
           console.error(`Hireflix API error for ${candidate.id}:`, JSON.stringify(gqlData.errors));
@@ -154,6 +155,43 @@ serve(async (req) => {
         const interview = gqlData.data?.Position?.invite;
         const interviewUrl = interview?.url?.short || interview?.url?.public || null;
         const hireflixCandidateId = interview?.id || null;
+
+        // CRITICAL: hireflix_candidate_id MUST be stored — treat missing as failure
+        if (!hireflixCandidateId) {
+          console.error(`Hireflix returned no candidate ID for ${candidate.id}. Full response:`, JSON.stringify(gqlData));
+          failed++;
+          const reason = "Hireflix returned no candidate ID — invite may have failed silently";
+          await supabaseAdmin
+            .from("candidates")
+            .update({ failure_reason: reason })
+            .eq("id", candidate.id);
+
+          // Queue for retry
+          const { data: existingRetry } = await supabaseAdmin
+            .from("hireflix_retry_queue")
+            .select("id")
+            .eq("operation", "send_invite")
+            .eq("status", "pending")
+            .contains("payload", { candidate_id: candidate.id })
+            .maybeSingle();
+
+          if (!existingRetry) {
+            await supabaseAdmin.from("hireflix_retry_queue").insert({
+              operation: "send_invite",
+              payload: {
+                candidate_id: candidate.id,
+                candidate_name: candidate.name,
+                candidate_email: candidate.email,
+                position_id: positionId,
+              },
+              status: "pending",
+              next_retry_at: new Date(Date.now() + 60 * 1000).toISOString(),
+            });
+          }
+
+          results.push({ id: candidate.id, name: candidate.name, status: "failed", reason, retryQueued: !existingRetry });
+          continue;
+        }
 
         await supabaseAdmin
           .from("candidates")
