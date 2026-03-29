@@ -262,8 +262,21 @@ const Recruitment = () => {
       return;
     }
 
-    setSendingInvites(true);
+    // Position validation before invite
+    if (!roleIsLinked) {
+      toast.error("This role is not linked to Hireflix. Cannot send invites.");
+      return;
+    }
+
+    setValidatingPosition(true);
     try {
+      // Validate position exists in Hireflix via a lightweight check
+      const positionId = selectedRole?.hireflix_position_id;
+      if (!positionId) {
+        toast.error("This role is no longer linked to Hireflix. Please relink.");
+        return;
+      }
+
       const res = await supabase.functions.invoke("hireflix-send-invite", {
         body: {
           candidate_ids: Array.from(selectedCandidates),
@@ -277,7 +290,7 @@ const Recruitment = () => {
       if (d.failed > 0) {
         const failedItems = (d.results || []).filter((r: any) => r.status === "failed");
         for (const item of failedItems) {
-          toast.error(`${item.name}: ${item.reason}`);
+          toast.error(`${item.name}: ${item.reason}${item.retryQueued ? " (auto-retry queued)" : ""}`);
         }
       }
       if (d.skipped > 0) {
@@ -288,6 +301,7 @@ const Recruitment = () => {
     } catch (err: any) {
       toast.error("Failed to send invites: " + err.message);
     } finally {
+      setValidatingPosition(false);
       setSendingInvites(false);
     }
   };
@@ -315,7 +329,7 @@ const Recruitment = () => {
   const syncDelayed = (() => {
     if (!lastSyncLog?.completed_at) return false;
     const lastSync = new Date(lastSyncLog.completed_at).getTime();
-    return Date.now() - lastSync > 10 * 60 * 1000; // >10 minutes
+    return Date.now() - lastSync > 10 * 60 * 1000;
   })();
 
   // Fetch candidate retry entries for invite failures
