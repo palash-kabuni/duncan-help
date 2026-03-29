@@ -13,6 +13,32 @@ const DEFAULT_QUESTIONS = [
   "Tell us about a time you realised you were wrong and had to change your position publicly. What was difficult about that moment, and what did you learn?",
 ];
 
+const NON_RETRYABLE_GRAPHQL_PATTERNS = [
+  /cannot query field/i,
+  /unknown argument/i,
+  /unknown type/i,
+  /field .* is required/i,
+  /must not have a selection/i,
+  /syntax error/i,
+  /validation error/i,
+  /positionnotfounderror/i,
+  /positionnotreadytoacceptinviteserror/i,
+  /interviewalreadyexistsinpositionerror/i,
+  /interviewexternalidalreadyexistsinpositionerror/i,
+  /exceededinvitesthisperioderror/i,
+];
+
+function isNonRetryableGraphQLError(message: string) {
+  return NON_RETRYABLE_GRAPHQL_PATTERNS.some((pattern) => pattern.test(message || ""));
+}
+
+function splitCandidateName(fullName: string) {
+  const cleaned = (fullName || "").trim().replace(/\s+/g, " ");
+  if (!cleaned) return { firstName: "Candidate", lastName: "" };
+  const [firstName, ...rest] = cleaned.split(" ");
+  return { firstName, lastName: rest.join(" ") };
+}
+
 async function createHireflixPosition(apiKey: string, title: string, competencies: any[]): Promise<{ id: string; name: string }> {
   // Generate competency question
   let competencyQuestion = "Based on your experience in this role, describe how you've demonstrated relevant technical or professional competencies in a real-world scenario.";
@@ -46,7 +72,7 @@ async function createHireflixPosition(apiKey: string, title: string, competencie
   const escapedTitle = title.replace(/"/g, '\\"');
   const questionsGql = allQuestions.map((q) => `{ question: "${q.replace(/"/g, '\\"')}" }`).join(", ");
 
-  const mutation = `mutation { createPosition(input: { name: "${escapedTitle}", questions: [${questionsGql}] }) { id name } }`;
+  const mutation = `mutation { Position { save(position: { name: "${escapedTitle}", questions: [${questionsGql}] }) { id name } } }`;
 
   const hfRes = await fetch("https://api.hireflix.com/me", {
     method: "POST",
@@ -55,9 +81,11 @@ async function createHireflixPosition(apiKey: string, title: string, competencie
   });
 
   const hfData = await hfRes.json();
+  console.log("Retry create_position full GraphQL response:", JSON.stringify({ status: hfRes.status, body: hfData }));
+  if (!hfRes.ok) throw new Error(hfData?.errors?.[0]?.message || `Hireflix HTTP ${hfRes.status}`);
   if (hfData.errors) throw new Error(hfData.errors[0]?.message || "Hireflix API error");
-  
-  const position = hfData.data?.createPosition;
+
+  const position = hfData.data?.Position?.save;
   if (!position?.id) throw new Error("No position ID returned");
   
   return position;
@@ -179,16 +207,32 @@ serve(async (req) => {
             console.log(`Retry skipped (already ${candidate.hireflix_status}): candidate ${candidate_id}`);
             succeeded++;
           } else {
-            const fullName = (candidate_name || "").trim().replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+            const { firstName, lastName } = splitCandidateName(candidate_name || "");
+            const escapedFirstName = firstName.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+            const escapedLastName = lastName.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
             const email = candidate_email.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 
             const mutation = `
-              mutation {
-                Position(id: "${position_id}") {
-                  invite(candidate: { name: "${fullName}", email: "${email}" }) {
-                    id
-                    url { public short }
+              mutation InviteCandidate {
+                inviteCandidateToInterview(input: {
+                  positionId: "${position_id}",
+                  candidate: {
+                    firstName: "${escapedFirstName}",
+                    ${escapedLastName ? `lastName: "${escapedLastName}",` : ""}
+                    email: "${email}"
                   }
+                }) {
+                  __typename
+                  ... on InterviewType {
+                    id
+                    url { private public short }
+                  }
+                  ... on PositionNotFoundError { positionNotFoundMessage: message name code }
+                  ... on PositionNotReadyToAcceptInvitesError { positionNotReadyMessage: message name code }
+                  ... on InterviewAlreadyExistsInPositionError { interviewAlreadyExistsMessage: message name code }
+                  ... on InterviewExternalIdAlreadyExistsInPositionError { interviewExternalIdExistsMessage: message name code }
+                  ... on ExceededInvitesThisPeriodError { exceededInvitesMessage: message name code }
+                  ... on ValidationError { validationMessage: message name code fieldErrors }
                 }
               }
             `;
@@ -200,11 +244,31 @@ serve(async (req) => {
             });
 
             const gqlData = await gqlResponse.json();
+            console.log(`Retry send_invite full GraphQL response for candidate ${candidate_id}:`, JSON.stringify({ status: gqlResponse.status, body: gqlData }));
+            if (!gqlResponse.ok) throw new Error(gqlData?.errors?.[0]?.message || `Hireflix HTTP ${gqlResponse.status}`);
             if (gqlData.errors) throw new Error(gqlData.errors[0]?.message || "Hireflix API error");
 
-            const interview = gqlData.data?.Position?.invite;
+            const inviteResult = gqlData?.data?.inviteCandidateToInterview;
+            if (!inviteResult) throw new Error("Hireflix returned empty invite payload");
+            if (inviteResult.__typename !== "InterviewType") {
+              throw new Error(`${inviteResult.__typename || "InviteError"}: ${
+                inviteResult.positionNotFoundMessage ||
+                inviteResult.positionNotReadyMessage ||
+                inviteResult.interviewAlreadyExistsMessage ||
+                inviteResult.interviewExternalIdExistsMessage ||
+                inviteResult.exceededInvitesMessage ||
+                inviteResult.validationMessage ||
+                "Invite rejected by Hireflix"
+              }`);
+            }
+
+            const interview = inviteResult;
             const interviewUrl = interview?.url?.short || interview?.url?.public || null;
             const hireflixCandidateId = interview?.id || null;
+
+            if (!hireflixCandidateId) {
+              throw new Error("Hireflix returned no candidate/interview ID");
+            }
 
             await supabaseAdmin
               .from("candidates")
@@ -212,6 +276,7 @@ serve(async (req) => {
                 hireflix_status: "invited",
                 hireflix_interview_url: interviewUrl,
                 hireflix_candidate_id: hireflixCandidateId,
+                hireflix_interview_id: hireflixCandidateId,
                 hireflix_invited_at: new Date().toISOString(),
                 failure_reason: null,
               })
@@ -232,7 +297,8 @@ serve(async (req) => {
         processed++;
       } catch (err) {
         const newAttempts = (retry.attempts || 0) + 1;
-        const isExhausted = newAttempts >= (retry.max_attempts || 5);
+        const message = err instanceof Error ? err.message : String(err);
+        const isExhausted = isNonRetryableGraphQLError(message) || newAttempts >= (retry.max_attempts || 5);
 
         // Exponential backoff: 1min, 4min, 9min, 16min, 25min
         const delayMinutes = newAttempts * newAttempts;
@@ -243,12 +309,12 @@ serve(async (req) => {
           .update({
             status: isExhausted ? "failed" : "pending",
             attempts: newAttempts,
-            last_error: err.message || "Unknown error",
+            last_error: message || "Unknown error",
             next_retry_at: isExhausted ? retry.next_retry_at : nextRetry,
           })
           .eq("id", retry.id);
 
-        console.error(`Retry failed for ${retry.id} (attempt ${newAttempts}):`, err.message);
+        console.error(`Retry failed for ${retry.id} (attempt ${newAttempts}):`, message);
         failed++;
         processed++;
       }

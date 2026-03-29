@@ -6,6 +6,63 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const NON_RETRYABLE_GRAPHQL_PATTERNS = [
+  /cannot query field/i,
+  /unknown argument/i,
+  /unknown type/i,
+  /field .* is required/i,
+  /must not have a selection/i,
+  /syntax error/i,
+  /validation error/i,
+  /positionnotfounderror/i,
+  /positionnotreadytoacceptinviteserror/i,
+  /interviewalreadyexistsinpositionerror/i,
+  /interviewexternalidalreadyexistsinpositionerror/i,
+  /exceededinvitesthisperioderror/i,
+];
+
+function isNonRetryableGraphQLError(message: string) {
+  return NON_RETRYABLE_GRAPHQL_PATTERNS.some((pattern) => pattern.test(message || ""));
+}
+
+function isTransientHireflixError(message: string, httpStatus?: number) {
+  if (httpStatus && (httpStatus === 408 || httpStatus === 429 || httpStatus >= 500)) return true;
+  return /timeout|timed out|network|fetch failed|connection reset|econnreset|enotfound|temporar/i.test(message || "");
+}
+
+function splitCandidateName(fullName: string) {
+  const cleaned = (fullName || "").trim().replace(/\s+/g, " ");
+  if (!cleaned) return { firstName: "Candidate", lastName: "" };
+  const [firstName, ...rest] = cleaned.split(" ");
+  return { firstName, lastName: rest.join(" ") };
+}
+
+async function queueInviteRetry(supabaseAdmin: any, candidate: any, positionId: string) {
+  const { data: existingRetry } = await supabaseAdmin
+    .from("hireflix_retry_queue")
+    .select("id")
+    .eq("operation", "send_invite")
+    .eq("status", "pending")
+    .contains("payload", { candidate_id: candidate.id })
+    .maybeSingle();
+
+  if (!existingRetry) {
+    await supabaseAdmin.from("hireflix_retry_queue").insert({
+      operation: "send_invite",
+      payload: {
+        candidate_id: candidate.id,
+        candidate_name: candidate.name,
+        candidate_email: candidate.email,
+        position_id: positionId,
+      },
+      status: "pending",
+      next_retry_at: new Date(Date.now() + 60 * 1000).toISOString(),
+    });
+  }
+
+  return !existingRetry;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -109,20 +166,66 @@ serve(async (req) => {
         continue;
       }
 
-      // Send invite via GraphQL - properly escaped variables
+      // Send invite via GraphQL (new API shape)
       try {
-        const fullName = (candidate.name || "").trim().replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+        const { firstName, lastName } = splitCandidateName(candidate.name || "");
+        const escapedFirstName = firstName.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+        const escapedLastName = lastName.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
         const email = candidate.email.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 
         const mutation = `
-          mutation {
-            Position(id: "${positionId}") {
-              invite(candidate: { name: "${fullName}", email: "${email}" }) {
+          mutation InviteCandidate {
+            inviteCandidateToInterview(input: {
+              positionId: "${positionId}",
+              candidate: {
+                firstName: "${escapedFirstName}",
+                ${escapedLastName ? `lastName: "${escapedLastName}",` : ""}
+                email: "${email}"
+              }
+            }) {
+              __typename
+              ... on InterviewType {
                 id
                 url {
+                  private
                   public
                   short
                 }
+                candidate {
+                  email
+                  fullName
+                }
+              }
+              ... on PositionNotFoundError {
+                positionNotFoundMessage: message
+                code
+                name
+              }
+              ... on PositionNotReadyToAcceptInvitesError {
+                positionNotReadyMessage: message
+                code
+                name
+              }
+              ... on InterviewAlreadyExistsInPositionError {
+                interviewAlreadyExistsMessage: message
+                code
+                name
+              }
+              ... on InterviewExternalIdAlreadyExistsInPositionError {
+                interviewExternalIdExistsMessage: message
+                code
+                name
+              }
+              ... on ExceededInvitesThisPeriodError {
+                exceededInvitesMessage: message
+                code
+                name
+              }
+              ... on ValidationError {
+                validationMessage: message
+                code
+                name
+                fieldErrors
               }
             }
           }
@@ -137,22 +240,83 @@ serve(async (req) => {
           body: JSON.stringify({ query: mutation }),
         });
 
-        const gqlData = await gqlResponse.json();
-        console.log(`Hireflix invite response for ${candidate.id}:`, JSON.stringify(gqlData));
+        let gqlData: any = null;
+        try {
+          gqlData = await gqlResponse.json();
+        } catch {
+          gqlData = null;
+        }
+        console.log(`Hireflix invite full response for ${candidate.id}:`, JSON.stringify({ status: gqlResponse.status, body: gqlData }));
 
-        if (gqlData.errors) {
-          console.error(`Hireflix API error for ${candidate.id}:`, JSON.stringify(gqlData.errors));
+        if (!gqlResponse.ok) {
+          const reason = gqlData?.errors?.[0]?.message || `Hireflix HTTP ${gqlResponse.status}`;
+          const retryable = isTransientHireflixError(reason, gqlResponse.status);
           failed++;
+          await supabaseAdmin
+            .from("candidates")
+            .update({ failure_reason: reason })
+            .eq("id", candidate.id);
+
+          const retryQueued = retryable ? await queueInviteRetry(supabaseAdmin, candidate, positionId) : false;
+          results.push({ id: candidate.id, name: candidate.name, status: "failed", reason, retryQueued });
+          continue;
+        }
+
+        if (gqlData?.errors?.length) {
+          console.error(`Hireflix API GraphQL errors for ${candidate.id}:`, JSON.stringify(gqlData.errors));
+          const reason = gqlData.errors[0]?.message || "Unknown Hireflix GraphQL error";
+          const retryable = !isNonRetryableGraphQLError(reason) && isTransientHireflixError(reason);
+          failed++;
+          await supabaseAdmin
+            .from("candidates")
+            .update({ failure_reason: reason })
+            .eq("id", candidate.id);
+
+          const retryQueued = retryable ? await queueInviteRetry(supabaseAdmin, candidate, positionId) : false;
           results.push({
             id: candidate.id,
             name: candidate.name,
             status: "failed",
-            reason: `Hireflix API: ${gqlData.errors[0]?.message || "Unknown API error"}`,
+            reason,
+            retryQueued,
           });
           continue;
         }
 
-        const interview = gqlData.data?.Position?.invite;
+        const inviteResult = gqlData?.data?.inviteCandidateToInterview;
+
+        if (!inviteResult) {
+          failed++;
+          const reason = "Hireflix returned empty invite payload";
+          await supabaseAdmin
+            .from("candidates")
+            .update({ failure_reason: reason })
+            .eq("id", candidate.id);
+          const retryQueued = await queueInviteRetry(supabaseAdmin, candidate, positionId);
+          results.push({ id: candidate.id, name: candidate.name, status: "failed", reason, retryQueued });
+          continue;
+        }
+
+        if (inviteResult.__typename !== "InterviewType") {
+          failed++;
+          const reason = `${inviteResult.__typename || "InviteError"}: ${
+            inviteResult.positionNotFoundMessage ||
+            inviteResult.positionNotReadyMessage ||
+            inviteResult.interviewAlreadyExistsMessage ||
+            inviteResult.interviewExternalIdExistsMessage ||
+            inviteResult.exceededInvitesMessage ||
+            inviteResult.validationMessage ||
+            "Invite rejected by Hireflix"
+          }`;
+          await supabaseAdmin
+            .from("candidates")
+            .update({ failure_reason: reason })
+            .eq("id", candidate.id);
+          results.push({ id: candidate.id, name: candidate.name, status: "failed", reason, retryQueued: false });
+          continue;
+        }
+
+        const interview = inviteResult;
         const interviewUrl = interview?.url?.short || interview?.url?.public || null;
         const hireflixCandidateId = interview?.id || null;
 
@@ -166,30 +330,8 @@ serve(async (req) => {
             .update({ failure_reason: reason })
             .eq("id", candidate.id);
 
-          // Queue for retry
-          const { data: existingRetry } = await supabaseAdmin
-            .from("hireflix_retry_queue")
-            .select("id")
-            .eq("operation", "send_invite")
-            .eq("status", "pending")
-            .contains("payload", { candidate_id: candidate.id })
-            .maybeSingle();
-
-          if (!existingRetry) {
-            await supabaseAdmin.from("hireflix_retry_queue").insert({
-              operation: "send_invite",
-              payload: {
-                candidate_id: candidate.id,
-                candidate_name: candidate.name,
-                candidate_email: candidate.email,
-                position_id: positionId,
-              },
-              status: "pending",
-              next_retry_at: new Date(Date.now() + 60 * 1000).toISOString(),
-            });
-          }
-
-          results.push({ id: candidate.id, name: candidate.name, status: "failed", reason, retryQueued: !existingRetry });
+          const retryQueued = await queueInviteRetry(supabaseAdmin, candidate, positionId);
+          results.push({ id: candidate.id, name: candidate.name, status: "failed", reason, retryQueued });
           continue;
         }
 
@@ -199,6 +341,7 @@ serve(async (req) => {
             hireflix_status: "invited",
             hireflix_interview_url: interviewUrl,
             hireflix_candidate_id: hireflixCandidateId,
+            hireflix_interview_id: hireflixCandidateId,
             hireflix_invited_at: new Date().toISOString(),
             failure_reason: null,
           })
@@ -215,38 +358,18 @@ serve(async (req) => {
       } catch (err) {
         console.error(`Error inviting candidate ${candidate.id}:`, err);
         failed++;
-        const reason = err.message || "Unknown error during invite";
+        const reason = err instanceof Error ? err.message : "Unknown error during invite";
+        const retryable = isTransientHireflixError(reason);
         // Store failure reason in DB
         await supabaseAdmin
           .from("candidates")
           .update({ failure_reason: reason })
           .eq("id", candidate.id);
 
-        // Queue for automatic retry (check for existing pending retry to prevent duplicates)
-        const { data: existingRetry } = await supabaseAdmin
-          .from("hireflix_retry_queue")
-          .select("id")
-          .eq("operation", "send_invite")
-          .eq("status", "pending")
-          .contains("payload", { candidate_id: candidate.id })
-          .maybeSingle();
+        const retryQueued = retryable ? await queueInviteRetry(supabaseAdmin, candidate, positionId) : false;
+        if (retryQueued) console.log(`Queued retry for candidate ${candidate.id}`);
 
-        if (!existingRetry) {
-          await supabaseAdmin.from("hireflix_retry_queue").insert({
-            operation: "send_invite",
-            payload: {
-              candidate_id: candidate.id,
-              candidate_name: candidate.name,
-              candidate_email: candidate.email,
-              position_id: positionId,
-            },
-            status: "pending",
-            next_retry_at: new Date(Date.now() + 60 * 1000).toISOString(),
-          });
-          console.log(`Queued retry for candidate ${candidate.id}`);
-        }
-
-        results.push({ id: candidate.id, name: candidate.name, status: "failed", reason, retryQueued: !existingRetry });
+        results.push({ id: candidate.id, name: candidate.name, status: "failed", reason, retryQueued });
       }
     }
 

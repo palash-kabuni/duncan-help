@@ -229,11 +229,32 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
           if (res.data?.success) {
             toast.success(`Hireflix position created automatically`);
           } else {
-            throw new Error(res.data?.error || "Unknown issue");
+            const exactError = res.data?.error || "Unknown issue";
+            const retryable = res.data?.retryable === true;
+
+            if (!retryable) {
+              toast.error(`Hireflix position creation failed: ${exactError}`);
+              console.error("Non-retryable Hireflix position error:", {
+                error: exactError,
+                error_type: res.data?.error_type,
+                raw_errors: res.data?.raw_errors,
+              });
+            } else {
+              await supabase.from("hireflix_retry_queue" as any).insert({
+                operation: "create_position",
+                payload: {
+                  job_role_id: newRole.id,
+                  title: title.trim(),
+                  competencies: roleData?.competencies || [],
+                },
+              });
+              console.warn("Queued transient Hireflix position retry", { roleId: newRole.id, error: exactError });
+              toast.warning(`Hireflix temporary error: ${exactError}. Queued for retry.`);
+            }
           }
         } catch (err: any) {
-          // Queue for retry — don't leave the user with a broken state
-          console.error("Hireflix position creation failed, queuing retry:", err.message);
+          // Invoke/network failure is treated as transient and queued
+          console.error("Hireflix position creation invoke failed, queuing retry:", err.message);
           try {
             const { data: roleData } = await supabase
               .from("job_roles")
@@ -249,7 +270,8 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
                 competencies: roleData?.competencies || [],
               },
             });
-            toast.warning("Hireflix position will be created automatically (queued for retry)");
+            console.warn("Queued Hireflix retry after invoke/network failure", { roleId: newRole.id });
+            toast.warning(`Hireflix temporary error: ${err.message}. Queued for retry.`);
           } catch (retryErr: any) {
             toast.error("Failed to queue Hireflix retry: " + retryErr.message);
           }

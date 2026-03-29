@@ -27,13 +27,16 @@ async function fetchPositionInterviews(apiKey: string, positionId: string) {
           id
           status
           candidate {
-            id
             email
-            name
+            fullName
           }
           url {
-            review
+            private
             public
+            short
+          }
+          externalLink {
+            url
           }
           questions {
             id
@@ -49,6 +52,30 @@ async function fetchPositionInterviews(apiKey: string, positionId: string) {
   `;
   const data = await hireflixQuery(apiKey, query);
   return data?.position?.interviews || [];
+}
+
+function extractReviewerPlaybackUrl(interview: any): string | null {
+  const candidateLinks = [interview?.url?.public, interview?.url?.short].filter(Boolean);
+  const candidates = [
+    interview?.url?.review,
+    interview?.url?.private,
+    interview?.reviewUrl,
+    interview?.review_url,
+    interview?.review?.url,
+    interview?.playbackUrl,
+    interview?.playback_url,
+    interview?.video?.reviewUrl,
+    interview?.externalLink?.url,
+  ];
+
+  for (const value of candidates) {
+    if (typeof value !== "string") continue;
+    const url = value.trim();
+    if (!url) continue;
+    if (candidateLinks.includes(url) && url !== interview?.url?.private) continue;
+    return url;
+  }
+  return null;
 }
 
 async function scoreTranscript(transcript: string): Promise<any> {
@@ -336,9 +363,9 @@ serve(async (req) => {
       for (const candidate of posCandidates) {
         let interview = null;
 
-        if (candidate.hireflix_candidate_id) {
+        if (candidate.hireflix_interview_id || candidate.hireflix_candidate_id) {
           interview = interviews.find(
-            (i: any) => i.candidate?.id === candidate.hireflix_candidate_id &&
+            (i: any) => [candidate.hireflix_interview_id, candidate.hireflix_candidate_id].filter(Boolean).includes(i.id) &&
               (i.status === "finished" || i.status === "completed")
           );
         }
@@ -362,23 +389,16 @@ serve(async (req) => {
         let hireflixCandidateId = candidate.hireflix_candidate_id;
 
         if (interview) {
-          console.log(`Interview object for candidate ${candidate.id}:`, JSON.stringify({
-            id: interview.id,
-            status: interview.status,
-            url: interview.url,
-            candidateId: interview.candidate?.id,
-          }));
+          console.log(`Hireflix interview object for candidate ${candidate.id}:\n${JSON.stringify(interview, null, 2)}`);
           transcript = (interview.questions || [])
             .map((q: any) => q.answer?.transcription?.text || "")
             .filter((t: string) => t.length > 0)
             .join("\n\n");
           interviewId = interview.id;
-          // Extract ANY valid playback URL — try all known paths
-          playbackUrl = interview.url?.review || interview.url?.public || interview.url?.short || null;
-          if (!playbackUrl && interview.url && typeof interview.url === "string") {
-            playbackUrl = interview.url;
-          }
-          hireflixCandidateId = interview.candidate?.id || hireflixCandidateId;
+          playbackUrl = extractReviewerPlaybackUrl(interview);
+          console.log(`Extracted reviewer playback URL for candidate ${candidate.id}:`, playbackUrl);
+          // Hireflix InterviewType exposes interview.id (not candidate.id); persist this stable ID
+          hireflixCandidateId = interview.id || hireflixCandidateId;
         }
 
         if (!transcript && forceRescore) {
@@ -399,7 +419,6 @@ serve(async (req) => {
 
         // DO NOT mark as "completed" if playback_url is NULL — keep as "invited" until video accessible
         const shouldMarkCompleted = !!playbackUrl;
-        const newStatus = shouldMarkCompleted ? "completed" : candidate.hireflix_status;
 
         try {
           const scores = await scoreTranscript(transcript);

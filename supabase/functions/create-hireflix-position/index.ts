@@ -13,6 +13,25 @@ const DEFAULT_QUESTIONS = [
   "Tell us about a time you realised you were wrong and had to change your position publicly. What was difficult about that moment, and what did you learn?",
 ];
 
+const NON_RETRYABLE_GRAPHQL_PATTERNS = [
+  /cannot query field/i,
+  /unknown argument/i,
+  /unknown type/i,
+  /field .* is required/i,
+  /must not have a selection/i,
+  /syntax error/i,
+  /validation error/i,
+];
+
+function isNonRetryableGraphQLError(message: string) {
+  return NON_RETRYABLE_GRAPHQL_PATTERNS.some((pattern) => pattern.test(message || ""));
+}
+
+function isTransientHireflixError(message: string, httpStatus?: number) {
+  if (httpStatus && (httpStatus === 408 || httpStatus === 429 || httpStatus >= 500)) return true;
+  return /timeout|timed out|network|fetch failed|connection reset|econnreset|enotfound|temporar/i.test(message || "");
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -86,43 +105,93 @@ serve(async (req) => {
 
     const mutation = `
       mutation {
-        createPosition(input: {
-          name: "${escapedTitle}"
-          questions: [${questionsGql}]
-        }) {
-          id
-          name
+        Position {
+          save(position: {
+            name: "${escapedTitle}"
+            questions: [${questionsGql}]
+          }) {
+            id
+            name
+          }
         }
       }
     `;
 
     console.log("Creating Hireflix position:", escapedTitle);
 
-    const hfRes = await fetch("https://api.hireflix.com/me", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-KEY": HIREFLIX_API_KEY,
-      },
-      body: JSON.stringify({ query: mutation }),
-    });
-
-    const hfData = await hfRes.json();
-    console.log("Hireflix response:", JSON.stringify(hfData));
-
-    if (hfData.errors) {
-      console.error("Hireflix errors:", JSON.stringify(hfData.errors));
+    let hfRes: Response;
+    let hfData: any;
+    try {
+      hfRes = await fetch("https://api.hireflix.com/me", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-API-KEY": HIREFLIX_API_KEY,
+        },
+        body: JSON.stringify({ query: mutation }),
+      });
+      hfData = await hfRes.json();
+    } catch (fetchError) {
+      const message = fetchError instanceof Error ? fetchError.message : "Network error calling Hireflix";
+      console.error("Hireflix network error (create position):", message);
       return new Response(
-        JSON.stringify({ error: "Hireflix API error: " + hfData.errors[0]?.message, questions: allQuestions }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({
+          success: false,
+          error: message,
+          retryable: true,
+          error_type: "transient",
+          questions: allQuestions,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const position = hfData.data?.createPosition;
+    console.log("Hireflix create position full response:", JSON.stringify({ status: hfRes.status, body: hfData }));
+
+    if (!hfRes.ok) {
+      const message = hfData?.errors?.[0]?.message || `Hireflix HTTP ${hfRes.status}`;
+      const retryable = isTransientHireflixError(message, hfRes.status);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: message,
+          retryable,
+          error_type: retryable ? "transient" : "non_retryable",
+          questions: allQuestions,
+          raw_errors: hfData?.errors || null,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (hfData?.errors?.length) {
+      const message = hfData.errors[0]?.message || "Hireflix GraphQL error";
+      const nonRetryable = isNonRetryableGraphQLError(message);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: message,
+          retryable: !nonRetryable,
+          error_type: nonRetryable ? "schema_validation" : "transient",
+          questions: allQuestions,
+          raw_errors: hfData.errors,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const position = hfData?.data?.Position?.save;
     if (!position?.id) {
       return new Response(
-        JSON.stringify({ error: "Failed to create Hireflix position — no ID returned", raw: hfData }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({
+          success: false,
+          error: "Failed to create Hireflix position — no ID returned",
+          retryable: false,
+          error_type: "schema_validation",
+          raw: hfData,
+          questions: allQuestions,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
