@@ -458,11 +458,57 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
                         <Badge variant="default" className="text-[10px] gap-1">
                           ✅ Linked
                         </Badge>
-                      ) : (
-                        <Badge variant="secondary" className="text-[10px] gap-1">
-                          <Loader2 className="h-3 w-3 animate-spin" /> Syncing...
-                        </Badge>
-                      )}
+                      ) : (() => {
+                        const retry = retryMap.get(role.id);
+                        if (retry?.status === "failed") {
+                          return (
+                            <TooltipProvider delayDuration={200}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="flex items-center gap-1">
+                                    <Badge variant="destructive" className="text-[10px] gap-1">
+                                      <XCircle className="h-3 w-3" /> Failed
+                                    </Badge>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-6 w-6"
+                                      onClick={(e) => { e.stopPropagation(); handleRetryPosition(role.id, role.title); }}
+                                    >
+                                      <RotateCcw className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs text-xs">
+                                  {retry.last_error || "Hireflix position creation failed after multiple attempts"}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          );
+                        } else if (retry?.status === "pending" || retry?.status === "processing") {
+                          return (
+                            <Badge variant="secondary" className="text-[10px] gap-1">
+                              <Loader2 className="h-3 w-3 animate-spin" /> Retrying...
+                            </Badge>
+                          );
+                        } else {
+                          return (
+                            <div className="flex items-center gap-1">
+                              <Badge variant="outline" className="text-[10px] gap-1 text-muted-foreground">
+                                <AlertTriangle className="h-3 w-3" /> Not Linked
+                              </Badge>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6"
+                                onClick={(e) => { e.stopPropagation(); handleRetryPosition(role.id, role.title); }}
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          );
+                        }
+                      })()}
                     </TableCell>
                     <TableCell>
                       <Badge variant={role.status === "active" ? "default" : "secondary"}>
