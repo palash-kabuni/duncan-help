@@ -424,6 +424,14 @@ const Recruitment = () => {
           ))}
         </div>
 
+        {/* Sync delay warning */}
+        {syncDelayed && (
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-yellow-500/30 bg-yellow-500/5 text-sm text-yellow-600 dark:text-yellow-400">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            Interview sync may be delayed — last sync was over 10 minutes ago
+          </div>
+        )}
+
         {/* Job Roles */}
         <JobRolesManager />
 
