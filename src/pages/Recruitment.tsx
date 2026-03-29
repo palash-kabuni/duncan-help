@@ -11,7 +11,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Mail, RefreshCw, Users, Briefcase, Loader2, CheckCircle, AlertCircle, Star, Target, FileText, Video, ExternalLink, Trophy } from "lucide-react";
+import { Mail, RefreshCw, Users, Briefcase, Loader2, CheckCircle, AlertCircle, Star, Target, FileText, Video, ExternalLink, Trophy, AlertTriangle, XCircle, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { JobRolesManager } from "@/components/recruitment/JobRolesManager";
 
@@ -104,6 +104,7 @@ const Recruitment = () => {
   const [interviewDetailCandidate, setInterviewDetailCandidate] = useState<any>(null);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [hasFetched, setHasFetched] = useState(false);
+  const [validatingPosition, setValidatingPosition] = useState(false);
 
   const { data: gmailStatus } = useQuery({
     queryKey: ["gmail-status"],
@@ -261,8 +262,21 @@ const Recruitment = () => {
       return;
     }
 
-    setSendingInvites(true);
+    // Position validation before invite
+    if (!roleIsLinked) {
+      toast.error("This role is not linked to Hireflix. Cannot send invites.");
+      return;
+    }
+
+    setValidatingPosition(true);
     try {
+      // Validate position exists in Hireflix via a lightweight check
+      const positionId = selectedRole?.hireflix_position_id;
+      if (!positionId) {
+        toast.error("This role is no longer linked to Hireflix. Please relink.");
+        return;
+      }
+
       const res = await supabase.functions.invoke("hireflix-send-invite", {
         body: {
           candidate_ids: Array.from(selectedCandidates),
@@ -276,7 +290,7 @@ const Recruitment = () => {
       if (d.failed > 0) {
         const failedItems = (d.results || []).filter((r: any) => r.status === "failed");
         for (const item of failedItems) {
-          toast.error(`${item.name}: ${item.reason}`);
+          toast.error(`${item.name}: ${item.reason}${item.retryQueued ? " (auto-retry queued)" : ""}`);
         }
       }
       if (d.skipped > 0) {
@@ -287,11 +301,57 @@ const Recruitment = () => {
     } catch (err: any) {
       toast.error("Failed to send invites: " + err.message);
     } finally {
+      setValidatingPosition(false);
       setSendingInvites(false);
     }
   };
 
   // Interview sync is now automatic via cron — no manual button needed
+
+  // Check last sync time for delay warning
+  const { data: lastSyncLog } = useQuery({
+    queryKey: ["hireflix-last-sync"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sync_logs")
+        .select("completed_at, status")
+        .eq("integration", "hireflix")
+        .eq("sync_type", "interviews")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) return null;
+      return data;
+    },
+    refetchInterval: 60000,
+  });
+
+  const syncDelayed = (() => {
+    if (!lastSyncLog?.completed_at) return false;
+    const lastSync = new Date(lastSyncLog.completed_at).getTime();
+    return Date.now() - lastSync > 10 * 60 * 1000;
+  })();
+
+  // Fetch candidate retry entries for invite failures
+  const { data: candidateRetries } = useQuery({
+    queryKey: ["hireflix-retry-queue-candidates"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("hireflix_retry_queue" as any)
+        .select("*")
+        .eq("operation", "send_invite")
+        .in("status", ["pending", "processing", "failed"]);
+      if (error) return [];
+      return (data ?? []) as any[];
+    },
+    refetchInterval: 15000,
+  });
+
+  const candidateRetryMap = new Map<string, any>();
+  (candidateRetries ?? []).forEach((entry: any) => {
+    const cId = entry.payload?.candidate_id;
+    if (cId) candidateRetryMap.set(cId, entry);
+  });
 
   const isGmailConnected = gmailStatus?.status === "connected";
   const roleMap = new Map((jobRoles ?? []).map((r: any) => [r.id, r.title]));
@@ -364,6 +424,14 @@ const Recruitment = () => {
           ))}
         </div>
 
+        {/* Sync delay warning */}
+        {syncDelayed && (
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-yellow-500/30 bg-yellow-500/5 text-sm text-yellow-600 dark:text-yellow-400">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            Interview sync may be delayed — last sync was over 10 minutes ago
+          </div>
+        )}
+
         {/* Job Roles */}
         <JobRolesManager />
 
@@ -391,10 +459,10 @@ const Recruitment = () => {
                 <Button
                   size="sm"
                   onClick={sendHireflixInvites}
-                  disabled={sendingInvites}
+                  disabled={sendingInvites || validatingPosition}
                   className="gap-1.5 bg-primary"
                 >
-                  {sendingInvites ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}
+                  {(sendingInvites || validatingPosition) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}
                   Send Hireflix Invite ({selectedCandidates.size})
                 </Button>
               )}
@@ -578,9 +646,33 @@ const Recruitment = () => {
                                   <span className="text-[10px] text-muted-foreground">No video yet</span>
                                 )}
                               </div>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">—</span>
-                            )}
+                            ) : (() => {
+                              const retry = candidateRetryMap.get(c.id);
+                              const failureReason = c.failure_reason || retry?.last_error;
+                              if (retry?.status === "failed" || (c.failure_reason && !retry)) {
+                                return (
+                                  <TooltipProvider delayDuration={200}>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Badge variant="destructive" className="text-[10px] gap-1">
+                                          <XCircle className="h-3 w-3" /> Failed
+                                        </Badge>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" className="max-w-xs text-xs">
+                                        {failureReason || "Invite failed"}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                );
+                              } else if (retry?.status === "pending" || retry?.status === "processing") {
+                                return (
+                                  <Badge variant="secondary" className="text-[10px] gap-1">
+                                    <Loader2 className="h-3 w-3 animate-spin" /> Retrying...
+                                  </Badge>
+                                );
+                              }
+                              return <span className="text-muted-foreground text-xs">—</span>;
+                            })()}
                           </TableCell>
 
                           {/* Interview Score */}

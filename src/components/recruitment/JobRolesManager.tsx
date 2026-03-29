@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Briefcase, Plus, Loader2, Trash2, Upload, FileText, Sparkles, Download } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Briefcase, Plus, Loader2, Trash2, Upload, FileText, Sparkles, Download, RotateCcw, AlertTriangle, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 export function JobRolesManager() {
@@ -35,6 +36,63 @@ export function JobRolesManager() {
       return data ?? [];
     },
   });
+
+  // Fetch retry queue entries for position creation
+  const { data: retryEntries } = useQuery({
+    queryKey: ["hireflix-retry-queue-roles"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("hireflix_retry_queue" as any)
+        .select("*")
+        .eq("operation", "create_position")
+        .in("status", ["pending", "processing", "failed"]);
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+    refetchInterval: 15000,
+  });
+
+  // Build a map: job_role_id → retry entry
+  const retryMap = new Map<string, any>();
+  (retryEntries ?? []).forEach((entry: any) => {
+    const roleId = entry.payload?.job_role_id;
+    if (roleId) retryMap.set(roleId, entry);
+  });
+
+  const handleRetryPosition = async (roleId: string, roleTitle: string) => {
+    try {
+      const { data: roleData } = await supabase
+        .from("job_roles")
+        .select("competencies")
+        .eq("id", roleId)
+        .single();
+
+      // Mark existing failed entry as completed before re-queuing
+      const existing = retryMap.get(roleId);
+      if (existing) {
+        await supabase
+          .from("hireflix_retry_queue" as any)
+          .update({ status: "completed", completed_at: new Date().toISOString() } as any)
+          .eq("id", existing.id);
+      }
+
+      await supabase.from("hireflix_retry_queue" as any).insert({
+        operation: "create_position",
+        payload: {
+          job_role_id: roleId,
+          title: roleTitle,
+          competencies: roleData?.competencies || [],
+        },
+        status: "pending",
+        next_retry_at: new Date().toISOString(),
+      } as any);
+
+      toast.success("Retry queued — position will be created shortly");
+      queryClient.invalidateQueries({ queryKey: ["hireflix-retry-queue-roles"] });
+    } catch (err: any) {
+      toast.error("Failed to queue retry: " + err.message);
+    }
+  };
 
   const handleGenerateJd = async () => {
     if (!title.trim()) {
@@ -400,11 +458,57 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
                         <Badge variant="default" className="text-[10px] gap-1">
                           ✅ Linked
                         </Badge>
-                      ) : (
-                        <Badge variant="secondary" className="text-[10px] gap-1">
-                          <Loader2 className="h-3 w-3 animate-spin" /> Syncing...
-                        </Badge>
-                      )}
+                      ) : (() => {
+                        const retry = retryMap.get(role.id);
+                        if (retry?.status === "failed") {
+                          return (
+                            <TooltipProvider delayDuration={200}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="flex items-center gap-1">
+                                    <Badge variant="destructive" className="text-[10px] gap-1">
+                                      <XCircle className="h-3 w-3" /> Failed
+                                    </Badge>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-6 w-6"
+                                      onClick={(e) => { e.stopPropagation(); handleRetryPosition(role.id, role.title); }}
+                                    >
+                                      <RotateCcw className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs text-xs">
+                                  {retry.last_error || "Hireflix position creation failed after multiple attempts"}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          );
+                        } else if (retry?.status === "pending" || retry?.status === "processing") {
+                          return (
+                            <Badge variant="secondary" className="text-[10px] gap-1">
+                              <Loader2 className="h-3 w-3 animate-spin" /> Retrying...
+                            </Badge>
+                          );
+                        } else {
+                          return (
+                            <div className="flex items-center gap-1">
+                              <Badge variant="outline" className="text-[10px] gap-1 text-muted-foreground">
+                                <AlertTriangle className="h-3 w-3" /> Not Linked
+                              </Badge>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6"
+                                onClick={(e) => { e.stopPropagation(); handleRetryPosition(role.id, role.title); }}
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          );
+                        }
+                      })()}
                     </TableCell>
                     <TableCell>
                       <Badge variant={role.status === "active" ? "default" : "secondary"}>
