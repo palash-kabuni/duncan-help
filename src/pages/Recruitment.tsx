@@ -294,6 +294,51 @@ const Recruitment = () => {
 
   // Interview sync is now automatic via cron — no manual button needed
 
+  // Check last sync time for delay warning
+  const { data: lastSyncLog } = useQuery({
+    queryKey: ["hireflix-last-sync"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sync_logs")
+        .select("completed_at, status")
+        .eq("integration", "hireflix")
+        .eq("sync_type", "interviews")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) return null;
+      return data;
+    },
+    refetchInterval: 60000,
+  });
+
+  const syncDelayed = (() => {
+    if (!lastSyncLog?.completed_at) return false;
+    const lastSync = new Date(lastSyncLog.completed_at).getTime();
+    return Date.now() - lastSync > 10 * 60 * 1000; // >10 minutes
+  })();
+
+  // Fetch candidate retry entries for invite failures
+  const { data: candidateRetries } = useQuery({
+    queryKey: ["hireflix-retry-queue-candidates"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("hireflix_retry_queue" as any)
+        .select("*")
+        .eq("operation", "send_invite")
+        .in("status", ["pending", "processing", "failed"]);
+      if (error) return [];
+      return (data ?? []) as any[];
+    },
+    refetchInterval: 15000,
+  });
+
+  const candidateRetryMap = new Map<string, any>();
+  (candidateRetries ?? []).forEach((entry: any) => {
+    const cId = entry.payload?.candidate_id;
+    if (cId) candidateRetryMap.set(cId, entry);
+  });
+
   const isGmailConnected = gmailStatus?.status === "connected";
   const roleMap = new Map((jobRoles ?? []).map((r: any) => [r.id, r.title]));
 
