@@ -70,7 +70,7 @@ async function createHireflixPosition(apiKey: string, title: string, competencie
 
   const allQuestions = [...DEFAULT_QUESTIONS, competencyQuestion];
   const escapedTitle = title.replace(/"/g, '\\"');
-  const questionsGql = allQuestions.map((q) => `{ question: "${q.replace(/"/g, '\\"')}" }`).join(", ");
+  const questionsGql = allQuestions.map((q) => `{ title: "${q.replace(/"/g, '\\"')}" }`).join(", ");
 
   const mutation = `mutation { Position { save(position: { name: "${escapedTitle}", questions: [${questionsGql}] }) { id name } } }`;
 

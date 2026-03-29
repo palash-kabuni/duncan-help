@@ -54,27 +54,18 @@ async function fetchPositionInterviews(apiKey: string, positionId: string) {
   return data?.position?.interviews || [];
 }
 
+// Based on real Hireflix schema introspection:
+// InterviewUrlType has exactly 3 fields: private, public, short
+// - "private" = reviewer/internal playback URL (what we want)
+// - "public" = candidate-facing link (NOT what we want)
+// - "short" = shortened candidate invite link (NOT what we want)
 function extractReviewerPlaybackUrl(interview: any): string | null {
-  const candidateLinks = [interview?.url?.public, interview?.url?.short].filter(Boolean);
-  const candidates = [
-    interview?.url?.review,
-    interview?.url?.private,
-    interview?.reviewUrl,
-    interview?.review_url,
-    interview?.review?.url,
-    interview?.playbackUrl,
-    interview?.playback_url,
-    interview?.video?.reviewUrl,
-    interview?.externalLink?.url,
-  ];
-
-  for (const value of candidates) {
-    if (typeof value !== "string") continue;
-    const url = value.trim();
-    if (!url) continue;
-    if (candidateLinks.includes(url) && url !== interview?.url?.private) continue;
-    return url;
+  const privateUrl = interview?.url?.private;
+  if (typeof privateUrl === "string" && privateUrl.trim()) {
+    console.log(`Found reviewer playback URL (url.private): ${privateUrl}`);
+    return privateUrl.trim();
   }
+  console.log(`No reviewer playback URL (url.private) found for interview ${interview?.id}. url object:`, JSON.stringify(interview?.url));
   return null;
 }
 
