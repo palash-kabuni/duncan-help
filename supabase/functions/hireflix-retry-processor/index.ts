@@ -134,13 +134,11 @@ serve(async (req) => {
 
           const position = await createHireflixPosition(HIREFLIX_API_KEY, title, competencies || []);
 
-          // Update job role with position ID
           await supabaseAdmin
             .from("job_roles")
             .update({ hireflix_position_id: position.id })
             .eq("id", job_role_id);
 
-          // Mark retry as completed
           await supabaseAdmin
             .from("hireflix_retry_queue")
             .update({ status: "completed", completed_at: new Date().toISOString() })
@@ -161,6 +159,72 @@ serve(async (req) => {
 
           console.log(`Retry succeeded: deleted position ${hireflix_position_id}`);
           succeeded++;
+
+        } else if (retry.operation === "send_invite") {
+          const { candidate_id, candidate_name, candidate_email, position_id } = retry.payload as any;
+
+          // Dedup: check if candidate was already invited (e.g. manual retry succeeded)
+          const { data: candidate } = await supabaseAdmin
+            .from("candidates")
+            .select("hireflix_status")
+            .eq("id", candidate_id)
+            .maybeSingle();
+
+          if (candidate?.hireflix_status === "invited" || candidate?.hireflix_status === "completed") {
+            // Already invited — mark retry as completed, skip API call
+            await supabaseAdmin
+              .from("hireflix_retry_queue")
+              .update({ status: "completed", completed_at: new Date().toISOString() })
+              .eq("id", retry.id);
+            console.log(`Retry skipped (already ${candidate.hireflix_status}): candidate ${candidate_id}`);
+            succeeded++;
+          } else {
+            const fullName = (candidate_name || "").trim().replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+            const email = candidate_email.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+
+            const mutation = `
+              mutation {
+                Position(id: "${position_id}") {
+                  invite(candidate: { name: "${fullName}", email: "${email}" }) {
+                    id
+                    url { public short }
+                  }
+                }
+              }
+            `;
+
+            const gqlResponse = await fetch("https://api.hireflix.com/me", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "X-API-KEY": HIREFLIX_API_KEY },
+              body: JSON.stringify({ query: mutation }),
+            });
+
+            const gqlData = await gqlResponse.json();
+            if (gqlData.errors) throw new Error(gqlData.errors[0]?.message || "Hireflix API error");
+
+            const interview = gqlData.data?.Position?.invite;
+            const interviewUrl = interview?.url?.short || interview?.url?.public || null;
+            const hireflixCandidateId = interview?.id || null;
+
+            await supabaseAdmin
+              .from("candidates")
+              .update({
+                hireflix_status: "invited",
+                hireflix_interview_url: interviewUrl,
+                hireflix_candidate_id: hireflixCandidateId,
+                hireflix_invited_at: new Date().toISOString(),
+                failure_reason: null,
+              })
+              .eq("id", candidate_id);
+
+            await supabaseAdmin
+              .from("hireflix_retry_queue")
+              .update({ status: "completed", completed_at: new Date().toISOString() })
+              .eq("id", retry.id);
+
+            console.log(`Retry succeeded: invited candidate ${candidate_id}`);
+            succeeded++;
+          }
         } else {
           throw new Error(`Unknown operation: ${retry.operation}`);
         }
