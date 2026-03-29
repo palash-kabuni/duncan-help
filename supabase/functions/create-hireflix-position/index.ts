@@ -100,7 +100,7 @@ serve(async (req) => {
     // Escape strings for GraphQL
     const escapedTitle = title.replace(/"/g, '\\"');
     const questionsGql = allQuestions
-      .map((q) => `{ question: "${q.replace(/"/g, '\\"')}" }`)
+      .map((q) => `{ title: "${q.replace(/"/g, '\\"')}" }`)
       .join(", ");
 
     const mutation = `
