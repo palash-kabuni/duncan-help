@@ -362,12 +362,22 @@ serve(async (req) => {
         let hireflixCandidateId = candidate.hireflix_candidate_id;
 
         if (interview) {
+          console.log(`Interview object for candidate ${candidate.id}:`, JSON.stringify({
+            id: interview.id,
+            status: interview.status,
+            url: interview.url,
+            candidateId: interview.candidate?.id,
+          }));
           transcript = (interview.questions || [])
             .map((q: any) => q.answer?.transcription?.text || "")
             .filter((t: string) => t.length > 0)
             .join("\n\n");
           interviewId = interview.id;
-          playbackUrl = interview.url?.review || interview.url?.public || null;
+          // Extract ANY valid playback URL — try all known paths
+          playbackUrl = interview.url?.review || interview.url?.public || interview.url?.short || null;
+          if (!playbackUrl && interview.url && typeof interview.url === "string") {
+            playbackUrl = interview.url;
+          }
           hireflixCandidateId = interview.candidate?.id || hireflixCandidateId;
         }
 
@@ -387,13 +397,17 @@ serve(async (req) => {
 
         synced++;
 
+        // DO NOT mark as "completed" if playback_url is NULL — keep as "invited" until video accessible
+        const shouldMarkCompleted = !!playbackUrl;
+        const newStatus = shouldMarkCompleted ? "completed" : candidate.hireflix_status;
+
         try {
           const scores = await scoreTranscript(transcript);
 
           await supabaseAdmin
             .from("candidates")
             .update({
-              hireflix_status: "completed",
+              hireflix_status: shouldMarkCompleted ? "completed" : "invited",
               hireflix_interview_id: interviewId,
               hireflix_candidate_id: hireflixCandidateId,
               hireflix_playback_url: playbackUrl,
@@ -405,13 +419,13 @@ serve(async (req) => {
             .eq("id", candidate.id);
 
           scored++;
-          results.push({ id: candidate.id, name: candidate.name, status: "scored", final_score: scores.final_score });
+          results.push({ id: candidate.id, name: candidate.name, status: shouldMarkCompleted ? "scored" : "scored_no_video", final_score: scores.final_score, has_playback: !!playbackUrl });
         } catch (e) {
           console.error(`Failed to score candidate ${candidate.id}:`, e);
           await supabaseAdmin
             .from("candidates")
             .update({
-              hireflix_status: "completed",
+              hireflix_status: shouldMarkCompleted ? "completed" : "invited",
               hireflix_interview_id: interviewId,
               hireflix_candidate_id: hireflixCandidateId,
               hireflix_playback_url: playbackUrl,
@@ -457,6 +471,21 @@ serve(async (req) => {
       .order("interview_final_score", { ascending: false })
       .limit(3);
 
+    // FIX 6: Write to sync_logs
+    try {
+      await supabaseAdmin.from("sync_logs").insert({
+        integration: "hireflix",
+        sync_type: "interviews",
+        status: failed > 0 ? "partial" : "success",
+        records_synced: synced,
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        error_message: failed > 0 ? `${failed} candidate(s) failed` : null,
+      });
+    } catch (logErr) {
+      console.error("Failed to write sync_log:", logErr);
+    }
+
     return new Response(JSON.stringify({
       success: true,
       synced,
@@ -469,6 +498,20 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("Hireflix sync error:", error);
+
+    // Log failure to sync_logs
+    try {
+      const supabaseAdmin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+      await supabaseAdmin.from("sync_logs").insert({
+        integration: "hireflix",
+        sync_type: "interviews",
+        status: "failed",
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        error_message: error.message || "Unknown sync error",
+      });
+    } catch { /* best effort */ }
+
     return new Response(JSON.stringify({ error: error.message || "Failed to sync interviews" }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
