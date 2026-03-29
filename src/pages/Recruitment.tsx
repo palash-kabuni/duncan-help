@@ -459,10 +459,10 @@ const Recruitment = () => {
                 <Button
                   size="sm"
                   onClick={sendHireflixInvites}
-                  disabled={sendingInvites}
+                  disabled={sendingInvites || validatingPosition}
                   className="gap-1.5 bg-primary"
                 >
-                  {sendingInvites ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}
+                  {(sendingInvites || validatingPosition) ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}
                   Send Hireflix Invite ({selectedCandidates.size})
                 </Button>
               )}
