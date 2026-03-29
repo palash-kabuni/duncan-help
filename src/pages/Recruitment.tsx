@@ -638,9 +638,33 @@ const Recruitment = () => {
                                   <span className="text-[10px] text-muted-foreground">No video yet</span>
                                 )}
                               </div>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">—</span>
-                            )}
+                            ) : (() => {
+                              const retry = candidateRetryMap.get(c.id);
+                              const failureReason = c.failure_reason || retry?.last_error;
+                              if (retry?.status === "failed" || (c.failure_reason && !retry)) {
+                                return (
+                                  <TooltipProvider delayDuration={200}>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Badge variant="destructive" className="text-[10px] gap-1">
+                                          <XCircle className="h-3 w-3" /> Failed
+                                        </Badge>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top" className="max-w-xs text-xs">
+                                        {failureReason || "Invite failed"}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                );
+                              } else if (retry?.status === "pending" || retry?.status === "processing") {
+                                return (
+                                  <Badge variant="secondary" className="text-[10px] gap-1">
+                                    <Loader2 className="h-3 w-3 animate-spin" /> Retrying...
+                                  </Badge>
+                                );
+                              }
+                              return <span className="text-muted-foreground text-xs">—</span>;
+                            })()}
                           </TableCell>
 
                           {/* Interview Score */}
