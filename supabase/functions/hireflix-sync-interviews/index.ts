@@ -362,12 +362,22 @@ serve(async (req) => {
         let hireflixCandidateId = candidate.hireflix_candidate_id;
 
         if (interview) {
+          console.log(`Interview object for candidate ${candidate.id}:`, JSON.stringify({
+            id: interview.id,
+            status: interview.status,
+            url: interview.url,
+            candidateId: interview.candidate?.id,
+          }));
           transcript = (interview.questions || [])
             .map((q: any) => q.answer?.transcription?.text || "")
             .filter((t: string) => t.length > 0)
             .join("\n\n");
           interviewId = interview.id;
-          playbackUrl = interview.url?.review || interview.url?.public || null;
+          // Extract ANY valid playback URL — try all known paths
+          playbackUrl = interview.url?.review || interview.url?.public || interview.url?.short || null;
+          if (!playbackUrl && interview.url && typeof interview.url === "string") {
+            playbackUrl = interview.url;
+          }
           hireflixCandidateId = interview.candidate?.id || hireflixCandidateId;
         }
 
