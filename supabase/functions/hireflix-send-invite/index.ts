@@ -183,7 +183,32 @@ serve(async (req) => {
           .from("candidates")
           .update({ failure_reason: reason })
           .eq("id", candidate.id);
-        results.push({ id: candidate.id, name: candidate.name, status: "failed", reason });
+
+        // Queue for automatic retry (check for existing pending retry to prevent duplicates)
+        const { data: existingRetry } = await supabaseAdmin
+          .from("hireflix_retry_queue")
+          .select("id")
+          .eq("operation", "send_invite")
+          .eq("status", "pending")
+          .contains("payload", { candidate_id: candidate.id })
+          .maybeSingle();
+
+        if (!existingRetry) {
+          await supabaseAdmin.from("hireflix_retry_queue").insert({
+            operation: "send_invite",
+            payload: {
+              candidate_id: candidate.id,
+              candidate_name: candidate.name,
+              candidate_email: candidate.email,
+              position_id: positionId,
+            },
+            status: "pending",
+            next_retry_at: new Date(Date.now() + 60 * 1000).toISOString(),
+          });
+          console.log(`Queued retry for candidate ${candidate.id}`);
+        }
+
+        results.push({ id: candidate.id, name: candidate.name, status: "failed", reason, retryQueued: !existingRetry });
       }
     }
 
