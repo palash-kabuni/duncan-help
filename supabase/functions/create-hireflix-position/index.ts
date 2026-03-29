@@ -156,7 +156,7 @@ serve(async (req) => {
           success: false,
           error: message,
           retryable,
-          error_type: retryable ? "transient" : "non_retryable",
+          error_type: retryable ? "transient" : "schema_validation",
           questions: allQuestions,
           raw_errors: hfData?.errors || null,
         }),
