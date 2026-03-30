@@ -25,7 +25,7 @@ Your capabilities:
 - **Notion Access**: You have access to the company's Notion workspace. You can search for pages, query databases, and read page content. Use these tools when users ask about information stored in Notion.
 - **Basecamp Access**: You have access to the company's Basecamp. You can list projects, fetch to-do lists and individual to-dos (both completed and incomplete), read messages from message boards, and fetch cards from Card Tables. Use these tools when users ask about project status, tasks, to-dos, messages, or cards in Basecamp. When asked about a specific project, first use list_basecamp_projects to find it, then use the project ID and dock tool IDs to fetch to-dos, messages, or cards. For Card Tables, look for the 'card_table' dock item.
 - **Meeting Intelligence**: You can fetch and analyze meeting recordings from Plaud AI. Use fetch_plaud_meetings to pull new recordings from email, list_meetings to browse stored meetings, get_meeting to view a specific meeting's transcript and analysis, and analyze_meetings to run AI analysis on meetings. When users ask about meetings, what was discussed, action items, or meeting insights, use these tools. You can search across all meeting transcripts to answer questions like "What did we decide about X?".
-- **Xero Finance**: You have access to the company's Xero accounting system. You can list and search invoices (both payable and receivable), get invoice details, and approve payment for invoices. When users ask about invoices, bills, payments, or financial data from Xero, use these tools. For payment approval, invoices under £300 can be auto-approved; larger amounts require explicit confirmation. Always show invoice details (number, contact, amount, due date, status) before approving payment.
+- **Xero Finance**: You have access to the company's Xero accounting system. You can list and search invoices (both payable and receivable), get invoice details, approve payment for invoices, and **submit new invoices** (both bills/ACCPAY and sales invoices/ACCREC). When users ask about invoices, bills, payments, or financial data from Xero, use these tools. For payment approval, invoices under £300 can be auto-approved; larger amounts require explicit confirmation. Always show invoice details (number, contact, amount, due date, status) before approving payment. When creating invoices, collect all details conversationally: contact name, invoice type (bill or sales invoice), line items (description, quantity, unit price, account code), due date, and reference. Search contacts first to find the correct Xero contact. Always confirm all details before submitting.
 - **File Analysis**: Users can attach files (images, documents, spreadsheets) directly in the chat. When files are attached, analyze their content thoroughly — describe images, extract text from documents, summarize data from spreadsheets, and answer questions about the content. Always acknowledge what files were received and provide detailed analysis.
 - **Google Forms**: You can fill and submit pre-configured Google Forms on behalf of the user. You can also parse a Google Form URL to automatically extract its fields and save it as a new pre-configured form. When a user asks to fill a form, first list available forms, then ask each required field ONE AT A TIME as a conversational question. Wait for the user to answer each question before asking the next. After collecting all answers, confirm the details and submit. When a user provides a Google Form URL, use parse_google_form to extract the fields, show the parsed result to the user for confirmation, then save it with save_parsed_google_form.
 
@@ -692,6 +692,57 @@ const XERO_TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "search_xero_contacts",
+      description: "Search Xero contacts by name. Use this to find the correct contact before creating an invoice.",
+      parameters: {
+        type: "object",
+        properties: {
+          search: { type: "string", description: "Contact name to search for (partial match)" },
+        },
+        required: ["search"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_xero_invoice",
+      description: "Submit a new invoice to Xero. Can create both bills (ACCPAY — money owed to suppliers) and sales invoices (ACCREC — money owed by customers). Collect all details conversationally before calling. Requires explicit user confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["ACCPAY", "ACCREC"], description: "ACCPAY for bills (supplier invoices), ACCREC for sales invoices (customer invoices)" },
+          contact_name: { type: "string", description: "Exact name of the Xero contact (use search_xero_contacts to find)" },
+          contact_id: { type: "string", description: "The Xero external contact ID (from search_xero_contacts)" },
+          date: { type: "string", description: "Invoice date in YYYY-MM-DD format" },
+          due_date: { type: "string", description: "Payment due date in YYYY-MM-DD format" },
+          reference: { type: "string", description: "Invoice reference number or description" },
+          line_items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                description: { type: "string", description: "Line item description" },
+                quantity: { type: "number", description: "Quantity (default 1)" },
+                unit_amount: { type: "number", description: "Unit price / amount" },
+                account_code: { type: "string", description: "Xero account code (e.g. '200' for Sales, '400' for Advertising, '310' for Insurance, '300' for Rent). Ask user if unsure." },
+                tax_type: { type: "string", description: "Tax type (e.g. 'OUTPUT2' for 20% VAT, 'NONE' for no tax, 'INPUT2' for input VAT)" },
+              },
+              required: ["description", "unit_amount"],
+            },
+            description: "Array of line items for the invoice",
+          },
+          status: { type: "string", enum: ["DRAFT", "SUBMITTED", "AUTHORISED"], description: "Invoice status. Default DRAFT for safety. Use SUBMITTED or AUTHORISED only if user explicitly requests." },
+          currency_code: { type: "string", description: "Currency code (default GBP)" },
+          confirmed: { type: "boolean", description: "Whether the user has explicitly confirmed the invoice details. Must be true to proceed." },
+        },
+        required: ["type", "contact_name", "contact_id", "line_items", "confirmed"],
+      },
+    },
+  },
 ];
 
 async function executeXeroTool(
@@ -796,6 +847,108 @@ async function executeXeroTool(
         contact: invoice.contact_name,
         amount: amount,
         currency: invoice.currency_code,
+      };
+    }
+
+    case "search_xero_contacts": {
+      const { data, error } = await supabaseAdmin
+        .from("xero_contacts")
+        .select("external_id, name, email, phone, contact_status, is_supplier, is_customer")
+        .ilike("name", `%${args.search}%`)
+        .limit(10);
+      if (error) throw new Error(`Failed to search contacts: ${error.message}`);
+      return {
+        count: (data || []).length,
+        contacts: data || [],
+        hint: "Use the external_id as contact_id when creating an invoice.",
+      };
+    }
+
+    case "create_xero_invoice": {
+      if (!args.confirmed) {
+        return { error: "Invoice submission requires explicit user confirmation. Please show the user all details and ask them to confirm before calling this tool with confirmed=true." };
+      }
+
+      const lineItems = (args.line_items || []).map((item: any) => ({
+        Description: item.description,
+        Quantity: item.quantity || 1,
+        UnitAmount: item.unit_amount,
+        AccountCode: item.account_code || (args.type === "ACCREC" ? "200" : "400"),
+        TaxType: item.tax_type || "OUTPUT2",
+      }));
+
+      if (lineItems.length === 0) {
+        return { error: "At least one line item is required." };
+      }
+
+      const invoice: any = {
+        Type: args.type,
+        Contact: { ContactID: args.contact_id },
+        LineItems: lineItems,
+        Status: args.status || "DRAFT",
+        CurrencyCode: args.currency_code || "GBP",
+        LineAmountTypes: "Exclusive",
+      };
+
+      if (args.date) invoice.Date = args.date;
+      if (args.due_date) invoice.DueDate = args.due_date;
+      if (args.reference) invoice.Reference = args.reference;
+
+      // Call Xero API to create the invoice
+      const res = await fetch(`${supabaseUrl}/functions/v1/xero-api`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({ action: "create_invoice", invoice }),
+      });
+
+      const resData = await res.json();
+      if (!res.ok) {
+        const details = resData?.details?.Elements?.[0]?.ValidationErrors
+          ?.map((e: any) => e.Message).join("; ") || JSON.stringify(resData);
+        throw new Error(`Failed to create invoice: ${details}`);
+      }
+
+      const created = resData?.Invoices?.[0];
+      if (!created) throw new Error("No invoice returned from Xero");
+
+      // Sync the new invoice to local database
+      try {
+        await supabaseAdmin.from("xero_invoices").upsert({
+          external_id: created.InvoiceID,
+          invoice_number: created.InvoiceNumber || null,
+          contact_name: args.contact_name,
+          contact_id: args.contact_id,
+          type: created.Type,
+          status: created.Status,
+          date: created.Date ? created.Date.split("T")[0] : null,
+          due_date: created.DueDate ? created.DueDate.split("T")[0] : null,
+          total: created.Total || 0,
+          amount_due: created.AmountDue || 0,
+          amount_paid: created.AmountPaid || 0,
+          currency_code: created.CurrencyCode || "GBP",
+          line_items: created.LineItems || [],
+          raw_data: created,
+          synced_at: new Date().toISOString(),
+        }, { onConflict: "external_id" });
+      } catch (syncErr) {
+        console.warn("Failed to sync new invoice to local DB:", syncErr);
+      }
+
+      const typeLabel = args.type === "ACCPAY" ? "Bill" : "Sales Invoice";
+      const total = Number(created.Total || 0).toFixed(2);
+      return {
+        success: true,
+        message: `✅ ${typeLabel} created successfully in Xero as **${created.Status}**.`,
+        invoice_id: created.InvoiceID,
+        invoice_number: created.InvoiceNumber || "TBD (Draft)",
+        contact: args.contact_name,
+        type: typeLabel,
+        status: created.Status,
+        total: `${created.CurrencyCode || "GBP"} ${total}`,
+        line_items_count: lineItems.length,
       };
     }
 
