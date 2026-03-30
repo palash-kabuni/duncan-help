@@ -71,8 +71,8 @@ export function JobRolesManager() {
       const existing = retryMap.get(roleId);
       if (existing) {
         await supabase
-          .from("hireflix_retry_queue" as any)
-          .update({ status: "completed", completed_at: new Date().toISOString() } as any)
+          .from("hireflix_retry_queue")
+          .update({ status: "completed", completed_at: new Date().toISOString() })
           .eq("id", existing.id);
       }
 
