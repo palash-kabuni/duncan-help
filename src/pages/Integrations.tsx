@@ -43,6 +43,20 @@ interface Integration {
 
 const integrations: Integration[] = [
   {
+    id: "gmail",
+    name: "Gmail",
+    description: "Read, search, and send emails directly from Duncan. Per-user connection — your inbox stays private.",
+    icon: Mail,
+    category: "Productivity",
+    services: ["Read Emails", "Search", "Send", "Compose"],
+    type: "user",
+    setupSteps: [
+      "Click Connect Gmail below",
+      "Sign in with your Google account and grant permissions",
+      "You'll be redirected back to Duncan — that's it!",
+    ],
+  },
+  {
     id: "google-workspace",
     name: "Google Workspace",
     description: "Connect Gmail, Calendar, and Docs for workspace intelligence.",
