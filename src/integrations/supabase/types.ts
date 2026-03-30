@@ -770,6 +770,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          approval_status: string
           avatar_url: string | null
           bio: string | null
           created_at: string
@@ -778,11 +779,13 @@ export type Database = {
           id: string
           norman_context: string | null
           preferences: Json | null
+          requested_role_title: string | null
           role_title: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          approval_status?: string
           avatar_url?: string | null
           bio?: string | null
           created_at?: string
@@ -791,11 +794,13 @@ export type Database = {
           id?: string
           norman_context?: string | null
           preferences?: Json | null
+          requested_role_title?: string | null
           role_title?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          approval_status?: string
           avatar_url?: string | null
           bio?: string | null
           created_at?: string
@@ -804,6 +809,7 @@ export type Database = {
           id?: string
           norman_context?: string | null
           preferences?: Json | null
+          requested_role_title?: string | null
           role_title?: string | null
           updated_at?: string
           user_id?: string
