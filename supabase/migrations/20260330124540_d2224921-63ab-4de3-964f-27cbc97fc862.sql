@@ -1,0 +1,1 @@
+UPDATE gmail_tokens SET connected_by = 'e8284615-2e27-458b-bec8-714adafd5cb0' WHERE id = '41418d80-ca19-49b3-8ad5-da3bf9adb6ec';
