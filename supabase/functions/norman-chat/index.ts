@@ -995,6 +995,89 @@ async function executeXeroTool(
       };
     }
 
+    case "list_xero_bank_accounts": {
+      const res = await fetch(`${supabaseUrl}/functions/v1/xero-api`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({ action: "list_bank_accounts" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to list bank accounts");
+      const accounts = (data.Accounts || []).map((a: any) => ({
+        account_id: a.AccountID,
+        name: a.Name,
+        code: a.Code,
+        currency: a.CurrencyCode,
+        type: a.Type,
+        status: a.Status,
+      }));
+      return { count: accounts.length, accounts, hint: "Use account_id as bank_account_id when creating an expense." };
+    }
+
+    case "create_xero_expense": {
+      if (!args.confirmed) {
+        return { error: "Expense recording requires explicit user confirmation. Please show the user all details and ask them to confirm before calling this tool with confirmed=true." };
+      }
+
+      const lineItems = (args.line_items || []).map((item: any) => ({
+        Description: item.description,
+        Quantity: item.quantity || 1,
+        UnitAmount: item.unit_amount,
+        AccountCode: item.account_code || "429",
+        TaxType: item.tax_type || "INPUT2",
+      }));
+
+      if (lineItems.length === 0) {
+        return { error: "At least one line item is required." };
+      }
+
+      const bankTransaction: any = {
+        Type: "SPEND",
+        Contact: { ContactID: args.contact_id },
+        BankAccount: { AccountID: args.bank_account_id },
+        LineItems: lineItems,
+        CurrencyCode: args.currency_code || "GBP",
+        LineAmountTypes: "Exclusive",
+      };
+
+      if (args.date) bankTransaction.Date = args.date;
+      if (args.reference) bankTransaction.Reference = args.reference;
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/xero-api`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({ action: "create_expense", bank_transaction: bankTransaction }),
+      });
+
+      const resData = await res.json();
+      if (!res.ok) {
+        const details = resData?.details?.Elements?.[0]?.ValidationErrors
+          ?.map((e: any) => e.Message).join("; ") || JSON.stringify(resData);
+        throw new Error(`Failed to record expense: ${details}`);
+      }
+
+      const created = resData?.BankTransactions?.[0];
+      if (!created) throw new Error("No bank transaction returned from Xero");
+
+      const total = Number(created.Total || 0).toFixed(2);
+      return {
+        success: true,
+        message: `✅ Expense recorded successfully in Xero.`,
+        transaction_id: created.BankTransactionID,
+        contact: args.contact_name,
+        total: `${created.CurrencyCode || "GBP"} ${total}`,
+        date: created.Date,
+        reference: created.Reference || "",
+        line_items_count: lineItems.length,
+      };
+    }
+
     default:
       throw new Error(`Unknown Xero tool: ${toolName}`);
   }
