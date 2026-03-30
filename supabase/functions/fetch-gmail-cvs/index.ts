@@ -289,6 +289,31 @@ serve(async (req) => {
       );
     }
 
+    // Re-link orphaned candidates: if fetching for a specific role, update any
+    // unmatched candidates whose email_subject matches the role title
+    if (filterRoleId && activeRoles.length === 1) {
+      const roleTitle = activeRoles[0].title;
+      const normalizedTitle = normalizeText(roleTitle);
+      const { data: orphaned } = await supabaseAdmin
+        .from("candidates")
+        .select("id, email_subject")
+        .is("job_role_id", null);
+
+      if (orphaned && orphaned.length > 0) {
+        const toRelink = orphaned.filter((c: any) =>
+          c.email_subject && normalizeText(c.email_subject).includes(normalizedTitle)
+        );
+        for (const c of toRelink) {
+          await supabaseAdmin
+            .from("candidates")
+            .update({ job_role_id: filterRoleId, status: "parsed" })
+            .eq("id", c.id)
+            .is("job_role_id", null);
+          console.log(`Re-linked orphaned candidate ${c.id} to role ${roleTitle}`);
+        }
+      }
+    }
+
     // BROADER FETCH: search for all emails with CV-like attachments, not just subject matches
     const query = `has:attachment (filename:pdf OR filename:docx OR filename:doc)`;
     console.log("Gmail search query:", query);
