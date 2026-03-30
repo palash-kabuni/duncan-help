@@ -237,7 +237,7 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
               .from("hireflix_retry_queue")
               .insert({
                 operation: "create_position",
-                payload: { job_role_id: newRole.id, title: title.trim(), competencies } as unknown as Record<string, unknown>,
+                payload: JSON.parse(JSON.stringify({ job_role_id: newRole.id, title: title.trim(), competencies })),
                 status: "pending",
                 next_retry_at: new Date().toISOString(),
               });
