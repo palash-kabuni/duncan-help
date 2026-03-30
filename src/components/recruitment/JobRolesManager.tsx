@@ -76,16 +76,16 @@ export function JobRolesManager() {
           .eq("id", existing.id);
       }
 
-      await supabase.from("hireflix_retry_queue" as any).insert({
+      await supabase.from("hireflix_retry_queue").insert({
         operation: "create_position",
-        payload: {
+        payload: JSON.parse(JSON.stringify({
           job_role_id: roleId,
           title: roleTitle,
           competencies: roleData?.competencies || [],
-        },
+        })),
         status: "pending",
         next_retry_at: new Date().toISOString(),
-      } as any);
+      });
 
       toast.success("Retry queued — position will be created shortly");
       queryClient.invalidateQueries({ queryKey: ["hireflix-retry-queue-roles"] });
