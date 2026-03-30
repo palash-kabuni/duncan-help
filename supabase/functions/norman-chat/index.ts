@@ -2404,6 +2404,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
     tools.push(...AZURE_DEVOPS_TOOLS);
     // Xero tools always available (data is synced locally)
     tools.push(...XERO_TOOLS);
+    // Gmail tools always available (connection checked at execution time)
+    tools.push(...GMAIL_TOOLS);
     if (tools.length > 0) {
       requestBody.tools = tools;
     }
