@@ -1,11 +1,30 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Loader2, Mail, Lock, User, ArrowRight } from "lucide-react";
+import { Loader2, Mail, Lock, User, ArrowRight, Building2, Briefcase } from "lucide-react";
 import duncanAvatar from "@/assets/duncan-avatar.jpeg";
 import { supabase } from "@/integrations/supabase/client";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+
+const ROLE_TITLES = [
+  "Developer",
+  "Designer",
+  "Project Manager",
+  "Operations Manager",
+  "HR Manager",
+  "Finance Manager",
+  "Marketing Manager",
+  "Sales Manager",
+  "Business Analyst",
+  "Data Analyst",
+  "QA Engineer",
+  "DevOps Engineer",
+  "Product Manager",
+  "Content Strategist",
+  "Executive",
+  "Other",
+];
 
 const Auth = () => {
   const { session, loading } = useAuth();
@@ -13,17 +32,24 @@ const Auth = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [department, setDepartment] = useState("");
+  const [roleTitle, setRoleTitle] = useState("");
+  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
 
+  useEffect(() => {
+    supabase.from("departments").select("id, name").order("name").then(({ data }) => {
+      if (data) setDepartments(data);
+    });
+  }, []);
+
   const getAuthErrorMessage = (error: unknown) => {
     const message = error instanceof Error ? error.message : String((error as any)?.message ?? error ?? "");
-
     if (message.toLowerCase().includes("failed to fetch")) {
-      return "Can’t reach authentication service from this browser. Check VPN/firewall/ad-blockers or try another network.";
+      return "Can't reach authentication service from this browser. Check VPN/firewall/ad-blockers or try another network.";
     }
-
     return message || "Authentication failed";
   };
 
@@ -55,28 +81,32 @@ const Auth = () => {
     setSubmitting(true);
 
     try {
-        const { error } = isLogin
-          ? await withRetry(() => supabase.auth.signInWithPassword({ email, password }))
-          : await withRetry(() =>
-              supabase.auth.signUp({
-                email,
-                password,
-                options: {
-                  data: { display_name: displayName },
-                  emailRedirectTo: window.location.origin,
+      const { error } = isLogin
+        ? await withRetry(() => supabase.auth.signInWithPassword({ email, password }))
+        : await withRetry(() =>
+            supabase.auth.signUp({
+              email,
+              password,
+              options: {
+                data: {
+                  display_name: displayName,
+                  department: department,
+                  role_title: roleTitle,
                 },
-              })
-            );
+                emailRedirectTo: window.location.origin,
+              },
+            })
+          );
 
-        if (error) throw error;
+      if (error) throw error;
 
-        toast.success(isLogin ? "Welcome back to Duncan" : "Check your email to verify your account");
+      toast.success(
+        isLogin
+          ? "Welcome back to Duncan"
+          : "Account created! An admin will review and approve your access."
+      );
     } catch (error: unknown) {
-      console.error("Auth submit failed", {
-        error,
-        online: navigator.onLine,
-        origin: window.location.origin,
-      });
+      console.error("Auth submit failed", { error, online: navigator.onLine, origin: window.location.origin });
       toast.error(getAuthErrorMessage(error));
     } finally {
       setSubmitting(false);
@@ -96,11 +126,7 @@ const Auth = () => {
       toast.success("Check your email for a password reset link");
       setShowForgotPassword(false);
     } catch (error: unknown) {
-      console.error("Password reset request failed", {
-        error,
-        online: navigator.onLine,
-        origin: window.location.origin,
-      });
+      console.error("Password reset request failed", { error, online: navigator.onLine, origin: window.location.origin });
       toast.error(getAuthErrorMessage(error));
     } finally {
       setSubmitting(false);
@@ -173,22 +199,58 @@ const Auth = () => {
             {isLogin ? "Sign in to your account" : "Create your team account"}
           </p>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-3.5">
             {!isLogin && (
-              <div>
-                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Display name</label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
-                  <input
-                    type="text"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="Your name"
-                    required={!isLogin}
-                    className="w-full rounded-lg border border-border bg-card pl-10 pr-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:glow-primary-sm transition-all"
-                  />
+              <>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Display name</label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
+                    <input
+                      type="text"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      placeholder="Your name"
+                      required
+                      className="w-full rounded-lg border border-border bg-card pl-10 pr-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 focus:glow-primary-sm transition-all"
+                    />
+                  </div>
                 </div>
-              </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Department</label>
+                  <div className="relative">
+                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
+                    <select
+                      value={department}
+                      onChange={(e) => setDepartment(e.target.value)}
+                      required
+                      className="w-full rounded-lg border border-border bg-card pl-10 pr-4 py-2.5 text-sm text-foreground focus:outline-none focus:border-primary/40 transition-all appearance-none"
+                    >
+                      <option value="" disabled>Select department</option>
+                      {departments.map((d) => (
+                        <option key={d.id} value={d.name}>{d.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Role</label>
+                  <div className="relative">
+                    <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
+                    <select
+                      value={roleTitle}
+                      onChange={(e) => setRoleTitle(e.target.value)}
+                      required
+                      className="w-full rounded-lg border border-border bg-card pl-10 pr-4 py-2.5 text-sm text-foreground focus:outline-none focus:border-primary/40 transition-all appearance-none"
+                    >
+                      <option value="" disabled>Select role</option>
+                      {ROLE_TITLES.map((r) => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </>
             )}
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1.5">Email</label>
@@ -247,6 +309,12 @@ const Auth = () => {
               )}
             </button>
           </form>
+
+          {!isLogin && (
+            <p className="mt-3 text-xs text-muted-foreground/60 text-center">
+              Your account will need admin approval before you can access Duncan.
+            </p>
+          )}
 
           {showForgotPassword && (
             <motion.div

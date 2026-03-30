@@ -11,6 +11,8 @@ export interface ProfileData {
   bio: string | null;
   norman_context: string | null;
   preferences: Record<string, unknown>;
+  approval_status: string;
+  requested_role_title: string | null;
 }
 
 export function useProfile() {
@@ -23,7 +25,7 @@ export function useProfile() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("display_name, department, avatar_url, role_title, bio, norman_context, preferences")
+        .select("display_name, department, avatar_url, role_title, bio, norman_context, preferences, approval_status, requested_role_title")
         .eq("user_id", user!.id)
         .maybeSingle();
       if (error) throw error;

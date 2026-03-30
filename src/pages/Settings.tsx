@@ -1,16 +1,19 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Settings as SettingsIcon, User, Bell, Shield, LogOut } from "lucide-react";
+import { Settings as SettingsIcon, User, Bell, Shield, LogOut, UserCheck } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
+import { useIsAdmin } from "@/hooks/useUserRoles";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import AccountApprovals from "@/components/settings/AccountApprovals";
 
 const Settings = () => {
   const { user, signOut } = useAuth();
   const { profile } = useProfile();
+  const { isAdmin } = useIsAdmin();
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [activityAlerts, setActivityAlerts] = useState(true);
 
@@ -20,7 +23,6 @@ const Settings = () => {
         <div className="pointer-events-none fixed top-0 lg:left-64 left-0 right-0 h-72 gradient-radial z-0" />
 
         <div className="relative z-10 px-4 sm:px-8 py-6 sm:py-8 max-w-3xl">
-          {/* Header */}
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mb-8">
             <div className="flex items-center gap-3 mb-1">
               <SettingsIcon className="h-5 w-5 text-primary" />
@@ -28,6 +30,22 @@ const Settings = () => {
             </div>
             <p className="text-sm text-muted-foreground font-mono">Manage your account and preferences</p>
           </motion.div>
+
+          {/* Admin: Account Approvals */}
+          {isAdmin && (
+            <motion.section
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.05 }}
+              className="rounded-xl border border-border bg-card p-6 mb-6"
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <UserCheck className="h-4 w-4 text-primary" />
+                <h3 className="text-sm font-semibold text-foreground">Account Approvals</h3>
+              </div>
+              <AccountApprovals />
+            </motion.section>
+          )}
 
           {/* Account Section */}
           <motion.section
@@ -60,7 +78,7 @@ const Settings = () => {
             </div>
           </motion.section>
 
-          {/* Notifications Section */}
+          {/* Notifications */}
           <motion.section
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -90,7 +108,7 @@ const Settings = () => {
             </div>
           </motion.section>
 
-          {/* Security Section */}
+          {/* Security */}
           <motion.section
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
