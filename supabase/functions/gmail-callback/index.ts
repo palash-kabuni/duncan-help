@@ -1,14 +1,20 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const getAppUrl = () => {
+  const raw = (Deno.env.get("APP_URL") || "https://duncan-help.lovable.app").trim();
+  const normalized = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  return normalized.replace(/\/+$/, "");
+};
+
 serve(async (req) => {
+  const appUrl = getAppUrl();
+
   try {
     const url = new URL(req.url);
     const code = url.searchParams.get("code");
     const error = url.searchParams.get("error");
     const stateParam = url.searchParams.get("state");
-
-    const appUrl = Deno.env.get("APP_URL") || "https://duncan-help.lovable.app";
 
     if (error || !code) {
       return new Response(null, {
@@ -99,7 +105,6 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error("Gmail callback error:", error);
-    const appUrl = Deno.env.get("APP_URL") || "https://duncan-help.lovable.app";
     return new Response(null, {
       status: 302,
       headers: { Location: `${appUrl}/integrations?gmail_error=unknown` },
