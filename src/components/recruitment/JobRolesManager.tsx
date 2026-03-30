@@ -295,9 +295,9 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
           });
           if (res.error) {
             // Queue for retry
-            await supabase.from("hireflix_retry_queue" as any).insert({
+            await supabase.from("hireflix_retry_queue").insert({
               operation: "delete_position",
-              payload: { hireflix_position_id: hireflixPositionId },
+              payload: JSON.parse(JSON.stringify({ hireflix_position_id: hireflixPositionId })),
             });
             console.error("Hireflix delete failed, queued for retry");
           }
