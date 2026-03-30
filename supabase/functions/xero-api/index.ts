@@ -132,6 +132,53 @@ Deno.serve(async (req) => {
       });
     }
 
+    // --- CREATE EXPENSE (Bank Transaction - SPEND) ---
+    if (action === "create_expense") {
+      const { bank_transaction } = body;
+      if (!bank_transaction) {
+        return new Response(JSON.stringify({ error: "Missing bank_transaction object" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const createRes = await fetch("https://api.xero.com/api.xro/2.0/BankTransactions", {
+        method: "POST",
+        headers: {
+          ...xeroHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ BankTransactions: [bank_transaction] }),
+      });
+
+      const createData = await createRes.json();
+      if (!createRes.ok) {
+        console.error("Xero create expense error:", JSON.stringify(createData));
+        return new Response(JSON.stringify({ error: "Xero API error", details: createData }), {
+          status: createRes.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      return new Response(JSON.stringify(createData), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // --- LIST BANK ACCOUNTS ---
+    if (action === "list_bank_accounts") {
+      const accountsRes = await fetch("https://api.xero.com/api.xro/2.0/Accounts?where=Type%3D%22BANK%22", {
+        headers: xeroHeaders,
+      });
+      const accountsData = await accountsRes.json();
+      if (!accountsRes.ok) {
+        return new Response(JSON.stringify({ error: "Xero API error", details: accountsData }), {
+          status: accountsRes.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify(accountsData), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // --- READ-ONLY ACTIONS (GET) ---
     let apiUrl: string;
 
