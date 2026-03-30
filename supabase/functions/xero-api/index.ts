@@ -92,7 +92,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { action, invoiceId, contactId, reportId, modifiedAfter } = await req.json();
+    const body = await req.json();
+    const { action, invoiceId, contactId, reportId, modifiedAfter } = body;
 
     const xeroHeaders: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
@@ -100,6 +101,38 @@ Deno.serve(async (req) => {
       Accept: "application/json",
     };
 
+    // --- CREATE INVOICE (POST) ---
+    if (action === "create_invoice") {
+      const { invoice } = body;
+      if (!invoice) {
+        return new Response(JSON.stringify({ error: "Missing invoice object" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const createRes = await fetch("https://api.xero.com/api.xro/2.0/Invoices", {
+        method: "POST",
+        headers: {
+          ...xeroHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ Invoices: [invoice] }),
+      });
+
+      const createData = await createRes.json();
+      if (!createRes.ok) {
+        console.error("Xero create invoice error:", JSON.stringify(createData));
+        return new Response(JSON.stringify({ error: "Xero API error", details: createData }), {
+          status: createRes.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      return new Response(JSON.stringify(createData), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // --- READ-ONLY ACTIONS (GET) ---
     let apiUrl: string;
 
     switch (action) {
