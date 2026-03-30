@@ -2594,6 +2594,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
               result = await executeAzureDevOpsTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
           } else if (xeroToolNames.includes(tc.function.name)) {
               result = await executeXeroTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "", userId || "");
+          } else if (gmailToolNames.includes(tc.function.name)) {
+              result = await executeGmailTool(tc.function.name, args, supabaseUrl, authHeader || "");
           } else {
           }
           
