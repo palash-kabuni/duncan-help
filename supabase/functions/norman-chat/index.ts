@@ -789,6 +789,71 @@ const XERO_TOOLS = [
   },
 ];
 
+const GMAIL_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "list_gmail_emails",
+      description: "List recent emails from the user's Gmail inbox. Use when the user asks about their emails, inbox, or recent messages.",
+      parameters: {
+        type: "object",
+        properties: {
+          maxResults: { type: "number", description: "Number of emails to return (default 15, max 25)" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_gmail",
+      description: "Search the user's Gmail using a query string. Supports Gmail search syntax like 'from:john subject:invoice after:2026/01/01'. Use when the user wants to find specific emails.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Gmail search query (e.g., 'from:john@example.com', 'subject:invoice', 'has:attachment', 'after:2026/01/01')" },
+          maxResults: { type: "number", description: "Max results (default 15)" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_gmail_email",
+      description: "Read the full content of a specific email by its message ID. Use after listing or searching emails to get the full body of a message.",
+      parameters: {
+        type: "object",
+        properties: {
+          messageId: { type: "string", description: "The Gmail message ID to read" },
+        },
+        required: ["messageId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_gmail_email",
+      description: "Send an email from the user's Gmail account. Always confirm the details (to, subject, body) with the user before sending. Requires explicit confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "Recipient email address" },
+          cc: { type: "string", description: "CC email addresses (comma-separated)" },
+          bcc: { type: "string", description: "BCC email addresses (comma-separated)" },
+          subject: { type: "string", description: "Email subject line" },
+          body: { type: "string", description: "Email body (can include HTML formatting)" },
+          confirmed: { type: "boolean", description: "Whether the user has explicitly confirmed sending. Must be true to proceed." },
+        },
+        required: ["to", "subject", "body", "confirmed"],
+      },
+    },
+  },
+];
+
 async function executeXeroTool(
   toolName: string,
   args: any,
