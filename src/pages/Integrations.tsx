@@ -494,7 +494,10 @@ const Integrations = () => {
               isGmailConnected={isGmailConnected}
               isAzureDevOpsConnected={isAzureDevOpsConnected}
               isXeroConnected={isXeroConnected}
-              onClose={() => setSelectedIntegration(null)}
+              onClose={() => {
+                setSelectedIntegration(null);
+                checkGmailConnection();
+              }}
             />
           )}
         </AnimatePresence>
@@ -600,6 +603,19 @@ const IntegrationDetail = ({
         onClose();
         return;
       }
+
+      if (isGmail) {
+        setGmailLoading(true);
+        const { supabase } = await import("@/integrations/supabase/client");
+        const { error } = await supabase.functions.invoke("gmail-api", {
+          body: { action: "disconnect" },
+        });
+        if (error) throw error;
+        toast.success("Gmail disconnected");
+        onClose();
+        return;
+      }
+
       if (isCompany) {
         await companyMutation.mutateAsync({ integrationId: integration.id, action: "disconnect" });
       } else {
@@ -609,6 +625,8 @@ const IntegrationDetail = ({
       onClose();
     } catch (err: any) {
       toast.error(err.message || "Failed to disconnect");
+    } finally {
+      setGmailLoading(false);
     }
   };
 
