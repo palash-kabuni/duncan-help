@@ -83,6 +83,29 @@ serve(async (req) => {
     const base64 = uint8ToBase64(bytes);
     const filename = storage_path.split("/").pop() || "cv.pdf";
     const mimeType = getMimeType(filename);
+    const isPdf = mimeType === "application/pdf";
+
+    // Build messages: PDF uses file content type, non-PDF uses base64 in text prompt
+    const userContent = isPdf
+      ? [
+          {
+            type: "file",
+            file: {
+              filename,
+              file_data: `data:${mimeType};base64,${base64}`,
+            },
+          },
+          {
+            type: "text",
+            text: "Extract the candidate's full name and email address from this CV/resume document.",
+          },
+        ]
+      : [
+          {
+            type: "text",
+            text: `The following is a base64-encoded ${mimeType} file named "${filename}". Extract the candidate's full name and email address from it.\n\nBase64 content (first 50000 chars):\n${base64.substring(0, 50000)}`,
+          },
+        ];
 
     const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -101,19 +124,7 @@ Always return the result by calling the extract_candidate_info function.`,
           },
           {
             role: "user",
-            content: [
-              {
-                type: "file",
-                file: {
-                  filename,
-                  file_data: `data:${mimeType};base64,${base64}`,
-                },
-              },
-              {
-                type: "text",
-                text: "Extract the candidate's full name and email address from this CV/resume document.",
-              },
-            ],
+            content: userContent,
           },
         ],
         tools: [
