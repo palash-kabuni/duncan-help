@@ -6,6 +6,7 @@ serve(async (req) => {
     const url = new URL(req.url);
     const code = url.searchParams.get("code");
     const error = url.searchParams.get("error");
+    const stateParam = url.searchParams.get("state");
 
     const appUrl = Deno.env.get("APP_URL") || "https://duncan-help.lovable.app";
 
@@ -13,6 +14,24 @@ serve(async (req) => {
       return new Response(null, {
         status: 302,
         headers: { Location: `${appUrl}/integrations?gmail_error=${error || "no_code"}` },
+      });
+    }
+
+    // Decode user_id from state
+    let userId: string | null = null;
+    if (stateParam) {
+      try {
+        const stateData = JSON.parse(atob(stateParam));
+        userId = stateData.user_id;
+      } catch {
+        console.error("Failed to decode state parameter");
+      }
+    }
+
+    if (!userId) {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: `${appUrl}/integrations?gmail_error=invalid_state` },
       });
     }
 
@@ -55,11 +74,11 @@ serve(async (req) => {
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Delete any existing tokens and insert new ones
-    await supabaseAdmin.from("gmail_tokens").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+    // Delete existing tokens for this user only
+    await supabaseAdmin.from("gmail_tokens").delete().eq("connected_by", userId);
 
     const { error: insertError } = await supabaseAdmin.from("gmail_tokens").insert({
-      connected_by: "00000000-0000-0000-0000-000000000001", // service-level connection
+      connected_by: userId,
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token,
       token_expiry: expiry.toISOString(),
@@ -73,16 +92,6 @@ serve(async (req) => {
         headers: { Location: `${appUrl}/integrations?gmail_error=storage_failed` },
       });
     }
-
-    // Also upsert company_integrations status
-    await supabaseAdmin.from("company_integrations").upsert(
-      {
-        integration_id: "gmail",
-        status: "connected",
-        last_sync: new Date().toISOString(),
-      },
-      { onConflict: "integration_id" }
-    );
 
     return new Response(null, {
       status: 302,
