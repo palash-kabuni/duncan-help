@@ -22,11 +22,6 @@ const integrationMeta: Record<string, { label: string; icon: React.ElementType }
   "xero": { label: "Xero", icon: Receipt },
 };
 
-const settingsMenuItems = [
-  { icon: Settings, label: "Settings", to: "/settings" },
-  { icon: UserCircle, label: "Profile", to: "/profile" },
-  { icon: Bug, label: "Report a Bug", to: "/feedback" },
-];
 
 export const MobileMenuButton = ({ onClick }: { onClick: () => void }) => (
   <button
