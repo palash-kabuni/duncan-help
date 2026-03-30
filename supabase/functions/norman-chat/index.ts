@@ -1149,6 +1149,97 @@ async function executeXeroTool(
   }
 }
 
+async function executeGmailTool(
+  toolName: string,
+  args: any,
+  supabaseUrl: string,
+  authHeader: string
+): Promise<any> {
+  async function callGmailApi(action: string, body: Record<string, any> = {}) {
+    const res = await fetch(`${supabaseUrl}/functions/v1/gmail-api`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: authHeader,
+      },
+      body: JSON.stringify({ action, ...body }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Gmail API ${action} failed`);
+    if (data.error) throw new Error(data.error);
+    return data;
+  }
+
+  switch (toolName) {
+    case "list_gmail_emails": {
+      const data = await callGmailApi("list", { maxResults: args.maxResults || 15 });
+      return {
+        count: (data.emails || []).length,
+        emails: (data.emails || []).map((e: any) => ({
+          id: e.id,
+          from: e.from,
+          subject: e.subject,
+          date: e.date,
+          snippet: e.snippet,
+          unread: e.isUnread,
+        })),
+        hint: "Use the 'id' with read_gmail_email to get full content.",
+      };
+    }
+
+    case "search_gmail": {
+      const data = await callGmailApi("search", { query: args.query, maxResults: args.maxResults || 15 });
+      return {
+        count: (data.emails || []).length,
+        emails: (data.emails || []).map((e: any) => ({
+          id: e.id,
+          from: e.from,
+          subject: e.subject,
+          date: e.date,
+          snippet: e.snippet,
+          unread: e.isUnread,
+        })),
+        hint: "Use the 'id' with read_gmail_email to get full content.",
+      };
+    }
+
+    case "read_gmail_email": {
+      const data = await callGmailApi("read", { messageId: args.messageId });
+      return {
+        id: data.id,
+        from: data.from,
+        to: data.to,
+        cc: data.cc || null,
+        subject: data.subject,
+        date: data.date,
+        body: data.textBody || data.htmlBody?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000) || data.snippet,
+        unread: data.isUnread,
+      };
+    }
+
+    case "send_gmail_email": {
+      if (!args.confirmed) {
+        return { error: "Sending an email requires explicit user confirmation. Show the user the draft (to, subject, body) and ask them to confirm before calling with confirmed=true." };
+      }
+      const data = await callGmailApi("send", {
+        to: args.to,
+        cc: args.cc || "",
+        bcc: args.bcc || "",
+        subject: args.subject,
+        body: args.body,
+      });
+      return {
+        success: true,
+        message: `✅ Email sent successfully to ${args.to}.`,
+        messageId: data.messageId,
+      };
+    }
+
+    default:
+      throw new Error(`Unknown Gmail tool: ${toolName}`);
+  }
+}
+
 async function executeAzureDevOpsTool(
   toolName: string,
   args: any,
