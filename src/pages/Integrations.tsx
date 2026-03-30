@@ -73,21 +73,6 @@ const integrations: Integration[] = [
     ],
   },
   {
-    id: "notion",
-    name: "Notion",
-    description: "Company-wide Notion workspace. Duncan indexes and reasons over shared databases, pages, and wikis.",
-    icon: FileText,
-    category: "Knowledge",
-    services: ["Databases", "Pages", "Wikis", "Comments"],
-    type: "company",
-    setupSteps: [
-      "Go to notion.so/my-integrations and create a new integration",
-      "Copy the Internal Integration Token",
-      "Share the Notion pages/databases you want Duncan to access with the integration",
-      "An admin adds the token to Duncan's settings",
-    ],
-  },
-  {
     id: "slack",
     name: "Slack",
     description: "Monitor channels, automate responses, and sync conversations into Duncan's knowledge base.",
