@@ -208,21 +208,23 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
         }
       }
 
-      // Auto-create Hireflix position — queue retry on failure
+      // Auto-create Hireflix position — queue retry on failure (non-blocking)
       if (newRole) {
-        toast.info("Creating Hireflix interview position...");
         try {
+          toast.info("Creating Hireflix interview position...");
           const { data: roleData } = await supabase
             .from("job_roles")
             .select("competencies")
             .eq("id", newRole.id)
             .single();
 
+          const competencies = roleData?.competencies || [];
+
           const res = await supabase.functions.invoke("create-hireflix-position", {
             body: {
               job_role_id: newRole.id,
               title: title.trim(),
-              competencies: roleData?.competencies || [],
+              competencies,
             },
           });
           if (res.error) throw res.error;
@@ -230,51 +232,39 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
             toast.success(`Hireflix position created automatically`);
           } else {
             const exactError = res.data?.error || "Unknown issue";
-            const retryable = res.data?.retryable === true;
-
-            if (!retryable) {
-              toast.error(`Hireflix position creation failed: ${exactError}`);
-              console.error("Non-retryable Hireflix position error:", {
-                error: exactError,
-                error_type: res.data?.error_type,
-                raw_errors: res.data?.raw_errors,
-              });
-            } else {
-              await supabase.from("hireflix_retry_queue" as any).insert({
+            // Always queue for retry on failure
+            const { error: queueError } = await supabase
+              .from("hireflix_retry_queue")
+              .insert({
                 operation: "create_position",
-                payload: {
-                  job_role_id: newRole.id,
-                  title: title.trim(),
-                  competencies: roleData?.competencies || [],
-                },
+                payload: { job_role_id: newRole.id, title: title.trim(), competencies } as unknown as Record<string, unknown>,
+                status: "pending",
+                next_retry_at: new Date().toISOString(),
               });
-              console.warn("Queued transient Hireflix position retry", { roleId: newRole.id, error: exactError });
-              toast.warning(`Hireflix temporary error: ${exactError}. Queued for retry.`);
+            if (queueError) {
+              console.error("Failed to queue Hireflix retry:", queueError);
             }
+            toast.warning(`Hireflix: ${exactError}. Queued for retry.`);
           }
         } catch (err: any) {
-          // Invoke/network failure is treated as transient and queued
-          console.error("Hireflix position creation invoke failed, queuing retry:", err.message);
+          // Non-blocking: role is already saved, just warn about Hireflix
+          console.error("Hireflix position creation failed:", err.message);
           try {
-            const { data: roleData } = await supabase
-              .from("job_roles")
-              .select("competencies")
-              .eq("id", newRole.id)
-              .single();
-
-            await supabase.from("hireflix_retry_queue" as any).insert({
-              operation: "create_position",
-              payload: {
-                job_role_id: newRole.id,
-                title: title.trim(),
-                competencies: roleData?.competencies || [],
-              },
-            });
-            console.warn("Queued Hireflix retry after invoke/network failure", { roleId: newRole.id });
-            toast.warning(`Hireflix temporary error: ${err.message}. Queued for retry.`);
-          } catch (retryErr: any) {
-            toast.error("Failed to queue Hireflix retry: " + retryErr.message);
+            const { error: queueError } = await supabase
+              .from("hireflix_retry_queue")
+              .insert({
+                operation: "create_position",
+                payload: { job_role_id: newRole.id, title: title.trim(), competencies: [] } as unknown as Record<string, unknown>,
+                status: "pending",
+                next_retry_at: new Date().toISOString(),
+              });
+            if (queueError) {
+              console.error("Failed to queue Hireflix retry:", queueError);
+            }
+          } catch {
+            // Silent — role is saved, Hireflix is best-effort
           }
+          toast.warning("Role saved. Hireflix position will be retried automatically.");
         }
       }
 
