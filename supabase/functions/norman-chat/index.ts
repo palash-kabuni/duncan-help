@@ -850,6 +850,108 @@ async function executeXeroTool(
       };
     }
 
+    case "search_xero_contacts": {
+      const { data, error } = await supabaseAdmin
+        .from("xero_contacts")
+        .select("external_id, name, email, phone, contact_status, is_supplier, is_customer")
+        .ilike("name", `%${args.search}%`)
+        .limit(10);
+      if (error) throw new Error(`Failed to search contacts: ${error.message}`);
+      return {
+        count: (data || []).length,
+        contacts: data || [],
+        hint: "Use the external_id as contact_id when creating an invoice.",
+      };
+    }
+
+    case "create_xero_invoice": {
+      if (!args.confirmed) {
+        return { error: "Invoice submission requires explicit user confirmation. Please show the user all details and ask them to confirm before calling this tool with confirmed=true." };
+      }
+
+      const lineItems = (args.line_items || []).map((item: any) => ({
+        Description: item.description,
+        Quantity: item.quantity || 1,
+        UnitAmount: item.unit_amount,
+        AccountCode: item.account_code || (args.type === "ACCREC" ? "200" : "400"),
+        TaxType: item.tax_type || "OUTPUT2",
+      }));
+
+      if (lineItems.length === 0) {
+        return { error: "At least one line item is required." };
+      }
+
+      const invoice: any = {
+        Type: args.type,
+        Contact: { ContactID: args.contact_id },
+        LineItems: lineItems,
+        Status: args.status || "DRAFT",
+        CurrencyCode: args.currency_code || "GBP",
+        LineAmountTypes: "Exclusive",
+      };
+
+      if (args.date) invoice.Date = args.date;
+      if (args.due_date) invoice.DueDate = args.due_date;
+      if (args.reference) invoice.Reference = args.reference;
+
+      // Call Xero API to create the invoice
+      const res = await fetch(`${supabaseUrl}/functions/v1/xero-api`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({ action: "create_invoice", invoice }),
+      });
+
+      const resData = await res.json();
+      if (!res.ok) {
+        const details = resData?.details?.Elements?.[0]?.ValidationErrors
+          ?.map((e: any) => e.Message).join("; ") || JSON.stringify(resData);
+        throw new Error(`Failed to create invoice: ${details}`);
+      }
+
+      const created = resData?.Invoices?.[0];
+      if (!created) throw new Error("No invoice returned from Xero");
+
+      // Sync the new invoice to local database
+      try {
+        await supabaseAdmin.from("xero_invoices").upsert({
+          external_id: created.InvoiceID,
+          invoice_number: created.InvoiceNumber || null,
+          contact_name: args.contact_name,
+          contact_id: args.contact_id,
+          type: created.Type,
+          status: created.Status,
+          date: created.Date ? created.Date.split("T")[0] : null,
+          due_date: created.DueDate ? created.DueDate.split("T")[0] : null,
+          total: created.Total || 0,
+          amount_due: created.AmountDue || 0,
+          amount_paid: created.AmountPaid || 0,
+          currency_code: created.CurrencyCode || "GBP",
+          line_items: created.LineItems || [],
+          raw_data: created,
+          synced_at: new Date().toISOString(),
+        }, { onConflict: "external_id" });
+      } catch (syncErr) {
+        console.warn("Failed to sync new invoice to local DB:", syncErr);
+      }
+
+      const typeLabel = args.type === "ACCPAY" ? "Bill" : "Sales Invoice";
+      const total = Number(created.Total || 0).toFixed(2);
+      return {
+        success: true,
+        message: `✅ ${typeLabel} created successfully in Xero as **${created.Status}**.`,
+        invoice_id: created.InvoiceID,
+        invoice_number: created.InvoiceNumber || "TBD (Draft)",
+        contact: args.contact_name,
+        type: typeLabel,
+        status: created.Status,
+        total: `${created.CurrencyCode || "GBP"} ${total}`,
+        line_items_count: lineItems.length,
+      };
+    }
+
     default:
       throw new Error(`Unknown Xero tool: ${toolName}`);
   }
