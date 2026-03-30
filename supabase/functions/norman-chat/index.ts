@@ -743,6 +743,49 @@ const XERO_TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "list_xero_bank_accounts",
+      description: "List bank accounts configured in Xero. Use this to find the correct bank account (AccountID) before recording an expense.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_xero_expense",
+      description: "Record an expense (Spend Money / Bank Transaction) in Xero. This creates a SPEND bank transaction against a specific bank account. Use when the user says they want to log/record an expense, add a spend, or record a payment that's already been made. Collect: contact, bank account, line items (description, amount, account code), date, and reference. Requires explicit user confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          contact_name: { type: "string", description: "Name of the payee/supplier (use search_xero_contacts to find)" },
+          contact_id: { type: "string", description: "The Xero external contact ID (from search_xero_contacts)" },
+          bank_account_id: { type: "string", description: "The Xero bank account ID to debit (from list_xero_bank_accounts)" },
+          date: { type: "string", description: "Transaction date in YYYY-MM-DD format" },
+          reference: { type: "string", description: "Reference or description for the expense" },
+          line_items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                description: { type: "string", description: "Expense description" },
+                quantity: { type: "number", description: "Quantity (default 1)" },
+                unit_amount: { type: "number", description: "Amount" },
+                account_code: { type: "string", description: "Xero expense account code (e.g. '429' General Expenses, '400' Advertising, '404' Cleaning, '461' Printing, '310' Insurance, '493' Travel)" },
+                tax_type: { type: "string", description: "Tax type (e.g. 'INPUT2' for 20% VAT, 'NONE' for no tax)" },
+              },
+              required: ["description", "unit_amount"],
+            },
+            description: "Array of expense line items",
+          },
+          currency_code: { type: "string", description: "Currency code (default GBP)" },
+          confirmed: { type: "boolean", description: "Whether the user has explicitly confirmed. Must be true to proceed." },
+        },
+        required: ["contact_name", "contact_id", "bank_account_id", "line_items", "confirmed"],
+      },
+    },
+  },
 ];
 
 async function executeXeroTool(
