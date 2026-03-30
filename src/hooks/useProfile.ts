@@ -11,6 +11,8 @@ export interface ProfileData {
   bio: string | null;
   norman_context: string | null;
   preferences: Record<string, unknown>;
+  approval_status: string;
+  requested_role_title: string | null;
 }
 
 export function useProfile() {
