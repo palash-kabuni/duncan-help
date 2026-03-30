@@ -1,0 +1,142 @@
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { X, Settings, User, Bug, Palette, Bell, Shield } from "lucide-react";
+import SettingsGeneral from "./settings/SettingsGeneral";
+import SettingsProfile from "./settings/SettingsProfile";
+import SettingsBugReport from "./settings/SettingsBugReport";
+import SettingsAppearance from "./settings/SettingsAppearance";
+import SettingsNotifications from "./settings/SettingsNotifications";
+import SettingsPrivacy from "./settings/SettingsPrivacy";
+import { cn } from "@/lib/utils";
+
+const sections = [
+  { id: "general", label: "General", icon: Settings },
+  { id: "profile", label: "Profile", icon: User },
+  { id: "appearance", label: "Appearance", icon: Palette },
+  { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "privacy", label: "Privacy & Security", icon: Shield },
+  { id: "bug", label: "Bug Report", icon: Bug },
+] as const;
+
+type SectionId = (typeof sections)[number]["id"];
+
+interface SettingsPanelProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
+  const [active, setActive] = useState<SectionId>("general");
+
+  if (!open) return null;
+
+  const renderContent = () => {
+    switch (active) {
+      case "general":
+        return <SettingsGeneral />;
+      case "profile":
+        return <SettingsProfile />;
+      case "appearance":
+        return <SettingsAppearance />;
+      case "notifications":
+        return <SettingsNotifications />;
+      case "privacy":
+        return <SettingsPrivacy />;
+      case "bug":
+        return <SettingsBugReport />;
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      <div className="fixed inset-0 z-[70] flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+          onClick={onClose}
+        />
+        <motion.div
+          initial={{ opacity: 0, scale: 0.96, y: 10 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.96, y: 10 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+          className="relative z-10 w-full max-w-3xl mx-4 h-[min(85vh,640px)] rounded-2xl border border-border bg-card shadow-2xl flex flex-col overflow-hidden"
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+            <h2 className="text-base font-semibold text-foreground">Settings</h2>
+            <button
+              onClick={onClose}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="flex flex-1 min-h-0">
+            {/* Sidebar nav */}
+            <nav className="hidden sm:flex w-48 shrink-0 flex-col border-r border-border py-3 px-2 overflow-y-auto">
+              {sections.map((s) => {
+                const Icon = s.icon;
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => setActive(s.id)}
+                    className={cn(
+                      "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150 w-full text-left",
+                      active === s.id
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                    )}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{s.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* Mobile section tabs */}
+            <div className="sm:hidden flex border-b border-border overflow-x-auto shrink-0 px-2 gap-1 py-2 w-full">
+              {sections.map((s) => {
+                const Icon = s.icon;
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => setActive(s.id)}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition-colors shrink-0",
+                      active === s.id
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-secondary/60"
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {s.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-5 sm:p-6">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={active}
+                  initial={{ opacity: 0, x: 8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -8 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  {renderContent()}
+                </motion.div>
+              </AnimatePresence>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  );
+}
