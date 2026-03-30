@@ -12,7 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 const integrationMeta: Record<string, { label: string; icon: React.ElementType }> = {
   "google-workspace": { label: "Google Workspace", icon: Mail },
   "gmail": { label: "Gmail", icon: Mail },
-  "notion": { label: "Notion", icon: FileText },
+  
   "slack": { label: "Slack", icon: MessageSquare },
   "linear": { label: "Linear", icon: Zap },
   "google-calendar": { label: "Google Calendar", icon: Calendar },
