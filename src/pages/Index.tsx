@@ -244,6 +244,16 @@ const Index = () => {
           )}
         </div>
 
+        {/* Quick nav buttons */}
+        <div className="relative z-10 flex items-center gap-2 px-4 sm:px-8 py-2 border-b border-border">
+          <button onClick={() => navigate("/recruitment")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 border border-primary/20 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors">
+            <Users className="h-3.5 w-3.5" /> Recruitment
+          </button>
+          <button onClick={() => navigate("/operations")} className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 border border-primary/20 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors">
+            <FolderOpen className="h-3.5 w-3.5" /> Operations
+          </button>
+        </div>
+
         {/* Content area */}
         <div ref={scrollRef} className="relative z-10 flex-1 overflow-y-auto px-4 sm:px-8 py-4 sm:py-6">
           {!hasMessages ? (
