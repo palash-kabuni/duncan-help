@@ -42,12 +42,12 @@ export function JobRolesManager() {
     queryKey: ["hireflix-retry-queue-roles"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("hireflix_retry_queue" as any)
+        .from("hireflix_retry_queue")
         .select("*")
         .eq("operation", "create_position")
         .in("status", ["pending", "processing", "failed"]);
       if (error) throw error;
-      return (data ?? []) as any[];
+      return data ?? [];
     },
     refetchInterval: 15000,
   });
