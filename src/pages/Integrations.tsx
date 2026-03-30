@@ -244,8 +244,10 @@ const Integrations = () => {
   const checkGmailConnection = async () => {
     try {
       const { supabase } = await import("@/integrations/supabase/client");
-      const { data } = await supabase.from("company_integrations").select("status").eq("integration_id", "gmail").maybeSingle();
-      setIsGmailConnected(data?.status === "connected");
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setIsGmailConnected(false); return; }
+      const { data } = await supabase.from("gmail_tokens").select("id").eq("connected_by", user.id).limit(1);
+      setIsGmailConnected(data && data.length > 0);
     } catch {
       setIsGmailConnected(false);
     }
