@@ -58,21 +58,6 @@ const integrations: Integration[] = [
     ],
   },
   {
-    id: "gmail",
-    name: "Gmail (Recruitment)",
-    description: "Company-wide Gmail connection for CV ingestion. Duncan scans incoming emails for CV attachments matching active job roles.",
-    icon: Mail,
-    category: "Recruitment",
-    services: ["CV Ingestion", "Email Parsing", "Attachment Download"],
-    type: "company",
-    setupSteps: [
-      "Uses the same Google Cloud project as other Google integrations",
-      "Ensure the Gmail API is enabled",
-      "An admin connects via OAuth to authorize read-only access",
-      "Duncan will then scan for CV attachments based on job role titles",
-    ],
-  },
-  {
     id: "slack",
     name: "Slack",
     description: "Monitor channels, automate responses, and sync conversations into Duncan's knowledge base.",
