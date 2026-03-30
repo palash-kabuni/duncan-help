@@ -26,6 +26,7 @@ Your capabilities:
 - **Basecamp Access**: You have access to the company's Basecamp. You can list projects, fetch to-do lists and individual to-dos (both completed and incomplete), read messages from message boards, and fetch cards from Card Tables. Use these tools when users ask about project status, tasks, to-dos, messages, or cards in Basecamp. When asked about a specific project, first use list_basecamp_projects to find it, then use the project ID and dock tool IDs to fetch to-dos, messages, or cards. For Card Tables, look for the 'card_table' dock item.
 - **Meeting Intelligence**: You can fetch and analyze meeting recordings from Plaud AI. Use fetch_plaud_meetings to pull new recordings from email, list_meetings to browse stored meetings, get_meeting to view a specific meeting's transcript and analysis, and analyze_meetings to run AI analysis on meetings. When users ask about meetings, what was discussed, action items, or meeting insights, use these tools. You can search across all meeting transcripts to answer questions like "What did we decide about X?".
 - **Xero Finance**: You have access to the company's Xero accounting system. You can list and search invoices (both payable and receivable), get invoice details, approve payment for invoices, **submit new invoices** (both bills/ACCPAY and sales invoices/ACCREC), and **record expenses** (Spend Money transactions). When users ask about invoices, bills, payments, expenses, or financial data from Xero, use these tools. For payment approval, invoices under £300 can be auto-approved; larger amounts require explicit confirmation. Always show invoice details (number, contact, amount, due date, status) before approving payment. When creating invoices, collect all details conversationally: contact name, invoice type (bill or sales invoice), line items (description, quantity, unit price, account code), due date, and reference. Search contacts first to find the correct Xero contact. Always confirm all details before submitting. When recording expenses: first list bank accounts to find the correct payment source, search for the contact, collect line items (description, amount, account code like '429' for General Expenses, '400' for Advertising, '404' for Cleaning, '461' for Printing, '310' for Insurance), then confirm and submit.
+- **Gmail Access**: You have access to the user's personal Gmail inbox. You can list recent emails, search emails by query (sender, subject, date, keywords), read full email content, and send emails on behalf of the user. Use these tools when the user asks about their emails, wants to find a specific email, read an email, or send a new email. When sending emails, collect to, subject, and body; optionally cc and bcc. Always confirm before sending. Present email lists clearly with sender, subject, date, and unread status.
 - **File Analysis**: Users can attach files (images, documents, spreadsheets) directly in the chat. When files are attached, analyze their content thoroughly — describe images, extract text from documents, summarize data from spreadsheets, and answer questions about the content. Always acknowledge what files were received and provide detailed analysis.
 - **Google Forms**: You can fill and submit pre-configured Google Forms on behalf of the user. You can also parse a Google Form URL to automatically extract its fields and save it as a new pre-configured form. When a user asks to fill a form, first list available forms, then ask each required field ONE AT A TIME as a conversational question. Wait for the user to answer each question before asking the next. After collecting all answers, confirm the details and submit. When a user provides a Google Form URL, use parse_google_form to extract the fields, show the parsed result to the user for confirmation, then save it with save_parsed_google_form.
 
@@ -788,6 +789,71 @@ const XERO_TOOLS = [
   },
 ];
 
+const GMAIL_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "list_gmail_emails",
+      description: "List recent emails from the user's Gmail inbox. Use when the user asks about their emails, inbox, or recent messages.",
+      parameters: {
+        type: "object",
+        properties: {
+          maxResults: { type: "number", description: "Number of emails to return (default 15, max 25)" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_gmail",
+      description: "Search the user's Gmail using a query string. Supports Gmail search syntax like 'from:john subject:invoice after:2026/01/01'. Use when the user wants to find specific emails.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Gmail search query (e.g., 'from:john@example.com', 'subject:invoice', 'has:attachment', 'after:2026/01/01')" },
+          maxResults: { type: "number", description: "Max results (default 15)" },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_gmail_email",
+      description: "Read the full content of a specific email by its message ID. Use after listing or searching emails to get the full body of a message.",
+      parameters: {
+        type: "object",
+        properties: {
+          messageId: { type: "string", description: "The Gmail message ID to read" },
+        },
+        required: ["messageId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_gmail_email",
+      description: "Send an email from the user's Gmail account. Always confirm the details (to, subject, body) with the user before sending. Requires explicit confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "Recipient email address" },
+          cc: { type: "string", description: "CC email addresses (comma-separated)" },
+          bcc: { type: "string", description: "BCC email addresses (comma-separated)" },
+          subject: { type: "string", description: "Email subject line" },
+          body: { type: "string", description: "Email body (can include HTML formatting)" },
+          confirmed: { type: "boolean", description: "Whether the user has explicitly confirmed sending. Must be true to proceed." },
+        },
+        required: ["to", "subject", "body", "confirmed"],
+      },
+    },
+  },
+];
+
 async function executeXeroTool(
   toolName: string,
   args: any,
@@ -1080,6 +1146,97 @@ async function executeXeroTool(
 
     default:
       throw new Error(`Unknown Xero tool: ${toolName}`);
+  }
+}
+
+async function executeGmailTool(
+  toolName: string,
+  args: any,
+  supabaseUrl: string,
+  authHeader: string
+): Promise<any> {
+  async function callGmailApi(action: string, body: Record<string, any> = {}) {
+    const res = await fetch(`${supabaseUrl}/functions/v1/gmail-api`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: authHeader,
+      },
+      body: JSON.stringify({ action, ...body }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Gmail API ${action} failed`);
+    if (data.error) throw new Error(data.error);
+    return data;
+  }
+
+  switch (toolName) {
+    case "list_gmail_emails": {
+      const data = await callGmailApi("list", { maxResults: args.maxResults || 15 });
+      return {
+        count: (data.emails || []).length,
+        emails: (data.emails || []).map((e: any) => ({
+          id: e.id,
+          from: e.from,
+          subject: e.subject,
+          date: e.date,
+          snippet: e.snippet,
+          unread: e.isUnread,
+        })),
+        hint: "Use the 'id' with read_gmail_email to get full content.",
+      };
+    }
+
+    case "search_gmail": {
+      const data = await callGmailApi("search", { query: args.query, maxResults: args.maxResults || 15 });
+      return {
+        count: (data.emails || []).length,
+        emails: (data.emails || []).map((e: any) => ({
+          id: e.id,
+          from: e.from,
+          subject: e.subject,
+          date: e.date,
+          snippet: e.snippet,
+          unread: e.isUnread,
+        })),
+        hint: "Use the 'id' with read_gmail_email to get full content.",
+      };
+    }
+
+    case "read_gmail_email": {
+      const data = await callGmailApi("read", { messageId: args.messageId });
+      return {
+        id: data.id,
+        from: data.from,
+        to: data.to,
+        cc: data.cc || null,
+        subject: data.subject,
+        date: data.date,
+        body: data.textBody || data.htmlBody?.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000) || data.snippet,
+        unread: data.isUnread,
+      };
+    }
+
+    case "send_gmail_email": {
+      if (!args.confirmed) {
+        return { error: "Sending an email requires explicit user confirmation. Show the user the draft (to, subject, body) and ask them to confirm before calling with confirmed=true." };
+      }
+      const data = await callGmailApi("send", {
+        to: args.to,
+        cc: args.cc || "",
+        bcc: args.bcc || "",
+        subject: args.subject,
+        body: args.body,
+      });
+      return {
+        success: true,
+        message: `✅ Email sent successfully to ${args.to}.`,
+        messageId: data.messageId,
+      };
+    }
+
+    default:
+      throw new Error(`Unknown Gmail tool: ${toolName}`);
   }
 }
 
@@ -2247,6 +2404,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
     tools.push(...AZURE_DEVOPS_TOOLS);
     // Xero tools always available (data is synced locally)
     tools.push(...XERO_TOOLS);
+    // Gmail tools always available (connection checked at execution time)
+    tools.push(...GMAIL_TOOLS);
     if (tools.length > 0) {
       requestBody.tools = tools;
     }
@@ -2391,7 +2550,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
       const basecampToolNames = ["list_basecamp_projects", "get_basecamp_todolists", "get_basecamp_todos", "get_basecamp_messages", "get_basecamp_card_table_cards"];
       const meetingToolNames = ["fetch_plaud_meetings", "list_meetings", "get_meeting", "analyze_meetings", "search_meeting_transcripts"];
       const azureDevOpsToolNames = ["list_azure_devops_projects", "query_azure_work_items", "get_azure_work_item", "search_synced_work_items"];
-      const xeroToolNames = ["list_xero_invoices", "get_xero_invoice", "approve_xero_invoice_payment"];
+      const xeroToolNames = ["list_xero_invoices", "get_xero_invoice", "approve_xero_invoice_payment", "search_xero_contacts", "create_xero_invoice", "list_xero_bank_accounts", "create_xero_expense"];
+      const gmailToolNames = ["list_gmail_emails", "search_gmail", "read_gmail_email", "send_gmail_email"];
       const toolResults: any[] = [];
 
       for (const tc of toolCalls) {
@@ -2434,6 +2594,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
               result = await executeAzureDevOpsTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
           } else if (xeroToolNames.includes(tc.function.name)) {
               result = await executeXeroTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "", userId || "");
+          } else if (gmailToolNames.includes(tc.function.name)) {
+              result = await executeGmailTool(tc.function.name, args, supabaseUrl, authHeader || "");
           } else {
           }
           
