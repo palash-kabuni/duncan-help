@@ -19,7 +19,6 @@ import Settings from "./pages/Settings";
 import Recruitment from "./pages/Recruitment";
 import Operations from "./pages/Operations";
 import FeedbackIssues from "./pages/FeedbackIssues";
-import Gmail from "./pages/Gmail";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
