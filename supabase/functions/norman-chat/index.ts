@@ -25,7 +25,7 @@ Your capabilities:
 - **Notion Access**: You have access to the company's Notion workspace. You can search for pages, query databases, and read page content. Use these tools when users ask about information stored in Notion.
 - **Basecamp Access**: You have access to the company's Basecamp. You can list projects, fetch to-do lists and individual to-dos (both completed and incomplete), read messages from message boards, and fetch cards from Card Tables. Use these tools when users ask about project status, tasks, to-dos, messages, or cards in Basecamp. When asked about a specific project, first use list_basecamp_projects to find it, then use the project ID and dock tool IDs to fetch to-dos, messages, or cards. For Card Tables, look for the 'card_table' dock item.
 - **Meeting Intelligence**: You can fetch and analyze meeting recordings from Plaud AI. Use fetch_plaud_meetings to pull new recordings from email, list_meetings to browse stored meetings, get_meeting to view a specific meeting's transcript and analysis, and analyze_meetings to run AI analysis on meetings. When users ask about meetings, what was discussed, action items, or meeting insights, use these tools. You can search across all meeting transcripts to answer questions like "What did we decide about X?".
-- **Xero Finance**: You have access to the company's Xero accounting system. You can list and search invoices (both payable and receivable), get invoice details, approve payment for invoices, and **submit new invoices** (both bills/ACCPAY and sales invoices/ACCREC). When users ask about invoices, bills, payments, or financial data from Xero, use these tools. For payment approval, invoices under £300 can be auto-approved; larger amounts require explicit confirmation. Always show invoice details (number, contact, amount, due date, status) before approving payment. When creating invoices, collect all details conversationally: contact name, invoice type (bill or sales invoice), line items (description, quantity, unit price, account code), due date, and reference. Search contacts first to find the correct Xero contact. Always confirm all details before submitting.
+- **Xero Finance**: You have access to the company's Xero accounting system. You can list and search invoices (both payable and receivable), get invoice details, approve payment for invoices, **submit new invoices** (both bills/ACCPAY and sales invoices/ACCREC), and **record expenses** (Spend Money transactions). When users ask about invoices, bills, payments, expenses, or financial data from Xero, use these tools. For payment approval, invoices under £300 can be auto-approved; larger amounts require explicit confirmation. Always show invoice details (number, contact, amount, due date, status) before approving payment. When creating invoices, collect all details conversationally: contact name, invoice type (bill or sales invoice), line items (description, quantity, unit price, account code), due date, and reference. Search contacts first to find the correct Xero contact. Always confirm all details before submitting. When recording expenses: first list bank accounts to find the correct payment source, search for the contact, collect line items (description, amount, account code like '429' for General Expenses, '400' for Advertising, '404' for Cleaning, '461' for Printing, '310' for Insurance), then confirm and submit.
 - **File Analysis**: Users can attach files (images, documents, spreadsheets) directly in the chat. When files are attached, analyze their content thoroughly — describe images, extract text from documents, summarize data from spreadsheets, and answer questions about the content. Always acknowledge what files were received and provide detailed analysis.
 - **Google Forms**: You can fill and submit pre-configured Google Forms on behalf of the user. You can also parse a Google Form URL to automatically extract its fields and save it as a new pre-configured form. When a user asks to fill a form, first list available forms, then ask each required field ONE AT A TIME as a conversational question. Wait for the user to answer each question before asking the next. After collecting all answers, confirm the details and submit. When a user provides a Google Form URL, use parse_google_form to extract the fields, show the parsed result to the user for confirmation, then save it with save_parsed_google_form.
 
@@ -743,6 +743,49 @@ const XERO_TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "list_xero_bank_accounts",
+      description: "List bank accounts configured in Xero. Use this to find the correct bank account (AccountID) before recording an expense.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_xero_expense",
+      description: "Record an expense (Spend Money / Bank Transaction) in Xero. This creates a SPEND bank transaction against a specific bank account. Use when the user says they want to log/record an expense, add a spend, or record a payment that's already been made. Collect: contact, bank account, line items (description, amount, account code), date, and reference. Requires explicit user confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          contact_name: { type: "string", description: "Name of the payee/supplier (use search_xero_contacts to find)" },
+          contact_id: { type: "string", description: "The Xero external contact ID (from search_xero_contacts)" },
+          bank_account_id: { type: "string", description: "The Xero bank account ID to debit (from list_xero_bank_accounts)" },
+          date: { type: "string", description: "Transaction date in YYYY-MM-DD format" },
+          reference: { type: "string", description: "Reference or description for the expense" },
+          line_items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                description: { type: "string", description: "Expense description" },
+                quantity: { type: "number", description: "Quantity (default 1)" },
+                unit_amount: { type: "number", description: "Amount" },
+                account_code: { type: "string", description: "Xero expense account code (e.g. '429' General Expenses, '400' Advertising, '404' Cleaning, '461' Printing, '310' Insurance, '493' Travel)" },
+                tax_type: { type: "string", description: "Tax type (e.g. 'INPUT2' for 20% VAT, 'NONE' for no tax)" },
+              },
+              required: ["description", "unit_amount"],
+            },
+            description: "Array of expense line items",
+          },
+          currency_code: { type: "string", description: "Currency code (default GBP)" },
+          confirmed: { type: "boolean", description: "Whether the user has explicitly confirmed. Must be true to proceed." },
+        },
+        required: ["contact_name", "contact_id", "bank_account_id", "line_items", "confirmed"],
+      },
+    },
+  },
 ];
 
 async function executeXeroTool(
@@ -948,6 +991,89 @@ async function executeXeroTool(
         type: typeLabel,
         status: created.Status,
         total: `${created.CurrencyCode || "GBP"} ${total}`,
+        line_items_count: lineItems.length,
+      };
+    }
+
+    case "list_xero_bank_accounts": {
+      const res = await fetch(`${supabaseUrl}/functions/v1/xero-api`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({ action: "list_bank_accounts" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to list bank accounts");
+      const accounts = (data.Accounts || []).map((a: any) => ({
+        account_id: a.AccountID,
+        name: a.Name,
+        code: a.Code,
+        currency: a.CurrencyCode,
+        type: a.Type,
+        status: a.Status,
+      }));
+      return { count: accounts.length, accounts, hint: "Use account_id as bank_account_id when creating an expense." };
+    }
+
+    case "create_xero_expense": {
+      if (!args.confirmed) {
+        return { error: "Expense recording requires explicit user confirmation. Please show the user all details and ask them to confirm before calling this tool with confirmed=true." };
+      }
+
+      const lineItems = (args.line_items || []).map((item: any) => ({
+        Description: item.description,
+        Quantity: item.quantity || 1,
+        UnitAmount: item.unit_amount,
+        AccountCode: item.account_code || "429",
+        TaxType: item.tax_type || "INPUT2",
+      }));
+
+      if (lineItems.length === 0) {
+        return { error: "At least one line item is required." };
+      }
+
+      const bankTransaction: any = {
+        Type: "SPEND",
+        Contact: { ContactID: args.contact_id },
+        BankAccount: { AccountID: args.bank_account_id },
+        LineItems: lineItems,
+        CurrencyCode: args.currency_code || "GBP",
+        LineAmountTypes: "Exclusive",
+      };
+
+      if (args.date) bankTransaction.Date = args.date;
+      if (args.reference) bankTransaction.Reference = args.reference;
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/xero-api`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify({ action: "create_expense", bank_transaction: bankTransaction }),
+      });
+
+      const resData = await res.json();
+      if (!res.ok) {
+        const details = resData?.details?.Elements?.[0]?.ValidationErrors
+          ?.map((e: any) => e.Message).join("; ") || JSON.stringify(resData);
+        throw new Error(`Failed to record expense: ${details}`);
+      }
+
+      const created = resData?.BankTransactions?.[0];
+      if (!created) throw new Error("No bank transaction returned from Xero");
+
+      const total = Number(created.Total || 0).toFixed(2);
+      return {
+        success: true,
+        message: `✅ Expense recorded successfully in Xero.`,
+        transaction_id: created.BankTransactionID,
+        contact: args.contact_name,
+        total: `${created.CurrencyCode || "GBP"} ${total}`,
+        date: created.Date,
+        reference: created.Reference || "",
         line_items_count: lineItems.length,
       };
     }
