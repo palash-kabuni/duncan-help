@@ -435,8 +435,12 @@ serve(async (req) => {
           bytes[i] = binaryStr.charCodeAt(i);
         }
 
-        // Upload to Supabase storage
-        const storagePath = `${Date.now()}_${cv.filename}`;
+        // Upload to Supabase storage — sanitize filename for valid storage keys
+        const sanitizedFilename = cv.filename
+          .normalize("NFKD")
+          .replace(/[^a-zA-Z0-9\-_.]+/g, "-")
+          .toLowerCase();
+        const storagePath = `${Date.now()}_${sanitizedFilename}`;
         const { error: uploadError } = await supabaseAdmin.storage
           .from("cvs")
           .upload(storagePath, bytes, {
