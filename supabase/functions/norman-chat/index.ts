@@ -692,6 +692,57 @@ const XERO_TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "search_xero_contacts",
+      description: "Search Xero contacts by name. Use this to find the correct contact before creating an invoice.",
+      parameters: {
+        type: "object",
+        properties: {
+          search: { type: "string", description: "Contact name to search for (partial match)" },
+        },
+        required: ["search"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_xero_invoice",
+      description: "Submit a new invoice to Xero. Can create both bills (ACCPAY — money owed to suppliers) and sales invoices (ACCREC — money owed by customers). Collect all details conversationally before calling. Requires explicit user confirmation.",
+      parameters: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["ACCPAY", "ACCREC"], description: "ACCPAY for bills (supplier invoices), ACCREC for sales invoices (customer invoices)" },
+          contact_name: { type: "string", description: "Exact name of the Xero contact (use search_xero_contacts to find)" },
+          contact_id: { type: "string", description: "The Xero external contact ID (from search_xero_contacts)" },
+          date: { type: "string", description: "Invoice date in YYYY-MM-DD format" },
+          due_date: { type: "string", description: "Payment due date in YYYY-MM-DD format" },
+          reference: { type: "string", description: "Invoice reference number or description" },
+          line_items: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                description: { type: "string", description: "Line item description" },
+                quantity: { type: "number", description: "Quantity (default 1)" },
+                unit_amount: { type: "number", description: "Unit price / amount" },
+                account_code: { type: "string", description: "Xero account code (e.g. '200' for Sales, '400' for Advertising, '310' for Insurance, '300' for Rent). Ask user if unsure." },
+                tax_type: { type: "string", description: "Tax type (e.g. 'OUTPUT2' for 20% VAT, 'NONE' for no tax, 'INPUT2' for input VAT)" },
+              },
+              required: ["description", "unit_amount"],
+            },
+            description: "Array of line items for the invoice",
+          },
+          status: { type: "string", enum: ["DRAFT", "SUBMITTED", "AUTHORISED"], description: "Invoice status. Default DRAFT for safety. Use SUBMITTED or AUTHORISED only if user explicitly requests." },
+          currency_code: { type: "string", description: "Currency code (default GBP)" },
+          confirmed: { type: "boolean", description: "Whether the user has explicitly confirmed the invoice details. Must be true to proceed." },
+        },
+        required: ["type", "contact_name", "contact_id", "line_items", "confirmed"],
+      },
+    },
+  },
 ];
 
 async function executeXeroTool(
