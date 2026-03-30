@@ -13,6 +13,21 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Briefcase, Plus, Loader2, Trash2, Upload, FileText, Sparkles, Download, RotateCcw, AlertTriangle, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
+const sanitizeStorageFileName = (fileName: string) => {
+  const extension = fileName.includes(".") ? fileName.split(".").pop()?.toLowerCase() ?? "" : "";
+  const baseName = extension ? fileName.slice(0, -(extension.length + 1)) : fileName;
+
+  const sanitizedBase = baseName
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9-_]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+
+  const safeBase = sanitizedBase || "job-description";
+  return extension ? `${safeBase}.${extension}` : safeBase;
+};
+
 export function JobRolesManager() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -162,7 +177,7 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
           setSaving(false);
           return;
         }
-        jdStoragePath = `${Date.now()}_${jdFile.name}`;
+        jdStoragePath = `${Date.now()}_${sanitizeStorageFileName(jdFile.name)}`;
         const { error: uploadError } = await supabase.storage
           .from("job-descriptions")
           .upload(jdStoragePath, jdFile, { contentType: jdFile.type, upsert: false });
