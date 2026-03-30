@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { LayoutDashboard, Plug, Settings, LogOut, UserCircle, Bug, X, ChevronDown, CheckCircle2, Mail, FileText, MessageSquare, Calendar, FolderOpen, GitBranch, Receipt, Zap, Menu } from "lucide-react";
+import { LayoutDashboard, Plug, Settings, LogOut, X, ChevronDown, CheckCircle2, Mail, FileText, MessageSquare, Calendar, FolderOpen, GitBranch, Receipt, Zap, Menu } from "lucide-react";
 import duncanAvatar from "@/assets/duncan-avatar.jpeg";
+import SettingsPanel from "@/components/SettingsPanel";
 import ThemeToggle from "@/components/ThemeToggle";
 import { NavLink as RouterNavLink, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -21,11 +22,6 @@ const integrationMeta: Record<string, { label: string; icon: React.ElementType }
   "xero": { label: "Xero", icon: Receipt },
 };
 
-const settingsMenuItems = [
-  { icon: Settings, label: "Settings", to: "/settings" },
-  { icon: UserCircle, label: "Profile", to: "/profile" },
-  { icon: Bug, label: "Report a Bug", to: "/feedback" },
-];
 
 export const MobileMenuButton = ({ onClick }: { onClick: () => void }) => (
   <button
@@ -227,34 +223,8 @@ const Sidebar = ({ mobileOpen, onMobileClose }: { mobileOpen?: boolean; onMobile
         </div>
       )}
 
-      {/* Settings Modal */}
-      {showModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center">
-          <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setShowModal(false)} />
-          <div className="relative z-10 w-full max-w-sm mx-4 rounded-2xl border border-border bg-card shadow-2xl">
-            <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-border">
-              <h3 className="text-sm font-bold text-foreground">Settings</h3>
-              <button onClick={() => setShowModal(false)} className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="p-3">
-              {settingsMenuItems.map((item) => (
-                <button
-                  key={item.to}
-                  onClick={() => { handleNavigate(item.to); setShowModal(false); }}
-                  className="flex items-center gap-3 w-full px-4 py-3 rounded-lg text-sm font-medium text-foreground/80 hover:bg-sidebar-accent hover:text-foreground transition-colors"
-                >
-                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 border border-primary/20">
-                    <item.icon className="h-4 w-4 text-primary" />
-                  </div>
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Settings Panel */}
+      <SettingsPanel open={showModal} onClose={() => setShowModal(false)} />
     </>
   );
 };
