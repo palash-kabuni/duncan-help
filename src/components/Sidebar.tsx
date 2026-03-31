@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { LayoutDashboard, Plug, Settings, LogOut, X, ChevronDown, CheckCircle2, Mail, FileText, MessageSquare, Calendar, FolderOpen, GitBranch, Receipt, Zap, Menu } from "lucide-react";
+import { LayoutDashboard, Plug, Settings, LogOut, X, ChevronDown, CheckCircle2, Mail, FileText, MessageSquare, Calendar, FolderOpen, GitBranch, Receipt, Zap, Menu, Bell } from "lucide-react";
 import duncanAvatar from "@/assets/duncan-avatar.jpeg";
 import SettingsPanel from "@/components/SettingsPanel";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -131,6 +131,19 @@ const Sidebar = ({ mobileOpen, onMobileClose }: { mobileOpen?: boolean; onMobile
         >
           <LayoutDashboard className="h-4 w-4" />
           Dashboard
+        </RouterNavLink>
+
+        <RouterNavLink
+          to="/notifications"
+          onClick={() => onMobileClose?.()}
+          className={({ isActive }) =>
+            cn("flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all duration-150",
+              isActive ? "bg-primary/10 text-primary glow-primary-sm" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            )
+          }
+        >
+          <Bell className="h-4 w-4" />
+          Notifications
         </RouterNavLink>
 
         {/* Integrations dropdown */}

@@ -19,6 +19,7 @@ import Settings from "./pages/Settings";
 import Recruitment from "./pages/Recruitment";
 import Operations from "./pages/Operations";
 import FeedbackIssues from "./pages/FeedbackIssues";
+import Notifications from "./pages/Notifications";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -43,6 +44,7 @@ const AppContent = () => {
           <Route path="/recruitment" element={<ProtectedRoute><Recruitment /></ProtectedRoute>} />
           <Route path="/operations" element={<ProtectedRoute><Operations /></ProtectedRoute>} />
           <Route path="/feedback" element={<ProtectedRoute><FeedbackIssues /></ProtectedRoute>} />
+          <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
