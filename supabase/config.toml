@@ -131,6 +131,3 @@ verify_jwt = false
 
 [functions.daily-briefing]
 verify_jwt = false
-
-[functions.basecamp-morning-digest]
-verify_jwt = false
