@@ -19,6 +19,7 @@ import Settings from "./pages/Settings";
 import Recruitment from "./pages/Recruitment";
 import Operations from "./pages/Operations";
 import FeedbackIssues from "./pages/FeedbackIssues";
+import Notifications from "./pages/Notifications";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
