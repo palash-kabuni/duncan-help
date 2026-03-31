@@ -893,6 +893,44 @@ export type Database = {
           },
         ]
       }
+      slack_notification_logs: {
+        Row: {
+          created_at: string
+          id: string
+          payload: Json
+          sent_at: string | null
+          slack_user_identifier: string
+          status: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          payload?: Json
+          sent_at?: string | null
+          slack_user_identifier: string
+          status?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          payload?: Json
+          sent_at?: string | null
+          slack_user_identifier?: string
+          status?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "slack_notification_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sync_logs: {
         Row: {
           completed_at: string | null
@@ -932,6 +970,30 @@ export type Database = {
         }
         Relationships: []
       }
+      unmapped_users_log: {
+        Row: {
+          basecamp_name: string
+          basecamp_person_id: number
+          context: string | null
+          id: string
+          logged_at: string
+        }
+        Insert: {
+          basecamp_name: string
+          basecamp_person_id: number
+          context?: string | null
+          id?: string
+          logged_at?: string
+        }
+        Update: {
+          basecamp_name?: string
+          basecamp_person_id?: number
+          context?: string | null
+          id?: string
+          logged_at?: string
+        }
+        Relationships: []
+      }
       user_integrations: {
         Row: {
           created_at: string
@@ -967,6 +1029,47 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      user_notification_mappings: {
+        Row: {
+          basecamp_name: string
+          basecamp_person_id: number
+          created_at: string
+          duncan_user_id: string
+          id: string
+          is_active: boolean
+          slack_user_identifier: string
+          updated_at: string
+        }
+        Insert: {
+          basecamp_name: string
+          basecamp_person_id: number
+          created_at?: string
+          duncan_user_id: string
+          id?: string
+          is_active?: boolean
+          slack_user_identifier: string
+          updated_at?: string
+        }
+        Update: {
+          basecamp_name?: string
+          basecamp_person_id?: number
+          created_at?: string
+          duncan_user_id?: string
+          id?: string
+          is_active?: boolean
+          slack_user_identifier?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_notification_mappings_duncan_user_id_fkey"
+            columns: ["duncan_user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
