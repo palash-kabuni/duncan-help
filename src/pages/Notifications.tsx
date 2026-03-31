@@ -3,7 +3,7 @@ import UserMappingManager from "@/components/notifications/UserMappingManager";
 
 const Notifications = () => {
   return (
-    <AppLayout title="Notifications">
+    <AppLayout>
       <UserMappingManager />
     </AppLayout>
   );
