@@ -292,9 +292,9 @@ export default function UserMappingManager() {
 
       {/* Unmapped users */}
       {unmappedLogs.length > 0 && (
-        <Card className="border-yellow-500/30">
+        <Card className="border-destructive/30">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2 text-yellow-600">
+            <CardTitle className="text-sm flex items-center gap-2 text-destructive">
               <AlertTriangle className="h-4 w-4" />
               Unmapped Basecamp Users
             </CardTitle>
