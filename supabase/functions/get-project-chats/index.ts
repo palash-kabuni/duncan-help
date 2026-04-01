@@ -1,5 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2/cors";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -38,7 +43,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // RLS enforces ownership — only chats from user's projects are returned
     const { data, error } = await supabase
       .from("project_chats")
       .select("*")

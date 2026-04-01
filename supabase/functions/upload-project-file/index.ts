@@ -61,6 +61,16 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Validate file type
+    const ALLOWED_EXTENSIONS = [".pdf", ".docx", ".txt", ".md", ".csv", ".json", ".xml", ".yaml", ".yml", ".log"];
+    const fileExt = "." + (file.name.split(".").pop() || "").toLowerCase();
+    if (!ALLOWED_EXTENSIONS.includes(fileExt)) {
+      return new Response(JSON.stringify({ error: `File type not allowed: ${fileExt}. Allowed: ${ALLOWED_EXTENSIONS.join(", ")}` }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Check file size (20MB max)
     if (file.size > 20 * 1024 * 1024) {
       return new Response(JSON.stringify({ error: "File too large. Maximum 20MB." }), {

@@ -292,9 +292,8 @@ export function useProjectFiles(projectId: string | null) {
       });
       if (error) throw error;
 
-      // Refetch files to get real extracted_text state
       await fetchFiles();
-      toast({ title: "Text extracted", description: `${data.text_length} characters extracted` });
+      toast({ title: "File indexed", description: `${data.chunks_created || 0} chunks created (${data.text_length} chars)` });
       return true;
     } catch (err: any) {
       toast({ title: "Extraction failed", description: err.message, variant: "destructive" });
@@ -308,8 +307,23 @@ export function useProjectFiles(projectId: string | null) {
     }
   }, [toast, fetchFiles]);
 
+  const deleteFile = useCallback(async (fileId: string) => {
+    try {
+      const { error } = await supabase.functions.invoke("delete-project-file", {
+        body: { file_id: fileId },
+      });
+      if (error) throw error;
+      setFiles(prev => prev.filter(f => f.id !== fileId));
+      toast({ title: "File deleted" });
+      return true;
+    } catch (err: any) {
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" });
+      return false;
+    }
+  }, [toast]);
+
   return {
-    files, loading, fetchFiles, uploadFile, extractText,
+    files, loading, fetchFiles, uploadFile, extractText, deleteFile,
     isUploading: uploadingFiles.size > 0,
     isExtracting: (fileId: string) => extractingFiles.has(fileId),
   };
