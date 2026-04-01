@@ -337,7 +337,7 @@ export default function ProjectWorkspace() {
                   files.map(file => {
                     const extracting = isExtracting(file.id);
                     return (
-                      <div key={file.id} className="flex items-start gap-2 rounded-md p-2 hover:bg-secondary/60 transition-colors">
+                      <div key={file.id} className="group flex items-start gap-2 rounded-md p-2 hover:bg-secondary/60 transition-colors">
                         <FileText className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
                         <div className="flex-1 min-w-0">
                           <p className="text-[11px] font-medium text-foreground truncate">{file.file_name}</p>
@@ -346,9 +346,18 @@ export default function ProjectWorkspace() {
                               <Loader2 className="h-3 w-3 animate-spin" /> Indexing...
                             </span>
                           ) : file.extracted_text ? (
-                            <span className="text-[10px] text-emerald-500 dark:text-emerald-400 flex items-center gap-1">
-                              <Sparkles className="h-2.5 w-2.5" /> Indexed
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-emerald-500 dark:text-emerald-400 flex items-center gap-1">
+                                <Sparkles className="h-2.5 w-2.5" /> Indexed
+                              </span>
+                              <button
+                                onClick={() => extractText(file.id)}
+                                className="text-[10px] text-muted-foreground hover:text-primary"
+                                title="Re-index file"
+                              >
+                                <RefreshCw className="h-2.5 w-2.5" />
+                              </button>
+                            </div>
                           ) : (
                             <button
                               onClick={() => extractText(file.id)}
@@ -358,6 +367,13 @@ export default function ProjectWorkspace() {
                             </button>
                           )}
                         </div>
+                        <button
+                          onClick={() => { if (confirm("Delete this file?")) deleteFile(file.id); }}
+                          className="opacity-0 group-hover:opacity-100 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-destructive transition-all"
+                          title="Delete file"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
                       </div>
                     );
                   })

@@ -83,7 +83,7 @@ export default function Projects() {
                       <FolderOpen className="h-5 w-5 text-primary" />
                     </div>
                     <button
-                      onClick={(e) => { e.stopPropagation(); deleteProject(project.id); }}
+                      onClick={(e) => { e.stopPropagation(); if (confirm("Delete this project? This cannot be undone.")) deleteProject(project.id); }}
                       className="opacity-0 group-hover:opacity-100 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
