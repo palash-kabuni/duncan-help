@@ -1492,6 +1492,20 @@ export type Database = {
         }
         Returns: boolean
       }
+      match_project_chunks: {
+        Args: {
+          file_ids: string[]
+          match_count?: number
+          query_embedding: string
+        }
+        Returns: {
+          chunk_index: number
+          content: string
+          file_id: string
+          id: string
+          similarity: number
+        }[]
+      }
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
