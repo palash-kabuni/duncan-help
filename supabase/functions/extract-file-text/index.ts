@@ -107,17 +107,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Skip if already extracted (chunks already exist)
-    if (fileRecord.extracted_text) {
-      return new Response(JSON.stringify({
-        id: fileRecord.id,
-        file_name: fileRecord.file_name,
-        extracted: true,
-        text_length: fileRecord.extracted_text.length,
-      }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // Re-indexing is always allowed — old chunks are deleted before new ones are inserted
 
     // Download file from storage
     const { data: fileData, error: downloadError } = await supabase.storage
