@@ -97,7 +97,16 @@ Deno.serve(async (req) => {
       const { data: files, error: filesError } = await supabase
         .from("project_files")
         .select("file_name, extracted_text")
+        .eq("project_id", chat.project_id)
         .in("id", fileIds);
+
+      // Security: verify all requested files were found (belong to this project)
+      if (!filesError && files && files.length !== fileIds.length) {
+        return new Response(JSON.stringify({ error: "Some selected files do not belong to this project" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
       if (!filesError && files && files.length > 0) {
         const MAX_CHARS_PER_FILE = 8000;
