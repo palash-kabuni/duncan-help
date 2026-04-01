@@ -143,3 +143,6 @@ verify_jwt = false
 
 [functions.get-project-chats]
 verify_jwt = false
+
+[functions.chat-with-project-context]
+verify_jwt = false
