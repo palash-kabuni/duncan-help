@@ -19,6 +19,8 @@ import Settings from "./pages/Settings";
 import Recruitment from "./pages/Recruitment";
 import Operations from "./pages/Operations";
 import FeedbackIssues from "./pages/FeedbackIssues";
+import Projects from "./pages/Projects";
+import ProjectWorkspace from "./pages/ProjectWorkspace";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -43,6 +45,8 @@ const AppContent = () => {
           <Route path="/recruitment" element={<ProtectedRoute><Recruitment /></ProtectedRoute>} />
           <Route path="/operations" element={<ProtectedRoute><Operations /></ProtectedRoute>} />
           <Route path="/feedback" element={<ProtectedRoute><FeedbackIssues /></ProtectedRoute>} />
+          <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
+          <Route path="/projects/:projectId" element={<ProtectedRoute><ProjectWorkspace /></ProtectedRoute>} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
