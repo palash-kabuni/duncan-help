@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Plus, MessageSquare, Send, Loader2, Settings2,
-  Upload, FileText, CheckSquare, Square, Sparkles, X,
+  Upload, FileText, Sparkles,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -27,7 +27,6 @@ export default function ProjectWorkspace() {
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [input, setInput] = useState("");
-  const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [editName, setEditName] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
@@ -79,13 +78,13 @@ export default function ProjectWorkspace() {
     // Auto-name chat on first message
     const isFirstMessage = messages.length === 0;
 
-    const reply = await sendMessage(msg, selectedFileIds.length > 0 ? selectedFileIds : undefined);
+    const reply = await sendMessage(msg);
 
     if (isFirstMessage && activeChatId && reply) {
       const title = msg.length > 50 ? msg.slice(0, 47) + "..." : msg;
       updateChatTitle(activeChatId, title);
     }
-  }, [input, sending, sendMessage, selectedFileIds, messages.length, activeChatId, updateChatTitle]);
+  }, [input, sending, sendMessage, messages.length, activeChatId, updateChatTitle]);
 
   const handleNewChat = async () => {
     const chat = await createChat();
@@ -99,12 +98,6 @@ export default function ProjectWorkspace() {
       await uploadFile(file);
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
-  };
-
-  const toggleFileSelection = (fileId: string) => {
-    setSelectedFileIds(prev =>
-      prev.includes(fileId) ? prev.filter(id => id !== fileId) : [...prev, fileId].slice(0, 5)
-    );
   };
 
   const openSettings = () => {
@@ -149,7 +142,8 @@ export default function ProjectWorkspace() {
     );
   }
 
-  const selectedFiles = files.filter(f => selectedFileIds.includes(f.id));
+  // Count extracted files for status indicator
+  const extractedCount = files.filter(f => f.extracted_text).length;
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -164,7 +158,9 @@ export default function ProjectWorkspace() {
           <div className="flex-1 min-w-0">
             <h1 className="text-sm font-semibold text-foreground truncate">{project.name}</h1>
             <p className="text-[10px] text-muted-foreground truncate">
-              {project.system_prompt ? "Custom instructions active" : "Default instructions"}
+              {extractedCount > 0
+                ? `${extractedCount} file${extractedCount !== 1 ? "s" : ""} indexed • Auto-retrieval active`
+                : project.system_prompt ? "Custom instructions active" : "Default instructions"}
             </p>
           </div>
           <Button variant="ghost" size="sm" onClick={openSettings} className="gap-1.5 text-xs">
@@ -268,35 +264,6 @@ export default function ProjectWorkspace() {
                   </div>
                 </ScrollArea>
 
-                {/* Selected files chips above input */}
-                {selectedFiles.length > 0 && (
-                  <div className="px-4 py-2 border-t border-border bg-primary/5">
-                    <div className="max-w-3xl mx-auto">
-                      <div className="flex items-center gap-1.5 text-xs text-primary mb-1">
-                        <Sparkles className="h-3 w-3" />
-                        <span className="font-medium">Context files:</span>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {selectedFiles.map(f => (
-                          <span
-                            key={f.id}
-                            className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
-                          >
-                            <FileText className="h-3 w-3" />
-                            <span className="max-w-[120px] truncate">{f.file_name}</span>
-                            <button
-                              onClick={() => setSelectedFileIds(prev => prev.filter(id => id !== f.id))}
-                              className="ml-0.5 hover:text-destructive"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 {/* Input */}
                 <div className="border-t border-border px-4 py-3">
                   <div className="max-w-3xl mx-auto flex items-end gap-3 rounded-xl border border-border bg-card px-4 py-3 focus-within:border-primary/40 transition-all">
@@ -328,7 +295,7 @@ export default function ProjectWorkspace() {
           <div className="w-64 shrink-0 border-l border-border flex flex-col bg-sidebar/50 hidden lg:flex">
             <div className="p-3 border-b border-border">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-xs font-semibold text-foreground">Files</h3>
+                <h3 className="text-xs font-semibold text-foreground">Project Files</h3>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -344,6 +311,12 @@ export default function ProjectWorkspace() {
                   {isUploading ? "Uploading..." : "Upload"}
                 </Button>
               </div>
+              {extractedCount > 0 && (
+                <div className="flex items-center gap-1.5 text-[10px] text-primary">
+                  <Sparkles className="h-3 w-3" />
+                  <span>Auto-retrieval active</span>
+                </div>
+              )}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -358,43 +331,30 @@ export default function ProjectWorkspace() {
               <div className="p-2 space-y-1">
                 {files.length === 0 ? (
                   <p className="px-3 py-4 text-[11px] text-muted-foreground text-center">
-                    No files uploaded yet
+                    Upload files to give Duncan context about your project
                   </p>
                 ) : (
                   files.map(file => {
                     const extracting = isExtracting(file.id);
                     return (
                       <div key={file.id} className="flex items-start gap-2 rounded-md p-2 hover:bg-secondary/60 transition-colors">
-                        <button
-                          onClick={() => toggleFileSelection(file.id)}
-                          className="shrink-0 mt-0.5"
-                          disabled={!file.extracted_text}
-                          title={
-                            !file.extracted_text
-                              ? "Extract text first"
-                              : selectedFileIds.includes(file.id) ? "Deselect" : "Select for context"
-                          }
-                        >
-                          {selectedFileIds.includes(file.id) ? (
-                            <CheckSquare className="h-4 w-4 text-primary" />
-                          ) : (
-                            <Square className={`h-4 w-4 ${file.extracted_text ? "text-muted-foreground" : "text-muted-foreground/30"}`} />
-                          )}
-                        </button>
+                        <FileText className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
                         <div className="flex-1 min-w-0">
                           <p className="text-[11px] font-medium text-foreground truncate">{file.file_name}</p>
                           {extracting ? (
                             <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                              <Loader2 className="h-3 w-3 animate-spin" /> Extracting...
+                              <Loader2 className="h-3 w-3 animate-spin" /> Indexing...
                             </span>
                           ) : file.extracted_text ? (
-                            <span className="text-[10px] text-emerald-500 dark:text-emerald-400">✓ Text extracted</span>
+                            <span className="text-[10px] text-emerald-500 dark:text-emerald-400 flex items-center gap-1">
+                              <Sparkles className="h-2.5 w-2.5" /> Indexed
+                            </span>
                           ) : (
                             <button
                               onClick={() => extractText(file.id)}
                               className="text-[10px] text-primary hover:underline"
                             >
-                              Extract text
+                              Index file
                             </button>
                           )}
                         </div>

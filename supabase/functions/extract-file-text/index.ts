@@ -6,6 +6,56 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+/** Split text into chunks of roughly `maxWords` words, preserving paragraph breaks. */
+function chunkText(text: string, maxWords = 750): string[] {
+  const paragraphs = text.split(/\n{2,}/);
+  const chunks: string[] = [];
+  let current = "";
+  let currentWords = 0;
+
+  for (const para of paragraphs) {
+    const paraWords = para.split(/\s+/).filter(Boolean).length;
+    if (currentWords + paraWords > maxWords && current.trim()) {
+      chunks.push(current.trim());
+      current = "";
+      currentWords = 0;
+    }
+    current += para + "\n\n";
+    currentWords += paraWords;
+  }
+  if (current.trim()) chunks.push(current.trim());
+  return chunks.length > 0 ? chunks : [text.trim()];
+}
+
+/** Generate embeddings for an array of texts using OpenAI. */
+async function generateEmbeddings(
+  texts: string[],
+  apiKey: string
+): Promise<number[][]> {
+  const resp = await fetch("https://api.openai.com/v1/embeddings", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "text-embedding-3-small",
+      input: texts,
+    }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.text();
+    console.error("Embeddings API error:", resp.status, err);
+    throw new Error("Failed to generate embeddings");
+  }
+
+  const data = await resp.json();
+  return data.data
+    .sort((a: any, b: any) => a.index - b.index)
+    .map((d: any) => d.embedding);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -20,11 +70,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
 
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {
@@ -56,10 +107,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Skip if already extracted
+    // Skip if already extracted (chunks already exist)
     if (fileRecord.extracted_text) {
-      return new Response(JSON.stringify({ 
-        id: fileRecord.id, 
+      return new Response(JSON.stringify({
+        id: fileRecord.id,
         file_name: fileRecord.file_name,
         extracted: true,
         text_length: fileRecord.extracted_text.length,
@@ -81,25 +132,26 @@ Deno.serve(async (req) => {
       });
     }
 
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    if (!OPENAI_API_KEY) {
+      return new Response(JSON.stringify({ error: "AI service not configured" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const fileName = fileRecord.file_name.toLowerCase();
     let extractedText = "";
 
+    // --- TEXT EXTRACTION ---
     if (fileName.endsWith(".pdf")) {
-      // Guard: reject PDFs larger than 10MB for base64 extraction
       const arrayBuffer = await fileData.arrayBuffer();
-      const MAX_PDF_SIZE = 10 * 1024 * 1024; // 10MB
+      const MAX_PDF_SIZE = 10 * 1024 * 1024;
       if (arrayBuffer.byteLength > MAX_PDF_SIZE) {
-        return new Response(JSON.stringify({ error: `PDF too large for text extraction (${(arrayBuffer.byteLength / 1024 / 1024).toFixed(1)}MB). Maximum is 10MB.` }), {
+        return new Response(JSON.stringify({
+          error: `PDF too large for text extraction (${(arrayBuffer.byteLength / 1024 / 1024).toFixed(1)}MB). Maximum is 10MB.`,
+        }), {
           status: 413,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      // Use OpenAI to extract text from PDF via base64
-      const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-      if (!OPENAI_API_KEY) {
-        return new Response(JSON.stringify({ error: "AI service not configured" }), {
-          status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -131,10 +183,7 @@ Deno.serve(async (req) => {
                     file_data: `data:application/pdf;base64,${base64}`,
                   },
                 },
-                {
-                  type: "text",
-                  text: "Extract all text from this document.",
-                },
+                { type: "text", text: "Extract all text from this document." },
               ],
             },
           ],
@@ -154,14 +203,12 @@ Deno.serve(async (req) => {
         });
       }
     } else if (fileName.endsWith(".docx")) {
-      // Extract text from DOCX using JSZip
       const JSZip = (await import("https://esm.sh/jszip@3.10.1")).default;
       const arrayBuffer = await fileData.arrayBuffer();
       const zip = await JSZip.loadAsync(arrayBuffer);
       const documentXml = await zip.file("word/document.xml")?.async("string");
 
       if (documentXml) {
-        // Strip XML tags to get plain text
         extractedText = documentXml
           .replace(/<w:br[^>]*\/>/g, "\n")
           .replace(/<\/w:p>/g, "\n")
@@ -179,22 +226,12 @@ Deno.serve(async (req) => {
           .trim();
       }
     } else if (
-      fileName.endsWith(".txt") ||
-      fileName.endsWith(".md") ||
-      fileName.endsWith(".csv") ||
-      fileName.endsWith(".json") ||
-      fileName.endsWith(".xml") ||
-      fileName.endsWith(".yaml") ||
-      fileName.endsWith(".yml") ||
-      fileName.endsWith(".log")
+      /\.(txt|md|csv|json|xml|yaml|yml|log)$/i.test(fileName)
     ) {
-      // Plain text files
       extractedText = await fileData.text();
     } else {
-      // Unsupported format — try as text
       try {
         extractedText = await fileData.text();
-        // If it looks like binary, reject
         if (extractedText.includes("\0")) {
           return new Response(JSON.stringify({ error: `Unsupported file format: ${fileName.split('.').pop()}` }), {
             status: 400,
@@ -216,18 +253,62 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Save extracted text to DB
-    const { error: updateError } = await supabase
+    // --- CHUNKING + EMBEDDING ---
+    const chunks = chunkText(extractedText);
+    console.log(`Chunked ${fileName} into ${chunks.length} chunks`);
+
+    // Batch embeddings (OpenAI supports up to ~2048 inputs)
+    const BATCH_SIZE = 50;
+    const allEmbeddings: number[][] = [];
+    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+      const batch = chunks.slice(i, i + BATCH_SIZE);
+      const embeddings = await generateEmbeddings(batch, OPENAI_API_KEY);
+      allEmbeddings.push(...embeddings);
+    }
+
+    // Use service role client to insert chunks (bypasses RLS for server-side ops)
+    const serviceClient = createClient(
+      supabaseUrl,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    // Delete any existing chunks for this file (re-extraction scenario)
+    await serviceClient
+      .from("project_file_chunks")
+      .delete()
+      .eq("file_id", file_id);
+
+    // Insert chunks with embeddings
+    const chunkRows = chunks.map((content, idx) => ({
+      file_id,
+      chunk_index: idx,
+      content,
+      embedding: JSON.stringify(allEmbeddings[idx]),
+    }));
+
+    // Insert in batches of 25
+    for (let i = 0; i < chunkRows.length; i += 25) {
+      const batch = chunkRows.slice(i, i + 25);
+      const { error: insertError } = await serviceClient
+        .from("project_file_chunks")
+        .insert(batch);
+      if (insertError) {
+        console.error("Chunk insert error:", insertError);
+        return new Response(JSON.stringify({ error: "Failed to store file chunks" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    // Save extracted text to project_files (for status tracking)
+    const { error: updateError } = await serviceClient
       .from("project_files")
       .update({ extracted_text: extractedText })
       .eq("id", file_id);
 
     if (updateError) {
       console.error("DB update error:", updateError);
-      return new Response(JSON.stringify({ error: "Failed to save extracted text" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
     }
 
     return new Response(JSON.stringify({
@@ -235,6 +316,7 @@ Deno.serve(async (req) => {
       file_name: fileRecord.file_name,
       extracted: true,
       text_length: extractedText.length,
+      chunks_created: chunks.length,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
