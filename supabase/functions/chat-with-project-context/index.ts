@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
     }
 
     // 2. Parse input
-    const { chat_id, message } = await req.json();
+    const { chat_id, message, selected_file_ids } = await req.json();
     if (!chat_id || typeof chat_id !== "string") {
       return new Response(JSON.stringify({ error: "chat_id is required" }), {
         status: 400,
@@ -53,6 +53,9 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Validate selected_file_ids
+    const fileIds: string[] = Array.isArray(selected_file_ids) ? selected_file_ids.slice(0, 5) : [];
 
     // 3. Fetch chat (RLS enforces ownership)
     const { data: chat, error: chatError } = await supabase
@@ -82,7 +85,32 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 5. Fetch last 20 messages for context
+    // 5. Fetch selected file contexts (if any)
+    let fileContextBlock = "";
+    if (fileIds.length > 0) {
+      const { data: files, error: filesError } = await supabase
+        .from("project_files")
+        .select("file_name, extracted_text")
+        .in("id", fileIds);
+
+      if (!filesError && files && files.length > 0) {
+        const MAX_CHARS_PER_FILE = 8000;
+        const fileTexts = files
+          .filter((f: any) => f.extracted_text)
+          .map((f: any) => {
+            const text = f.extracted_text.length > MAX_CHARS_PER_FILE
+              ? f.extracted_text.slice(0, MAX_CHARS_PER_FILE) + "\n[... truncated]"
+              : f.extracted_text;
+            return `--- FILE: ${f.file_name} ---\n${text}\n---`;
+          });
+
+        if (fileTexts.length > 0) {
+          fileContextBlock = "\n\n## REFERENCED FILES\nThe user has selected the following files for context. Use them to inform your response.\n\n" + fileTexts.join("\n\n");
+        }
+      }
+    }
+
+    // 6. Fetch last 20 messages for context
     const { data: history, error: historyError } = await supabase
       .from("chat_messages")
       .select("role, content")
@@ -94,7 +122,7 @@ Deno.serve(async (req) => {
       console.error("Failed to fetch chat history:", historyError);
     }
 
-    // 6. Save user message
+    // 7. Save user message
     const { error: insertUserError } = await supabase
       .from("chat_messages")
       .insert({ chat_id, role: "user", content: message.trim() });
@@ -107,8 +135,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 7. Construct AI messages
-    const systemPrompt = project.system_prompt?.trim() || DEFAULT_SYSTEM_PROMPT;
+    // 8. Construct AI messages
+    const baseSystemPrompt = project.system_prompt?.trim() || DEFAULT_SYSTEM_PROMPT;
+    const systemPrompt = baseSystemPrompt + fileContextBlock;
+
     const aiMessages: Array<{ role: string; content: string }> = [
       { role: "system", content: systemPrompt },
     ];
