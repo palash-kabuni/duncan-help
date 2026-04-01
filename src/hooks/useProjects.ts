@@ -171,7 +171,7 @@ export function useProjectChat(chatId: string | null) {
 
   useEffect(() => { fetchMessages(); }, [fetchMessages]);
 
-  const sendMessage = useCallback(async (message: string, selectedFileIds?: string[]) => {
+  const sendMessage = useCallback(async (message: string) => {
     if (!chatId || !message.trim()) return null;
     setSending(true);
 
@@ -187,7 +187,7 @@ export function useProjectChat(chatId: string | null) {
 
     try {
       const { data, error } = await supabase.functions.invoke("chat-with-project-context", {
-        body: { chat_id: chatId, message: message.trim(), selected_file_ids: selectedFileIds || [] },
+        body: { chat_id: chatId, message: message.trim() },
       });
 
       if (error) throw error;
