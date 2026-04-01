@@ -136,61 +136,79 @@ Deno.serve(async (req) => {
     // --- TEXT EXTRACTION ---
     if (fileName.endsWith(".pdf")) {
       const arrayBuffer = await fileData.arrayBuffer();
-      const MAX_PDF_SIZE = 10 * 1024 * 1024;
+      const MAX_PDF_SIZE = 20 * 1024 * 1024;
       if (arrayBuffer.byteLength > MAX_PDF_SIZE) {
         return new Response(JSON.stringify({
-          error: `PDF too large for text extraction (${(arrayBuffer.byteLength / 1024 / 1024).toFixed(1)}MB). Maximum is 10MB.`,
+          error: `PDF too large (${(arrayBuffer.byteLength / 1024 / 1024).toFixed(1)}MB). Maximum is 20MB.`,
         }), {
           status: 413,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      const base64 = btoa(
-        new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
-      );
+      // Try parser-based extraction first (fast + free)
+      let parserSucceeded = false;
+      try {
+        const pdfParse = (await import("https://esm.sh/pdf-parse@1.1.1")).default;
+        const buffer = new Uint8Array(arrayBuffer);
+        const parsed = await pdfParse(buffer);
+        if (parsed.text && parsed.text.trim().length > 50) {
+          extractedText = parsed.text.trim();
+          parserSucceeded = true;
+          console.log(`PDF parsed locally: ${extractedText.length} chars`);
+        }
+      } catch (parseErr) {
+        console.warn("Local PDF parse failed, falling back to AI:", parseErr);
+      }
 
-      const aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "gpt-4.1-mini",
-          messages: [
-            {
-              role: "system",
-              content: "Extract ALL text content from this PDF document. Return the raw text only, preserving structure where possible. Do not summarize or interpret.",
-            },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "file",
-                  file: {
-                    filename: fileRecord.file_name,
-                    file_data: `data:application/pdf;base64,${base64}`,
+      // Fallback to OpenAI if parser failed or returned very little text
+      if (!parserSucceeded) {
+        const base64 = btoa(
+          new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
+        );
+
+        const aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "gpt-4.1-mini",
+            messages: [
+              {
+                role: "system",
+                content: "Extract ALL text content from this PDF document. Return the raw text only, preserving structure where possible. Do not summarize or interpret.",
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "file",
+                    file: {
+                      filename: fileRecord.file_name,
+                      file_data: `data:application/pdf;base64,${base64}`,
+                    },
                   },
-                },
-                { type: "text", text: "Extract all text from this document." },
-              ],
-            },
-          ],
-          max_tokens: 16000,
-        }),
-      });
-
-      if (aiResp.ok) {
-        const aiData = await aiResp.json();
-        extractedText = aiData.choices?.[0]?.message?.content || "";
-      } else {
-        const errText = await aiResp.text();
-        console.error("AI extraction error:", aiResp.status, errText);
-        return new Response(JSON.stringify({ error: "Failed to extract text from PDF" }), {
-          status: 502,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+                  { type: "text", text: "Extract all text from this document." },
+                ],
+              },
+            ],
+            max_tokens: 16000,
+          }),
         });
+
+        if (aiResp.ok) {
+          const aiData = await aiResp.json();
+          extractedText = aiData.choices?.[0]?.message?.content || "";
+        } else {
+          const errText = await aiResp.text();
+          console.error("AI extraction error:", aiResp.status, errText);
+          return new Response(JSON.stringify({ error: "Failed to extract text from PDF" }), {
+            status: 502,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
       }
     } else if (fileName.endsWith(".docx")) {
       const JSZip = (await import("https://esm.sh/jszip@3.10.1")).default;
