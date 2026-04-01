@@ -388,7 +388,7 @@ export default function ProjectWorkspace() {
                               <Loader2 className="h-3 w-3 animate-spin" /> Extracting...
                             </span>
                           ) : file.extracted_text ? (
-                            <span className="text-[10px] text-green-500">✓ Text extracted</span>
+                            <span className="text-[10px] text-emerald-500 dark:text-emerald-400">✓ Text extracted</span>
                           ) : (
                             <button
                               onClick={() => extractText(file.id)}
