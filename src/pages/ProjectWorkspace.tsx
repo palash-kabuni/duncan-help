@@ -23,7 +23,7 @@ export default function ProjectWorkspace() {
   const { chats, loading: chatsLoading, createChat, updateChatTitle } = useProjectChats(projectId || null);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const { messages, loading: msgsLoading, sending, sendMessage } = useProjectChat(activeChatId);
-  const { files, uploadFile, extractText, isUploading, isExtracting } = useProjectFiles(projectId || null);
+  const { files, uploadFile, extractText, deleteFile, isUploading, isExtracting } = useProjectFiles(projectId || null);
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [input, setInput] = useState("");
