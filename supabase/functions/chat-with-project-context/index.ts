@@ -54,8 +54,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Validate selected_file_ids
-    const fileIds: string[] = Array.isArray(selected_file_ids) ? selected_file_ids.slice(0, 5) : [];
+    // Validate selected_file_ids — enforce max 5
+    const fileIds: string[] = Array.isArray(selected_file_ids) ? selected_file_ids : [];
+    if (fileIds.length > 5) {
+      return new Response(JSON.stringify({ error: "Maximum 5 files can be selected per request" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // 3. Fetch chat (RLS enforces ownership)
     const { data: chat, error: chatError } = await supabase
