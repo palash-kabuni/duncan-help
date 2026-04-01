@@ -131,3 +131,15 @@ verify_jwt = false
 
 [functions.daily-briefing]
 verify_jwt = false
+
+[functions.create-project]
+verify_jwt = false
+
+[functions.get-projects]
+verify_jwt = false
+
+[functions.create-project-chat]
+verify_jwt = false
+
+[functions.get-project-chats]
+verify_jwt = false
