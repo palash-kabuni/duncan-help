@@ -10,6 +10,28 @@ const DEFAULT_SYSTEM_PROMPT = `You are Duncan, an advanced reasoning and operati
 You are currently operating inside a Project workspace. Focus your responses on the context and instructions provided for this project.
 Be direct, precise, and efficient. Use structured output when presenting complex information.`;
 
+/** Generate embedding for a single text. */
+async function getEmbedding(text: string, apiKey: string): Promise<number[]> {
+  const resp = await fetch("https://api.openai.com/v1/embeddings", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "text-embedding-3-small",
+      input: text,
+    }),
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
+    console.error("Embedding error:", resp.status, err);
+    throw new Error("Failed to generate query embedding");
+  }
+  const data = await resp.json();
+  return data.data[0].embedding;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -25,11 +47,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabase = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: authHeader } },
+    });
 
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {
@@ -39,8 +60,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 2. Parse input
-    const { chat_id, message, selected_file_ids } = await req.json();
+    // 2. Parse input (selected_file_ids no longer used)
+    const { chat_id, message } = await req.json();
     if (!chat_id || typeof chat_id !== "string") {
       return new Response(JSON.stringify({ error: "chat_id is required" }), {
         status: 400,
@@ -49,15 +70,6 @@ Deno.serve(async (req) => {
     }
     if (!message || typeof message !== "string" || message.trim().length === 0) {
       return new Response(JSON.stringify({ error: "message is required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Validate selected_file_ids — enforce max 5
-    const fileIds: string[] = Array.isArray(selected_file_ids) ? selected_file_ids : [];
-    if (fileIds.length > 5) {
-      return new Response(JSON.stringify({ error: "Maximum 5 files can be selected per request" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -91,38 +103,59 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 5. Fetch selected file contexts (if any)
+    // 5. RAG: Retrieve relevant chunks via vector similarity
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    if (!OPENAI_API_KEY) {
+      return new Response(JSON.stringify({ error: "AI service not configured" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     let fileContextBlock = "";
-    if (fileIds.length > 0) {
-      const { data: files, error: filesError } = await supabase
+    try {
+      // Get file IDs for this project
+      const { data: projectFiles } = await supabase
         .from("project_files")
-        .select("file_name, extracted_text")
-        .eq("project_id", chat.project_id)
-        .in("id", fileIds);
+        .select("id")
+        .eq("project_id", chat.project_id);
 
-      // Security: verify all requested files were found (belong to this project)
-      if (!filesError && files && files.length !== fileIds.length) {
-        return new Response(JSON.stringify({ error: "Some selected files do not belong to this project" }), {
-          status: 403,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+      if (projectFiles && projectFiles.length > 0) {
+        const fileIds = projectFiles.map((f: any) => f.id);
 
-      if (!filesError && files && files.length > 0) {
-        const MAX_CHARS_PER_FILE = 8000;
-        const fileTexts = files
-          .filter((f: any) => f.extracted_text)
-          .map((f: any) => {
-            const text = f.extracted_text.length > MAX_CHARS_PER_FILE
-              ? f.extracted_text.slice(0, MAX_CHARS_PER_FILE) + "\n[... truncated]"
-              : f.extracted_text;
-            return `--- FILE: ${f.file_name} ---\n${text}\n---`;
+        // Generate embedding for user query
+        const queryEmbedding = await getEmbedding(message.trim(), OPENAI_API_KEY);
+
+        // Use service client for vector similarity query (RPC)
+        const serviceClient = createClient(
+          supabaseUrl,
+          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+        );
+
+        // Query top 5 most relevant chunks using raw SQL via RPC
+        const embeddingStr = `[${queryEmbedding.join(",")}]`;
+        const { data: chunks, error: chunksError } = await serviceClient
+          .rpc("match_project_chunks", {
+            query_embedding: embeddingStr,
+            file_ids: fileIds,
+            match_count: 5,
           });
 
-        if (fileTexts.length > 0) {
-          fileContextBlock = "\n\n## REFERENCED FILES\nThe user has selected the following files for context. Use them to inform your response.\n\n" + fileTexts.join("\n\n");
+        if (chunksError) {
+          console.error("RAG query error:", chunksError);
+          // Non-fatal: continue without context
+        } else if (chunks && chunks.length > 0) {
+          const contextTexts = chunks.map(
+            (c: any, i: number) => `[Context ${i + 1}]\n${c.content}`
+          );
+          fileContextBlock =
+            "\n\n## RELEVANT CONTEXT\nThe following excerpts were automatically retrieved from project files based on relevance to the user's question. Use them to inform your response.\n\n" +
+            contextTexts.join("\n\n---\n\n");
         }
       }
+    } catch (ragErr) {
+      console.error("RAG retrieval failed (non-fatal):", ragErr);
+      // Continue without context — don't block the chat
     }
 
     // 6. Fetch last 20 messages for context
@@ -158,25 +191,15 @@ Deno.serve(async (req) => {
       { role: "system", content: systemPrompt },
     ];
 
-    // Add history
     if (history && history.length > 0) {
       for (const msg of history) {
         aiMessages.push({ role: msg.role, content: msg.content });
       }
     }
 
-    // Add current user message
     aiMessages.push({ role: "user", content: message.trim() });
 
-    // 8. Call OpenAI (same pattern as norman-chat)
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) {
-      return new Response(JSON.stringify({ error: "AI service not configured" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
+    // 9. Call OpenAI
     const PRIMARY_MODEL = "gpt-4.1";
     const FALLBACK_MODEL = "gpt-4.1-mini";
     const MAX_RETRIES = 4;
@@ -248,7 +271,7 @@ Deno.serve(async (req) => {
     const aiData = await aiResponse.json();
     const reply = aiData.choices?.[0]?.message?.content || "I couldn't generate a response.";
 
-    // 9. Save assistant message
+    // 10. Save assistant message
     const { error: insertAssistantError } = await supabase
       .from("chat_messages")
       .insert({ chat_id, role: "assistant", content: reply });
@@ -257,7 +280,7 @@ Deno.serve(async (req) => {
       console.error("Failed to save assistant message:", insertAssistantError);
     }
 
-    // 10. Return response
+    // 11. Return response
     return new Response(JSON.stringify({ reply }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
