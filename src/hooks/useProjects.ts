@@ -1,0 +1,280 @@
+import { useState, useEffect, useCallback } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
+
+export interface Project {
+  id: string;
+  user_id: string;
+  name: string;
+  system_prompt: string | null;
+  created_at: string;
+}
+
+export interface ProjectChat {
+  id: string;
+  project_id: string;
+  title: string;
+  created_at: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  chat_id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  created_at: string;
+}
+
+export interface ProjectFile {
+  id: string;
+  project_id: string;
+  file_name: string;
+  storage_path: string;
+  extracted_text: string | null;
+  created_at: string;
+}
+
+export function useProjects() {
+  const { session } = useAuth();
+  const { toast } = useToast();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchProjects = useCallback(async () => {
+    if (!session) return;
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("projects")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) {
+      toast({ title: "Error", description: "Failed to load projects", variant: "destructive" });
+    } else {
+      setProjects((data as any[]) || []);
+    }
+    setLoading(false);
+  }, [session, toast]);
+
+  useEffect(() => { fetchProjects(); }, [fetchProjects]);
+
+  const createProject = useCallback(async (name: string, systemPrompt?: string) => {
+    if (!session) return null;
+    const { data, error } = await supabase
+      .from("projects")
+      .insert({ user_id: session.user.id, name, system_prompt: systemPrompt || null })
+      .select()
+      .single();
+    if (error) {
+      toast({ title: "Error", description: "Failed to create project", variant: "destructive" });
+      return null;
+    }
+    setProjects(prev => [data as any, ...prev]);
+    return data as Project;
+  }, [session, toast]);
+
+  const updateProject = useCallback(async (id: string, updates: { name?: string; system_prompt?: string | null }) => {
+    const { error } = await supabase.from("projects").update(updates).eq("id", id);
+    if (error) {
+      toast({ title: "Error", description: "Failed to update project", variant: "destructive" });
+      return false;
+    }
+    setProjects(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+    return true;
+  }, [toast]);
+
+  const deleteProject = useCallback(async (id: string) => {
+    const { error } = await supabase.from("projects").delete().eq("id", id);
+    if (error) {
+      toast({ title: "Error", description: "Failed to delete project", variant: "destructive" });
+      return false;
+    }
+    setProjects(prev => prev.filter(p => p.id !== id));
+    return true;
+  }, [toast]);
+
+  return { projects, loading, fetchProjects, createProject, updateProject, deleteProject };
+}
+
+export function useProjectChats(projectId: string | null) {
+  const { toast } = useToast();
+  const [chats, setChats] = useState<ProjectChat[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchChats = useCallback(async () => {
+    if (!projectId) return;
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("project_chats")
+      .select("*")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false });
+    if (error) {
+      toast({ title: "Error", description: "Failed to load chats", variant: "destructive" });
+    } else {
+      setChats((data as any[]) || []);
+    }
+    setLoading(false);
+  }, [projectId, toast]);
+
+  useEffect(() => { fetchChats(); }, [fetchChats]);
+
+  const createChat = useCallback(async (title?: string) => {
+    if (!projectId) return null;
+    const { data, error } = await supabase
+      .from("project_chats")
+      .insert({ project_id: projectId, title: title || "New Chat" })
+      .select()
+      .single();
+    if (error) {
+      toast({ title: "Error", description: "Failed to create chat", variant: "destructive" });
+      return null;
+    }
+    setChats(prev => [data as any, ...prev]);
+    return data as ProjectChat;
+  }, [projectId, toast]);
+
+  return { chats, loading, fetchChats, createChat };
+}
+
+export function useProjectChat(chatId: string | null) {
+  const { toast } = useToast();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  const fetchMessages = useCallback(async () => {
+    if (!chatId) { setMessages([]); return; }
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("chat_messages")
+      .select("*")
+      .eq("chat_id", chatId)
+      .order("created_at", { ascending: true });
+    if (error) {
+      toast({ title: "Error", description: "Failed to load messages", variant: "destructive" });
+    } else {
+      setMessages((data as any[]) || []);
+    }
+    setLoading(false);
+  }, [chatId, toast]);
+
+  useEffect(() => { fetchMessages(); }, [fetchMessages]);
+
+  const sendMessage = useCallback(async (message: string, selectedFileIds?: string[]) => {
+    if (!chatId || !message.trim()) return null;
+    setSending(true);
+
+    // Optimistically add user message
+    const tempUserMsg: ChatMessage = {
+      id: `temp-${Date.now()}`,
+      chat_id: chatId,
+      role: "user",
+      content: message.trim(),
+      created_at: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, tempUserMsg]);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("chat-with-project-context", {
+        body: { chat_id: chatId, message: message.trim(), selected_file_ids: selectedFileIds || [] },
+      });
+
+      if (error) throw error;
+
+      const assistantMsg: ChatMessage = {
+        id: `resp-${Date.now()}`,
+        chat_id: chatId,
+        role: "assistant",
+        content: data.reply,
+        created_at: new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, assistantMsg]);
+      return data.reply;
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message || "Failed to get response", variant: "destructive" });
+      // Remove optimistic message
+      setMessages(prev => prev.filter(m => m.id !== tempUserMsg.id));
+      return null;
+    } finally {
+      setSending(false);
+    }
+  }, [chatId, toast]);
+
+  return { messages, loading, sending, sendMessage, fetchMessages };
+}
+
+export function useProjectFiles(projectId: string | null) {
+  const { toast } = useToast();
+  const [files, setFiles] = useState<ProjectFile[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchFiles = useCallback(async () => {
+    if (!projectId) return;
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("project_files")
+      .select("*")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false });
+    if (error) {
+      toast({ title: "Error", description: "Failed to load files", variant: "destructive" });
+    } else {
+      setFiles((data as any[]) || []);
+    }
+    setLoading(false);
+  }, [projectId, toast]);
+
+  useEffect(() => { fetchFiles(); }, [fetchFiles]);
+
+  const uploadFile = useCallback(async (file: File) => {
+    if (!projectId) return null;
+    const formData = new FormData();
+    formData.append("project_id", projectId);
+    formData.append("file", file);
+
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/upload-project-file`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+          },
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || "Upload failed");
+      }
+
+      const fileRecord = await response.json();
+      setFiles(prev => [fileRecord, ...prev]);
+      toast({ title: "File uploaded", description: file.name });
+      return fileRecord as ProjectFile;
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+      return null;
+    }
+  }, [projectId, toast]);
+
+  const extractText = useCallback(async (fileId: string) => {
+    try {
+      const { data, error } = await supabase.functions.invoke("extract-file-text", {
+        body: { file_id: fileId },
+      });
+      if (error) throw error;
+      // Update local state
+      setFiles(prev => prev.map(f => f.id === fileId ? { ...f, extracted_text: "extracted" } : f));
+      toast({ title: "Text extracted", description: `${data.text_length} characters extracted` });
+      return true;
+    } catch (err: any) {
+      toast({ title: "Extraction failed", description: err.message, variant: "destructive" });
+      return false;
+    }
+  }, [toast]);
+
+  return { files, loading, fetchFiles, uploadFile, extractText };
+}
