@@ -85,6 +85,16 @@ Deno.serve(async (req) => {
     let extractedText = "";
 
     if (fileName.endsWith(".pdf")) {
+      // Guard: reject PDFs larger than 10MB for base64 extraction
+      const arrayBuffer = await fileData.arrayBuffer();
+      const MAX_PDF_SIZE = 10 * 1024 * 1024; // 10MB
+      if (arrayBuffer.byteLength > MAX_PDF_SIZE) {
+        return new Response(JSON.stringify({ error: `PDF too large for text extraction (${(arrayBuffer.byteLength / 1024 / 1024).toFixed(1)}MB). Maximum is 10MB.` }), {
+          status: 413,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // Use OpenAI to extract text from PDF via base64
       const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
       if (!OPENAI_API_KEY) {
@@ -94,7 +104,6 @@ Deno.serve(async (req) => {
         });
       }
 
-      const arrayBuffer = await fileData.arrayBuffer();
       const base64 = btoa(
         new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
       );

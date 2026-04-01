@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Plus, MessageSquare, Send, Loader2, Settings2,
-  Upload, FileText, CheckSquare, Square, Sparkles, Trash2,
+  Upload, FileText, CheckSquare, Square, Sparkles, X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -18,12 +18,12 @@ import duncanAvatar from "@/assets/duncan-avatar.jpeg";
 export default function ProjectWorkspace() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
-  const { projects, updateProject } = useProjects();
+  const { projects, loading: projectsLoading, updateProject } = useProjects();
   const project = projects.find(p => p.id === projectId) || null;
-  const { chats, createChat } = useProjectChats(projectId || null);
+  const { chats, loading: chatsLoading, createChat, updateChatTitle } = useProjectChats(projectId || null);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const { messages, loading: msgsLoading, sending, sendMessage } = useProjectChat(activeChatId);
-  const { files, uploadFile, extractText } = useProjectFiles(projectId || null);
+  const { files, uploadFile, extractText, isUploading, isExtracting } = useProjectFiles(projectId || null);
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -34,6 +34,22 @@ export default function ProjectWorkspace() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const autoCreatedRef = useRef(false);
+
+  // Auto-create first chat if none exist
+  useEffect(() => {
+    if (!chatsLoading && chats.length === 0 && projectId && !autoCreatedRef.current) {
+      autoCreatedRef.current = true;
+      createChat("New Chat").then(chat => {
+        if (chat) setActiveChatId(chat.id);
+      });
+    }
+  }, [chatsLoading, chats.length, projectId, createChat]);
+
+  // Reset auto-created flag when project changes
+  useEffect(() => {
+    autoCreatedRef.current = false;
+  }, [projectId]);
 
   // Auto-select first chat
   useEffect(() => {
@@ -59,8 +75,17 @@ export default function ProjectWorkspace() {
     if (!input.trim() || sending) return;
     const msg = input.trim();
     setInput("");
-    await sendMessage(msg, selectedFileIds.length > 0 ? selectedFileIds : undefined);
-  }, [input, sending, sendMessage, selectedFileIds]);
+
+    // Auto-name chat on first message
+    const isFirstMessage = messages.length === 0;
+
+    const reply = await sendMessage(msg, selectedFileIds.length > 0 ? selectedFileIds : undefined);
+
+    if (isFirstMessage && activeChatId && reply) {
+      const title = msg.length > 50 ? msg.slice(0, 47) + "..." : msg;
+      updateChatTitle(activeChatId, title);
+    }
+  }, [input, sending, sendMessage, selectedFileIds, messages.length, activeChatId, updateChatTitle]);
 
   const handleNewChat = async () => {
     const chat = await createChat();
@@ -96,6 +121,36 @@ export default function ProjectWorkspace() {
 
   if (!projectId) return null;
 
+  // Show loading while projects are being fetched
+  if (projectsLoading) {
+    return (
+      <div className="flex h-screen overflow-hidden bg-background">
+        <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
+        <main className="flex-1 lg:ml-64 flex items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </main>
+      </div>
+    );
+  }
+
+  // Show not-found if project doesn't exist after loading
+  if (!project) {
+    return (
+      <div className="flex h-screen overflow-hidden bg-background">
+        <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
+        <main className="flex-1 lg:ml-64 flex flex-col items-center justify-center gap-3">
+          <p className="text-sm text-muted-foreground">Project not found</p>
+          <Button variant="outline" size="sm" onClick={() => navigate("/projects")}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Projects
+          </Button>
+        </main>
+      </div>
+    );
+  }
+
+  const selectedFiles = files.filter(f => selectedFileIds.includes(f.id));
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar mobileOpen={mobileOpen} onMobileClose={() => setMobileOpen(false)} />
@@ -107,9 +162,9 @@ export default function ProjectWorkspace() {
             <ArrowLeft className="h-4 w-4" />
           </button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-sm font-semibold text-foreground truncate">{project?.name || "Project"}</h1>
+            <h1 className="text-sm font-semibold text-foreground truncate">{project.name}</h1>
             <p className="text-[10px] text-muted-foreground truncate">
-              {project?.system_prompt ? "Custom instructions active" : "Default instructions"}
+              {project.system_prompt ? "Custom instructions active" : "Default instructions"}
             </p>
           </div>
           <Button variant="ghost" size="sm" onClick={openSettings} className="gap-1.5 text-xs">
@@ -144,9 +199,9 @@ export default function ProjectWorkspace() {
                     <span className="truncate">{chat.title}</span>
                   </button>
                 ))}
-                {chats.length === 0 && (
+                {chats.length === 0 && !chatsLoading && (
                   <p className="px-3 py-4 text-[11px] text-muted-foreground text-center">
-                    No chats yet. Create one to start.
+                    No chats yet
                   </p>
                 )}
               </div>
@@ -213,15 +268,31 @@ export default function ProjectWorkspace() {
                   </div>
                 </ScrollArea>
 
-                {/* Selected files indicator */}
-                {selectedFileIds.length > 0 && (
+                {/* Selected files chips above input */}
+                {selectedFiles.length > 0 && (
                   <div className="px-4 py-2 border-t border-border bg-primary/5">
-                    <div className="max-w-3xl mx-auto flex items-center gap-2 text-xs text-primary">
-                      <Sparkles className="h-3.5 w-3.5" />
-                      <span>{selectedFileIds.length} file{selectedFileIds.length > 1 ? "s" : ""} selected as context</span>
-                      <button onClick={() => setSelectedFileIds([])} className="ml-auto text-muted-foreground hover:text-foreground text-[10px]">
-                        Clear
-                      </button>
+                    <div className="max-w-3xl mx-auto">
+                      <div className="flex items-center gap-1.5 text-xs text-primary mb-1">
+                        <Sparkles className="h-3 w-3" />
+                        <span className="font-medium">Context files:</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {selectedFiles.map(f => (
+                          <span
+                            key={f.id}
+                            className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
+                          >
+                            <FileText className="h-3 w-3" />
+                            <span className="max-w-[120px] truncate">{f.file_name}</span>
+                            <button
+                              onClick={() => setSelectedFileIds(prev => prev.filter(id => id !== f.id))}
+                              className="ml-0.5 hover:text-destructive"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -262,10 +333,15 @@ export default function ProjectWorkspace() {
                   variant="ghost"
                   size="sm"
                   onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
                   className="h-7 px-2 gap-1 text-[10px]"
                 >
-                  <Upload className="h-3 w-3" />
-                  Upload
+                  {isUploading ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Upload className="h-3 w-3" />
+                  )}
+                  {isUploading ? "Uploading..." : "Upload"}
                 </Button>
               </div>
               <input
@@ -275,6 +351,7 @@ export default function ProjectWorkspace() {
                 className="hidden"
                 accept=".pdf,.docx,.txt,.md,.csv,.json,.xml,.yaml,.yml"
                 onChange={handleFileUpload}
+                disabled={isUploading}
               />
             </div>
             <ScrollArea className="flex-1">
@@ -284,34 +361,46 @@ export default function ProjectWorkspace() {
                     No files uploaded yet
                   </p>
                 ) : (
-                  files.map(file => (
-                    <div key={file.id} className="flex items-start gap-2 rounded-md p-2 hover:bg-secondary/60 transition-colors">
-                      <button
-                        onClick={() => toggleFileSelection(file.id)}
-                        className="shrink-0 mt-0.5"
-                        title={selectedFileIds.includes(file.id) ? "Deselect" : "Select for context"}
-                      >
-                        {selectedFileIds.includes(file.id) ? (
-                          <CheckSquare className="h-4 w-4 text-primary" />
-                        ) : (
-                          <Square className="h-4 w-4 text-muted-foreground" />
-                        )}
-                      </button>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[11px] font-medium text-foreground truncate">{file.file_name}</p>
-                        {file.extracted_text ? (
-                          <span className="text-[10px] text-norman-success">✓ Text extracted</span>
-                        ) : (
-                          <button
-                            onClick={() => extractText(file.id)}
-                            className="text-[10px] text-primary hover:underline"
-                          >
-                            Extract text
-                          </button>
-                        )}
+                  files.map(file => {
+                    const extracting = isExtracting(file.id);
+                    return (
+                      <div key={file.id} className="flex items-start gap-2 rounded-md p-2 hover:bg-secondary/60 transition-colors">
+                        <button
+                          onClick={() => toggleFileSelection(file.id)}
+                          className="shrink-0 mt-0.5"
+                          disabled={!file.extracted_text}
+                          title={
+                            !file.extracted_text
+                              ? "Extract text first"
+                              : selectedFileIds.includes(file.id) ? "Deselect" : "Select for context"
+                          }
+                        >
+                          {selectedFileIds.includes(file.id) ? (
+                            <CheckSquare className="h-4 w-4 text-primary" />
+                          ) : (
+                            <Square className={`h-4 w-4 ${file.extracted_text ? "text-muted-foreground" : "text-muted-foreground/30"}`} />
+                          )}
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[11px] font-medium text-foreground truncate">{file.file_name}</p>
+                          {extracting ? (
+                            <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                              <Loader2 className="h-3 w-3 animate-spin" /> Extracting...
+                            </span>
+                          ) : file.extracted_text ? (
+                            <span className="text-[10px] text-emerald-500 dark:text-emerald-400">✓ Text extracted</span>
+                          ) : (
+                            <button
+                              onClick={() => extractText(file.id)}
+                              className="text-[10px] text-primary hover:underline"
+                            >
+                              Extract text
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </ScrollArea>

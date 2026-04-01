@@ -134,7 +134,17 @@ export function useProjectChats(projectId: string | null) {
     return data as ProjectChat;
   }, [projectId, toast]);
 
-  return { chats, loading, fetchChats, createChat };
+  const updateChatTitle = useCallback(async (chatId: string, title: string) => {
+    const { error } = await supabase
+      .from("project_chats")
+      .update({ title })
+      .eq("id", chatId);
+    if (!error) {
+      setChats(prev => prev.map(c => c.id === chatId ? { ...c, title } : c));
+    }
+  }, []);
+
+  return { chats, loading, fetchChats, createChat, updateChatTitle };
 }
 
 export function useProjectChat(chatId: string | null) {
@@ -182,14 +192,17 @@ export function useProjectChat(chatId: string | null) {
 
       if (error) throw error;
 
-      const assistantMsg: ChatMessage = {
-        id: `resp-${Date.now()}`,
-        chat_id: chatId,
-        role: "assistant",
-        content: data.reply,
-        created_at: new Date().toISOString(),
-      };
-      setMessages(prev => [...prev, assistantMsg]);
+      // Refetch messages from DB to sync real IDs
+      const { data: dbMessages } = await supabase
+        .from("chat_messages")
+        .select("*")
+        .eq("chat_id", chatId)
+        .order("created_at", { ascending: true });
+
+      if (dbMessages) {
+        setMessages(dbMessages as any[]);
+      }
+
       return data.reply;
     } catch (err: any) {
       toast({ title: "Error", description: err.message || "Failed to get response", variant: "destructive" });
@@ -208,6 +221,8 @@ export function useProjectFiles(projectId: string | null) {
   const { toast } = useToast();
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [loading, setLoading] = useState(false);
+  const [uploadingFiles, setUploadingFiles] = useState<Set<string>>(new Set());
+  const [extractingFiles, setExtractingFiles] = useState<Set<string>>(new Set());
 
   const fetchFiles = useCallback(async () => {
     if (!projectId) return;
@@ -229,6 +244,9 @@ export function useProjectFiles(projectId: string | null) {
 
   const uploadFile = useCallback(async (file: File) => {
     if (!projectId) return null;
+    const tempId = `uploading-${file.name}`;
+    setUploadingFiles(prev => new Set(prev).add(tempId));
+
     const formData = new FormData();
     formData.append("project_id", projectId);
     formData.append("file", file);
@@ -257,24 +275,42 @@ export function useProjectFiles(projectId: string | null) {
     } catch (err: any) {
       toast({ title: "Upload failed", description: err.message, variant: "destructive" });
       return null;
+    } finally {
+      setUploadingFiles(prev => {
+        const next = new Set(prev);
+        next.delete(tempId);
+        return next;
+      });
     }
   }, [projectId, toast]);
 
   const extractText = useCallback(async (fileId: string) => {
+    setExtractingFiles(prev => new Set(prev).add(fileId));
     try {
       const { data, error } = await supabase.functions.invoke("extract-file-text", {
         body: { file_id: fileId },
       });
       if (error) throw error;
-      // Update local state
-      setFiles(prev => prev.map(f => f.id === fileId ? { ...f, extracted_text: "extracted" } : f));
+
+      // Refetch files to get real extracted_text state
+      await fetchFiles();
       toast({ title: "Text extracted", description: `${data.text_length} characters extracted` });
       return true;
     } catch (err: any) {
       toast({ title: "Extraction failed", description: err.message, variant: "destructive" });
       return false;
+    } finally {
+      setExtractingFiles(prev => {
+        const next = new Set(prev);
+        next.delete(fileId);
+        return next;
+      });
     }
-  }, [toast]);
+  }, [toast, fetchFiles]);
 
-  return { files, loading, fetchFiles, uploadFile, extractText };
+  return {
+    files, loading, fetchFiles, uploadFile, extractText,
+    isUploading: uploadingFiles.size > 0,
+    isExtracting: (fileId: string) => extractingFiles.has(fileId),
+  };
 }
