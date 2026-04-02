@@ -185,6 +185,10 @@ export default function ProjectWorkspace() {
                 : project.system_prompt ? "Custom instructions active" : "Default instructions"}
             </p>
           </div>
+          <Button variant="ghost" size="sm" onClick={() => setShowFiles(true)} className="gap-1.5 text-xs">
+            <FileText className="h-3.5 w-3.5" />
+            Files{files.length > 0 && ` (${files.length})`}
+          </Button>
           <Button variant="ghost" size="sm" onClick={openSettings} className="gap-1.5 text-xs">
             <Settings2 className="h-3.5 w-3.5" />
             Settings
