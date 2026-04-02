@@ -282,29 +282,6 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     console.log("Basecamp webhook received:", JSON.stringify(body).substring(0, 500));
-    console.log("LOVABLE_API_KEY exists:", !!Deno.env.get("LOVABLE_API_KEY"));
-    console.log("SLACK_API_KEY exists:", !!Deno.env.get("SLACK_API_KEY"));
-
-    if (body?.debug_gateway_test === true) {
-      const slackUserId = safeString(body?.slackUserId, "");
-      const message = safeString(body?.message, "Test message from basecamp-webhook diagnostics");
-
-      if (!slackUserId) {
-        return new Response(JSON.stringify({
-          ok: false,
-          error: "slackUserId is required for debug_gateway_test",
-        }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const diagnosticResult = await runSlackGatewayDiagnostic(slackUserId, message);
-      return new Response(JSON.stringify(diagnosticResult), {
-        status: diagnosticResult.ok ? 200 : 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
 
     // Validate account ID
     const expectedAccountId = Deno.env.get("BASECAMP_ACCOUNT_ID");
