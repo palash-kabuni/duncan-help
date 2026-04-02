@@ -304,6 +304,16 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Deduplication check (once per webhook, before user loop)
+    const eventKey = buildEventKey(event);
+    const duplicate = await isDuplicateEvent(supabase, eventKey);
+    if (duplicate) {
+      console.log(`Duplicate event detected, skipping: ${eventKey}`);
+      return new Response(JSON.stringify({ ignored: true, reason: "duplicate_event", event_key: eventKey }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const message = formatMessage(event);
     const results: { personId: number; slackUser: string | null; success: boolean; skipped?: string }[] = [];
 
