@@ -7,6 +7,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import Sidebar, { MobileMenuButton } from "@/components/Sidebar";
+import { supabase } from "@/integrations/supabase/client";
 import { useProjects, useProjectChats, useProjectChat, useProjectFiles } from "@/hooks/useProjects";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +21,7 @@ export default function ProjectWorkspace() {
   const navigate = useNavigate();
   const { projects, loading: projectsLoading, updateProject } = useProjects();
   const project = projects.find(p => p.id === projectId) || null;
-  const { chats, loading: chatsLoading, createChat, updateChatTitle } = useProjectChats(projectId || null);
+  const { chats, loading: chatsLoading, createChat, updateChatTitle, deleteChat } = useProjectChats(projectId || null);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const { messages, loading: msgsLoading, sending, sendMessage } = useProjectChat(activeChatId);
   const { files, uploadFile, extractText, deleteFile, isUploading, isExtracting } = useProjectFiles(projectId || null);
@@ -30,32 +31,46 @@ export default function ProjectWorkspace() {
   const [showSettings, setShowSettings] = useState(false);
   const [editName, setEditName] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
+  const [manualDeselect, setManualDeselect] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const autoCreatedRef = useRef(false);
+  const cleanedUpRef = useRef(false);
 
-  // Auto-create first chat if none exist
+  // Clean up empty chats on load (chats titled "New Chat" with no messages)
   useEffect(() => {
-    if (!chatsLoading && chats.length === 0 && projectId && !autoCreatedRef.current) {
-      autoCreatedRef.current = true;
-      createChat("New Chat").then(chat => {
-        if (chat) setActiveChatId(chat.id);
-      });
-    }
-  }, [chatsLoading, chats.length, projectId, createChat]);
+    if (chatsLoading || cleanedUpRef.current || chats.length === 0) return;
+    cleanedUpRef.current = true;
+    const cleanupEmpty = async () => {
+      for (const chat of chats) {
+        if (chat.title === "New Chat") {
+          const { data } = await supabase
+            .from("chat_messages")
+            .select("id")
+            .eq("chat_id", chat.id)
+            .limit(1);
+          if (!data || data.length === 0) {
+            await deleteChat(chat.id);
+          }
+        }
+      }
+    };
+    cleanupEmpty();
+  }, [chatsLoading, chats, deleteChat]);
 
-  // Reset auto-created flag when project changes
+  // Reset cleanup flag when project changes
   useEffect(() => {
-    autoCreatedRef.current = false;
+    cleanedUpRef.current = false;
+    setManualDeselect(false);
+    setActiveChatId(null);
   }, [projectId]);
 
-  // Auto-select first chat
+  // Auto-select first chat (unless user manually deselected)
   useEffect(() => {
-    if (chats.length > 0 && !activeChatId) {
+    if (chats.length > 0 && !activeChatId && !manualDeselect) {
       setActiveChatId(chats[0].id);
     }
-  }, [chats, activeChatId]);
+  }, [chats, activeChatId, manualDeselect]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -75,20 +90,26 @@ export default function ProjectWorkspace() {
     const msg = input.trim();
     setInput("");
 
-    // Auto-name chat on first message
-    const isFirstMessage = messages.length === 0;
+    let chatId = activeChatId;
 
-    const reply = await sendMessage(msg);
-
-    if (isFirstMessage && activeChatId && reply) {
+    // If no active chat, create one on first message
+    if (!chatId) {
       const title = msg.length > 50 ? msg.slice(0, 47) + "..." : msg;
-      updateChatTitle(activeChatId, title);
+      const chat = await createChat(title);
+      if (!chat) return;
+      chatId = chat.id;
+      setActiveChatId(chat.id);
+      setManualDeselect(false);
     }
-  }, [input, sending, sendMessage, messages.length, activeChatId, updateChatTitle]);
 
-  const handleNewChat = async () => {
-    const chat = await createChat();
-    if (chat) setActiveChatId(chat.id);
+    // Pass chatId directly to handle the case where activeChatId just changed
+    await sendMessage(msg, chatId);
+  }, [input, sending, sendMessage, activeChatId, createChat]);
+
+  const handleNewChat = () => {
+    // Just deselect current chat - a new chat will be created on first message
+    setActiveChatId(null);
+    setManualDeselect(true);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -207,16 +228,37 @@ export default function ProjectWorkspace() {
           {/* CENTER: Chat */}
           <div className="flex-1 flex flex-col min-w-0">
             {!activeChatId ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 mb-4">
-                  <MessageSquare className="h-7 w-7 text-primary" />
+              <div className="flex-1 flex flex-col">
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 mb-4">
+                    <MessageSquare className="h-7 w-7 text-primary" />
+                  </div>
+                  <h2 className="text-base font-semibold text-foreground mb-1">Start a conversation</h2>
+                  <p className="text-sm text-muted-foreground">Type a message below to begin working with Duncan in this project.</p>
                 </div>
-                <h2 className="text-base font-semibold text-foreground mb-1">Start a conversation</h2>
-                <p className="text-sm text-muted-foreground mb-4">Create a new chat to begin working with Duncan in this project.</p>
-                <Button onClick={handleNewChat} size="sm" className="gap-2">
-                  <Plus className="h-4 w-4" />
-                  New Chat
-                </Button>
+                {/* Input for new chat */}
+                <div className="border-t border-border px-4 py-3">
+                  <div className="max-w-3xl mx-auto flex items-end gap-3 rounded-xl border border-border bg-card px-4 py-3 focus-within:border-primary/40 transition-all">
+                    <textarea
+                      ref={textareaRef}
+                      placeholder="Message Duncan..."
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                      disabled={sending}
+                      rows={1}
+                      className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:opacity-50 resize-none overflow-y-auto"
+                      style={{ maxHeight: 160 }}
+                    />
+                    <button
+                      onClick={handleSend}
+                      disabled={!input.trim() || sending}
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30"
+                    >
+                      {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                </div>
               </div>
             ) : (
               <>

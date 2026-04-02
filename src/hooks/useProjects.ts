@@ -144,7 +144,18 @@ export function useProjectChats(projectId: string | null) {
     }
   }, []);
 
-  return { chats, loading, fetchChats, createChat, updateChatTitle };
+  const deleteChat = useCallback(async (chatId: string) => {
+    const { error } = await supabase
+      .from("project_chats")
+      .delete()
+      .eq("id", chatId);
+    if (!error) {
+      setChats(prev => prev.filter(c => c.id !== chatId));
+    }
+    return !error;
+  }, []);
+
+  return { chats, loading, fetchChats, createChat, updateChatTitle, deleteChat };
 }
 
 export function useProjectChat(chatId: string | null) {
@@ -171,14 +182,15 @@ export function useProjectChat(chatId: string | null) {
 
   useEffect(() => { fetchMessages(); }, [fetchMessages]);
 
-  const sendMessage = useCallback(async (message: string) => {
-    if (!chatId || !message.trim()) return null;
+  const sendMessage = useCallback(async (message: string, overrideChatId?: string) => {
+    const targetChatId = overrideChatId || chatId;
+    if (!targetChatId || !message.trim()) return null;
     setSending(true);
 
     // Optimistically add user message
     const tempUserMsg: ChatMessage = {
       id: `temp-${Date.now()}`,
-      chat_id: chatId,
+      chat_id: targetChatId,
       role: "user",
       content: message.trim(),
       created_at: new Date().toISOString(),
@@ -187,7 +199,7 @@ export function useProjectChat(chatId: string | null) {
 
     try {
       const { data, error } = await supabase.functions.invoke("chat-with-project-context", {
-        body: { chat_id: chatId, message: message.trim() },
+        body: { chat_id: targetChatId, message: message.trim() },
       });
 
       if (error) throw error;
@@ -196,7 +208,7 @@ export function useProjectChat(chatId: string | null) {
       const { data: dbMessages } = await supabase
         .from("chat_messages")
         .select("*")
-        .eq("chat_id", chatId)
+        .eq("chat_id", targetChatId)
         .order("created_at", { ascending: true });
 
       if (dbMessages) {
