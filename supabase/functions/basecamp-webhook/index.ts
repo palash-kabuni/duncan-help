@@ -227,6 +227,8 @@ function formatMessage(event: BasecampEvent): string {
       return `✅ *Task completed*\n${link}\n📁 ${event.projectName}\n👤 Completed by ${event.creatorName}`;
     case "comment_created":
       return `💬 *New comment on your task*\n${link}\n📁 ${event.projectName}\n👤 Comment by ${event.creatorName}`;
+    case "card_update":
+      return `🗂️ *Card updated*\n${link}\n📁 ${event.projectName}\n👤 By ${event.creatorName}`;
     default:
       return `📌 Update on: ${link}`;
   }
