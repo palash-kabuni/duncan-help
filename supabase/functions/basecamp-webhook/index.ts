@@ -9,7 +9,7 @@ const corsHeaders = {
 // --- Types ---
 
 interface BasecampEvent {
-  type: "todo_assigned" | "todo_completed" | "comment_created";
+  type: "todo_assigned" | "todo_completed" | "comment_created" | "card_update";
   todoTitle: string;
   projectName: string;
   assigneePersonIds: number[];
