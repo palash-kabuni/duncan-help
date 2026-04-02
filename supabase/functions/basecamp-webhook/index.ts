@@ -202,6 +202,34 @@ function formatMessage(event: BasecampEvent): string {
   }
 }
 
+// --- Deduplication ---
+
+function buildEventKey(event: BasecampEvent): string {
+  const fallback = `${event.projectName}-${event.creatorName}`;
+  const key = `${event.type}-${event.todoTitle}-${event.url || fallback}`;
+  return key.length > 255 ? key.substring(0, 255) : key;
+}
+
+async function isDuplicateEvent(supabase: any, eventKey: string): Promise<boolean> {
+  try {
+    const sixtySecondsAgo = new Date(Date.now() - 60_000).toISOString();
+    const { data, error } = await supabase
+      .from("slack_notification_logs")
+      .select("id")
+      .contains("payload", { event_key: eventKey })
+      .gte("created_at", sixtySecondsAgo)
+      .limit(1);
+
+    if (error) {
+      console.error("Dedup check error:", error);
+      return false; // fail open
+    }
+    return data && data.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 // --- Logging ---
 
 async function logResult(
@@ -276,6 +304,16 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Deduplication check (once per webhook, before user loop)
+    const eventKey = buildEventKey(event);
+    const duplicate = await isDuplicateEvent(supabase, eventKey);
+    if (duplicate) {
+      console.log(`Duplicate event detected, skipping: ${eventKey}`);
+      return new Response(JSON.stringify({ ignored: true, reason: "duplicate_event", event_key: eventKey }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const message = formatMessage(event);
     const results: { personId: number; slackUser: string | null; success: boolean; skipped?: string }[] = [];
 
@@ -296,7 +334,7 @@ Deno.serve(async (req) => {
       }
 
       const success = await sendSlackDM(slackUserId, message, slackApiKey);
-      await logResult(supabase, slackUserId, { type: event.type, todo: event.todoTitle, project: event.projectName }, success);
+      await logResult(supabase, slackUserId, { type: event.type, todo: event.todoTitle, project: event.projectName, event_key: eventKey }, success);
       results.push({ personId, slackUser: slackUserId, success });
     }
 
