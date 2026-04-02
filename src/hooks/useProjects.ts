@@ -282,7 +282,31 @@ export function useProjectFiles(projectId: string | null) {
 
       const fileRecord = await response.json();
       setFiles(prev => [fileRecord, ...prev]);
-      toast({ title: "File uploaded", description: file.name });
+      toast({ title: "File uploaded", description: `${file.name} — indexing...` });
+
+      // Auto-trigger indexing after upload
+      try {
+        setExtractingFiles(prev => new Set(prev).add(fileRecord.id));
+        const { data: extractData, error: extractError } = await supabase.functions.invoke("extract-file-text", {
+          body: { file_id: fileRecord.id },
+        });
+        if (extractError) {
+          console.error("Auto-index failed:", extractError);
+          toast({ title: "Indexing failed", description: "You can retry from the Files panel.", variant: "destructive" });
+        } else {
+          toast({ title: "File indexed", description: `${extractData.chunks_created || 0} chunks created` });
+          await fetchFiles();
+        }
+      } catch (indexErr) {
+        console.error("Auto-index error:", indexErr);
+      } finally {
+        setExtractingFiles(prev => {
+          const next = new Set(prev);
+          next.delete(fileRecord.id);
+          return next;
+        });
+      }
+
       return fileRecord as ProjectFile;
     } catch (err: any) {
       toast({ title: "Upload failed", description: err.message, variant: "destructive" });
