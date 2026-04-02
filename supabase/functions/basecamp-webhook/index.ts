@@ -336,7 +336,7 @@ Deno.serve(async (req) => {
       }
 
       const success = await sendSlackDM(slackUserId, message, slackApiKey);
-      await logResult(supabase, slackUserId, { type: event.type, todo: event.todoTitle, project: event.projectName, event_key: eventKey }, success);
+      await logResult(supabase, slackUserId, { type: event.type, todo: event.todoTitle, project: event.projectName, event_key: eventKey }, success, eventKey);
       results.push({ personId, slackUser: slackUserId, success });
     }
 
