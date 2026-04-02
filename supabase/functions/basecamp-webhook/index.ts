@@ -100,6 +100,20 @@ function parseEvent(body: any): BasecampEvent | null {
       };
     }
 
+    // Card created or updated
+    if (kind === "card_created" || kind === "card_updated") {
+      const { ids, names } = extractAssignees(recording, body);
+      // If no assignees, notify the creator
+      const notifyIds = ids.length > 0 ? ids : (creatorPersonId ? [creatorPersonId] : []);
+      const notifyNames = names.length > 0 ? names : [creatorName];
+      return {
+        type: "card_update",
+        todoTitle: safeString(recording.title || recording.subject, "Untitled card"),
+        projectName, assigneePersonIds: notifyIds, assigneeNames: notifyNames,
+        creatorName, creatorPersonId, url,
+      };
+    }
+
     return null;
   } catch (err) {
     console.error("parseEvent error:", err);
