@@ -137,19 +137,35 @@ async function getSlackUser(
   }
 }
 
-// --- Slack DM with single retry ---
+// --- Slack DM with single retry (via connector gateway) ---
+
+const SLACK_GATEWAY_URL = "https://connector-gateway.lovable.dev/slack/api";
 
 async function sendSlackDM(
   slackUserId: string,
   message: string,
-  slackApiKey: string
+  _slackApiKey: string
 ): Promise<boolean> {
+  const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
+  const slackConnectionKey = Deno.env.get("SLACK_API_KEY");
+
+  if (!lovableApiKey || !slackConnectionKey) {
+    console.error("Missing LOVABLE_API_KEY or SLACK_API_KEY for connector gateway");
+    return false;
+  }
+
+  const gatewayHeaders = {
+    "Authorization": `Bearer ${lovableApiKey}`,
+    "X-Connection-Api-Key": slackConnectionKey,
+    "Content-Type": "application/json",
+  };
+
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       // Open DM channel
-      const openRes = await fetch("https://slack.com/api/conversations.open", {
+      const openRes = await fetch(`${SLACK_GATEWAY_URL}/conversations.open`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${slackApiKey}`, "Content-Type": "application/json" },
+        headers: gatewayHeaders,
         body: JSON.stringify({ users: slackUserId }),
       });
       const openData = await openRes.json();
@@ -160,9 +176,9 @@ async function sendSlackDM(
       }
 
       const channelId = openData.channel.id;
-      const msgRes = await fetch("https://slack.com/api/chat.postMessage", {
+      const msgRes = await fetch(`${SLACK_GATEWAY_URL}/chat.postMessage`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${slackApiKey}`, "Content-Type": "application/json" },
+        headers: gatewayHeaders,
         body: JSON.stringify({ channel: channelId, text: message, username: "Duncan", icon_emoji: ":bell:" }),
       });
       const msgData = await msgRes.json();
