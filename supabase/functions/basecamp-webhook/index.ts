@@ -149,6 +149,9 @@ async function sendSlackDM(
   const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
   const slackConnectionKey = Deno.env.get("SLACK_API_KEY");
 
+   console.log("LOVABLE_API_KEY exists:", !!lovableApiKey);
+   console.log("SLACK_API_KEY exists:", !!slackConnectionKey);
+
   if (!lovableApiKey || !slackConnectionKey) {
     console.error("Missing LOVABLE_API_KEY or SLACK_API_KEY for connector gateway");
     return false;
@@ -195,6 +198,89 @@ async function sendSlackDM(
     }
   }
   return false;
+}
+
+async function runSlackGatewayDiagnostic(
+  slackUserId: string,
+  message: string,
+): Promise<Record<string, unknown>> {
+  const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
+  const slackConnectionKey = Deno.env.get("SLACK_API_KEY");
+
+  console.log("LOVABLE_API_KEY exists:", !!lovableApiKey);
+  console.log("SLACK_API_KEY exists:", !!slackConnectionKey);
+
+  if (!lovableApiKey || !slackConnectionKey) {
+    return {
+      ok: false,
+      env: {
+        lovableApiKeyExists: !!lovableApiKey,
+        slackApiKeyExists: !!slackConnectionKey,
+      },
+      error: "Missing LOVABLE_API_KEY or SLACK_API_KEY for connector gateway",
+    };
+  }
+
+  const gatewayHeaders = {
+    "Authorization": `Bearer ${lovableApiKey}`,
+    "X-Connection-Api-Key": slackConnectionKey,
+    "Content-Type": "application/json",
+  };
+
+  try {
+    const openRes = await fetch(`${SLACK_GATEWAY_URL}/conversations.open`, {
+      method: "POST",
+      headers: gatewayHeaders,
+      body: JSON.stringify({ users: slackUserId }),
+    });
+    const openData = await openRes.json();
+    console.log("Slack diagnostic conversations.open response:", JSON.stringify(openData));
+
+    if (!openData?.ok || !openData?.channel?.id) {
+      return {
+        ok: false,
+        env: {
+          lovableApiKeyExists: true,
+          slackApiKeyExists: true,
+        },
+        open: openData,
+      };
+    }
+
+    const channelId = openData.channel.id;
+    const msgRes = await fetch(`${SLACK_GATEWAY_URL}/chat.postMessage`, {
+      method: "POST",
+      headers: gatewayHeaders,
+      body: JSON.stringify({
+        channel: channelId,
+        text: message,
+        username: "Duncan",
+        icon_emoji: ":bell:",
+      }),
+    });
+    const msgData = await msgRes.json();
+    console.log("Slack diagnostic chat.postMessage response:", JSON.stringify(msgData));
+
+    return {
+      ok: !!msgData?.ok,
+      env: {
+        lovableApiKeyExists: true,
+        slackApiKeyExists: true,
+      },
+      open: openData,
+      message: msgData,
+    };
+  } catch (error) {
+    console.error("Slack gateway diagnostic failed:", error);
+    return {
+      ok: false,
+      env: {
+        lovableApiKeyExists: true,
+        slackApiKeyExists: true,
+      },
+      error: error instanceof Error ? error.message : "Unknown diagnostic error",
+    };
+  }
 }
 
 function delay(ms: number): Promise<void> {
@@ -282,6 +368,29 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     console.log("Basecamp webhook received:", JSON.stringify(body).substring(0, 500));
+    console.log("LOVABLE_API_KEY exists:", !!Deno.env.get("LOVABLE_API_KEY"));
+    console.log("SLACK_API_KEY exists:", !!Deno.env.get("SLACK_API_KEY"));
+
+    if (body?.debug_gateway_test === true) {
+      const slackUserId = safeString(body?.slackUserId, "");
+      const message = safeString(body?.message, "Test message from basecamp-webhook diagnostics");
+
+      if (!slackUserId) {
+        return new Response(JSON.stringify({
+          ok: false,
+          error: "slackUserId is required for debug_gateway_test",
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const diagnosticResult = await runSlackGatewayDiagnostic(slackUserId, message);
+      return new Response(JSON.stringify(diagnosticResult), {
+        status: diagnosticResult.ok ? 200 : 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // Validate account ID
     const expectedAccountId = Deno.env.get("BASECAMP_ACCOUNT_ID");
