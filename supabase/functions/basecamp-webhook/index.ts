@@ -202,6 +202,34 @@ function formatMessage(event: BasecampEvent): string {
   }
 }
 
+// --- Deduplication ---
+
+function buildEventKey(event: BasecampEvent): string {
+  const fallback = `${event.projectName}-${event.creatorName}`;
+  const key = `${event.type}-${event.todoTitle}-${event.url || fallback}`;
+  return key.length > 255 ? key.substring(0, 255) : key;
+}
+
+async function isDuplicateEvent(supabase: any, eventKey: string): Promise<boolean> {
+  try {
+    const sixtySecondsAgo = new Date(Date.now() - 60_000).toISOString();
+    const { data, error } = await supabase
+      .from("slack_notification_logs")
+      .select("id")
+      .contains("payload", { event_key: eventKey })
+      .gte("created_at", sixtySecondsAgo)
+      .limit(1);
+
+    if (error) {
+      console.error("Dedup check error:", error);
+      return false; // fail open
+    }
+    return data && data.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 // --- Logging ---
 
 async function logResult(
