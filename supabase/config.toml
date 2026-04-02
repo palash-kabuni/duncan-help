@@ -152,3 +152,6 @@ verify_jwt = false
 
 [functions.extract-file-text]
 verify_jwt = false
+
+[functions.basecamp-webhook]
+verify_jwt = false
