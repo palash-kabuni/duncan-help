@@ -30,16 +30,46 @@ export default function ProjectWorkspace() {
   const [showSettings, setShowSettings] = useState(false);
   const [editName, setEditName] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
+  const [manualDeselect, setManualDeselect] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cleanedUpRef = useRef(false);
 
-  // Auto-select first chat (only if chats exist)
+  // Clean up empty chats on load (chats titled "New Chat" with no messages)
   useEffect(() => {
-    if (chats.length > 0 && !activeChatId) {
+    if (chatsLoading || cleanedUpRef.current || chats.length === 0) return;
+    cleanedUpRef.current = true;
+    const cleanupEmpty = async () => {
+      for (const chat of chats) {
+        if (chat.title === "New Chat") {
+          const { data } = await supabase
+            .from("chat_messages")
+            .select("id")
+            .eq("chat_id", chat.id)
+            .limit(1);
+          if (!data || data.length === 0) {
+            await deleteChat(chat.id);
+          }
+        }
+      }
+    };
+    cleanupEmpty();
+  }, [chatsLoading, chats, deleteChat]);
+
+  // Reset cleanup flag when project changes
+  useEffect(() => {
+    cleanedUpRef.current = false;
+    setManualDeselect(false);
+    setActiveChatId(null);
+  }, [projectId]);
+
+  // Auto-select first chat (unless user manually deselected)
+  useEffect(() => {
+    if (chats.length > 0 && !activeChatId && !manualDeselect) {
       setActiveChatId(chats[0].id);
     }
-  }, [chats, activeChatId]);
+  }, [chats, activeChatId, manualDeselect]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
