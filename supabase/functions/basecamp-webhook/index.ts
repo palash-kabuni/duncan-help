@@ -9,7 +9,7 @@ const corsHeaders = {
 // --- Types ---
 
 interface BasecampEvent {
-  type: "todo_assigned" | "todo_completed" | "comment_created";
+  type: "todo_assigned" | "todo_completed" | "comment_created" | "card_update";
   todoTitle: string;
   projectName: string;
   assigneePersonIds: number[];
@@ -96,6 +96,20 @@ function parseEvent(body: any): BasecampEvent | null {
         type: "comment_created",
         todoTitle: safeString(parent.title || parent.subject, "Untitled todo"),
         projectName, assigneePersonIds: ids, assigneeNames: names,
+        creatorName, creatorPersonId, url,
+      };
+    }
+
+    // Card created or updated
+    if (kind === "card_created" || kind === "card_updated") {
+      const { ids, names } = extractAssignees(recording, body);
+      // If no assignees, notify the creator
+      const notifyIds = ids.length > 0 ? ids : (creatorPersonId ? [creatorPersonId] : []);
+      const notifyNames = names.length > 0 ? names : [creatorName];
+      return {
+        type: "card_update",
+        todoTitle: safeString(recording.title || recording.subject, "Untitled card"),
+        projectName, assigneePersonIds: notifyIds, assigneeNames: notifyNames,
         creatorName, creatorPersonId, url,
       };
     }
@@ -213,6 +227,8 @@ function formatMessage(event: BasecampEvent): string {
       return `✅ *Task completed*\n${link}\n📁 ${event.projectName}\n👤 Completed by ${event.creatorName}`;
     case "comment_created":
       return `💬 *New comment on your task*\n${link}\n📁 ${event.projectName}\n👤 Comment by ${event.creatorName}`;
+    case "card_update":
+      return `🗂️ *Card updated*\n${link}\n📁 ${event.projectName}\n👤 By ${event.creatorName}`;
     default:
       return `📌 Update on: ${link}`;
   }
