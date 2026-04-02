@@ -68,18 +68,11 @@ export default function ProjectWorkspace() {
       if (!chat) return;
       chatId = chat.id;
       setActiveChatId(chat.id);
-      // Small delay to let the hook pick up the new chatId
-      await new Promise(r => setTimeout(r, 100));
     }
 
-    const isFirstMessage = messages.length === 0;
-    const reply = await sendMessage(msg);
-
-    if (isFirstMessage && chatId && reply && activeChatId) {
-      const title = msg.length > 50 ? msg.slice(0, 47) + "..." : msg;
-      updateChatTitle(chatId, title);
-    }
-  }, [input, sending, sendMessage, messages.length, activeChatId, updateChatTitle, createChat]);
+    // Pass chatId directly to handle the case where activeChatId just changed
+    await sendMessage(msg, chatId);
+  }, [input, sending, sendMessage, activeChatId, createChat]);
 
   const handleNewChat = () => {
     // Just deselect current chat - a new chat will be created on first message
