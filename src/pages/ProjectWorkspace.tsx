@@ -20,7 +20,7 @@ export default function ProjectWorkspace() {
   const navigate = useNavigate();
   const { projects, loading: projectsLoading, updateProject } = useProjects();
   const project = projects.find(p => p.id === projectId) || null;
-  const { chats, loading: chatsLoading, createChat, updateChatTitle } = useProjectChats(projectId || null);
+  const { chats, loading: chatsLoading, createChat, updateChatTitle, deleteChat } = useProjectChats(projectId || null);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const { messages, loading: msgsLoading, sending, sendMessage } = useProjectChat(activeChatId);
   const { files, uploadFile, extractText, deleteFile, isUploading, isExtracting } = useProjectFiles(projectId || null);
@@ -33,24 +33,8 @@ export default function ProjectWorkspace() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const autoCreatedRef = useRef(false);
 
-  // Auto-create first chat if none exist
-  useEffect(() => {
-    if (!chatsLoading && chats.length === 0 && projectId && !autoCreatedRef.current) {
-      autoCreatedRef.current = true;
-      createChat("New Chat").then(chat => {
-        if (chat) setActiveChatId(chat.id);
-      });
-    }
-  }, [chatsLoading, chats.length, projectId, createChat]);
-
-  // Reset auto-created flag when project changes
-  useEffect(() => {
-    autoCreatedRef.current = false;
-  }, [projectId]);
-
-  // Auto-select first chat
+  // Auto-select first chat (only if chats exist)
   useEffect(() => {
     if (chats.length > 0 && !activeChatId) {
       setActiveChatId(chats[0].id);

@@ -144,7 +144,18 @@ export function useProjectChats(projectId: string | null) {
     }
   }, []);
 
-  return { chats, loading, fetchChats, createChat, updateChatTitle };
+  const deleteChat = useCallback(async (chatId: string) => {
+    const { error } = await supabase
+      .from("project_chats")
+      .delete()
+      .eq("id", chatId);
+    if (!error) {
+      setChats(prev => prev.filter(c => c.id !== chatId));
+    }
+    return !error;
+  }, []);
+
+  return { chats, loading, fetchChats, createChat, updateChatTitle, deleteChat };
 }
 
 export function useProjectChat(chatId: string | null) {
