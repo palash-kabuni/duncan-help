@@ -114,48 +114,56 @@ Deno.serve(async (req) => {
 
     let fileContextBlock = "";
     try {
-      // Get file IDs for this project
+      // Get file IDs and names for this project
       const { data: projectFiles } = await supabase
         .from("project_files")
-        .select("id")
+        .select("id, file_name, extracted_text")
         .eq("project_id", chat.project_id);
 
       if (projectFiles && projectFiles.length > 0) {
-        const fileIds = projectFiles.map((f: any) => f.id);
+        // Always include file manifest so the AI knows what's uploaded
+        const fileManifest = projectFiles.map((f: any) => `- ${f.file_name}${f.extracted_text ? ' (indexed)' : ' (not yet indexed)'}`).join("\n");
+        fileContextBlock = `\n\n## PROJECT FILES\nThe following files are uploaded to this project:\n${fileManifest}\n`;
 
-        // Generate embedding for user query
-        const queryEmbedding = await getEmbedding(message.trim(), OPENAI_API_KEY);
+        // Only attempt RAG on indexed files
+        const indexedFiles = projectFiles.filter((f: any) => f.extracted_text);
+        if (indexedFiles.length > 0) {
+          const fileIds = indexedFiles.map((f: any) => f.id);
 
-        // Use service client for vector similarity query (RPC)
-        const serviceClient = createClient(
-          supabaseUrl,
-          Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-        );
+          // Generate embedding for user query
+          const queryEmbedding = await getEmbedding(message.trim(), OPENAI_API_KEY);
 
-        // Query top 5 most relevant chunks using raw SQL via RPC
-        const embeddingStr = `[${queryEmbedding.join(",")}]`;
-        const { data: chunks, error: chunksError } = await serviceClient
-          .rpc("match_project_chunks", {
-            query_embedding: embeddingStr,
-            file_ids: fileIds,
-            match_count: 5,
-          });
-
-        if (chunksError) {
-          console.error("RAG query error:", chunksError);
-          // Non-fatal: continue without context
-        } else if (chunks && chunks.length > 0) {
-          const contextTexts = chunks.map(
-            (c: any, i: number) => `[Context ${i + 1}]\n${c.content}`
+          // Use service client for vector similarity query (RPC)
+          const serviceClient = createClient(
+            supabaseUrl,
+            Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
           );
-          fileContextBlock =
-            "\n\n## RELEVANT CONTEXT\nThe following excerpts were automatically retrieved from project files based on relevance to the user's question. Use them to inform your response.\n\n" +
-            contextTexts.join("\n\n---\n\n");
+
+          // Query top 5 most relevant chunks
+          const embeddingStr = `[${queryEmbedding.join(",")}]`;
+          const { data: chunks, error: chunksError } = await serviceClient
+            .rpc("match_project_chunks", {
+              query_embedding: embeddingStr,
+              file_ids: fileIds,
+              match_count: 5,
+            });
+
+          if (chunksError) {
+            console.error("RAG query error:", chunksError);
+          } else if (chunks && chunks.length > 0) {
+            // Map chunk file_id back to file name
+            const fileMap = Object.fromEntries(indexedFiles.map((f: any) => [f.id, f.file_name]));
+            const contextTexts = chunks.map(
+              (c: any, i: number) => `[Source: ${fileMap[c.file_id] || 'unknown'} | Similarity: ${(c.similarity * 100).toFixed(0)}%]\n${c.content}`
+            );
+            fileContextBlock +=
+              "\n## RETRIEVED CONTEXT FROM PROJECT FILES\nThe following excerpts were retrieved from the uploaded project files based on relevance to the user's question. You MUST use this information to answer. Do NOT say files are missing or not attached — they are right here.\n\n" +
+              contextTexts.join("\n\n---\n\n");
+          }
         }
       }
     } catch (ragErr) {
       console.error("RAG retrieval failed (non-fatal):", ragErr);
-      // Continue without context — don't block the chat
     }
 
     // 6. Fetch last 20 messages for context
