@@ -1051,6 +1051,7 @@ export type Database = {
       slack_notification_logs: {
         Row: {
           created_at: string
+          event_key: string | null
           id: string
           payload: Json
           sent_at: string | null
@@ -1060,6 +1061,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          event_key?: string | null
           id?: string
           payload?: Json
           sent_at?: string | null
@@ -1069,6 +1071,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          event_key?: string | null
           id?: string
           payload?: Json
           sent_at?: string | null
