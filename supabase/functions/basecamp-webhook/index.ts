@@ -149,9 +149,6 @@ async function sendSlackDM(
   const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
   const slackConnectionKey = Deno.env.get("SLACK_API_KEY");
 
-   console.log("LOVABLE_API_KEY exists:", !!lovableApiKey);
-   console.log("SLACK_API_KEY exists:", !!slackConnectionKey);
-
   if (!lovableApiKey || !slackConnectionKey) {
     console.error("Missing LOVABLE_API_KEY or SLACK_API_KEY for connector gateway");
     return false;
