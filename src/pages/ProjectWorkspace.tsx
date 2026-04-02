@@ -99,6 +99,7 @@ export default function ProjectWorkspace() {
       if (!chat) return;
       chatId = chat.id;
       setActiveChatId(chat.id);
+      setManualDeselect(false);
     }
 
     // Pass chatId directly to handle the case where activeChatId just changed
@@ -108,6 +109,7 @@ export default function ProjectWorkspace() {
   const handleNewChat = () => {
     // Just deselect current chat - a new chat will be created on first message
     setActiveChatId(null);
+    setManualDeselect(true);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
