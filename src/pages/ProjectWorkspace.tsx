@@ -29,6 +29,7 @@ export default function ProjectWorkspace() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [input, setInput] = useState("");
   const [showSettings, setShowSettings] = useState(false);
+  const [showFiles, setShowFiles] = useState(false);
   const [editName, setEditName] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
   const [manualDeselect, setManualDeselect] = useState(false);
