@@ -338,96 +338,104 @@ export default function ProjectWorkspace() {
             )}
           </div>
 
-          {/* RIGHT: Files */}
-          <div className="w-64 shrink-0 border-l border-border flex flex-col bg-sidebar/50 hidden lg:flex">
-            <div className="p-3 border-b border-border">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-xs font-semibold text-foreground">Project Files</h3>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploading}
-                  className="h-7 px-2 gap-1 text-[10px]"
-                >
-                  {isUploading ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Upload className="h-3 w-3" />
-                  )}
-                  {isUploading ? "Uploading..." : "Upload"}
-                </Button>
-              </div>
-              {extractedCount > 0 && (
-                <div className="flex items-center gap-1.5 text-[10px] text-primary">
-                  <Sparkles className="h-3 w-3" />
-                  <span>Auto-retrieval active</span>
+          {/* Files Slide-over */}
+          {showFiles && (
+            <div className="fixed inset-0 z-40 flex justify-end">
+              <div className="absolute inset-0 bg-black/30" onClick={() => setShowFiles(false)} />
+              <div className="relative w-72 max-w-full bg-background border-l border-border flex flex-col shadow-xl animate-in slide-in-from-right duration-200">
+                <div className="p-3 border-b border-border flex items-center justify-between">
+                  <h3 className="text-xs font-semibold text-foreground">Project Files</h3>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isUploading}
+                      className="h-7 px-2 gap-1 text-[10px]"
+                    >
+                      {isUploading ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Upload className="h-3 w-3" />
+                      )}
+                      {isUploading ? "Uploading..." : "Upload"}
+                    </Button>
+                    <button onClick={() => setShowFiles(false)} className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
-              )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                accept=".pdf,.docx,.txt,.md,.csv,.json,.xml,.yaml,.yml"
-                onChange={handleFileUpload}
-                disabled={isUploading}
-              />
-            </div>
-            <ScrollArea className="flex-1">
-              <div className="p-2 space-y-1">
-                {files.length === 0 ? (
-                  <p className="px-3 py-4 text-[11px] text-muted-foreground text-center">
-                    Upload files to give Duncan context about your project
-                  </p>
-                ) : (
-                  files.map(file => {
-                    const extracting = isExtracting(file.id);
-                    return (
-                      <div key={file.id} className="group flex items-start gap-2 rounded-md p-2 hover:bg-secondary/60 transition-colors">
-                        <FileText className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[11px] font-medium text-foreground truncate">{file.file_name}</p>
-                          {extracting ? (
-                            <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                              <Loader2 className="h-3 w-3 animate-spin" /> Indexing...
-                            </span>
-                          ) : file.extracted_text ? (
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] text-emerald-500 dark:text-emerald-400 flex items-center gap-1">
-                                <Sparkles className="h-2.5 w-2.5" /> Indexed
-                              </span>
-                              <button
-                                onClick={() => extractText(file.id)}
-                                className="text-[10px] text-muted-foreground hover:text-primary"
-                                title="Re-index file"
-                              >
-                                <RefreshCw className="h-2.5 w-2.5" />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => extractText(file.id)}
-                              className="text-[10px] text-primary hover:underline"
-                            >
-                              Index file
-                            </button>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => { if (confirm("Delete this file?")) deleteFile(file.id); }}
-                          className="opacity-0 group-hover:opacity-100 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-destructive transition-all"
-                          title="Delete file"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      </div>
-                    );
-                  })
+                {extractedCount > 0 && (
+                  <div className="flex items-center gap-1.5 text-[10px] text-primary px-3 py-1.5 border-b border-border">
+                    <Sparkles className="h-3 w-3" />
+                    <span>Auto-retrieval active</span>
+                  </div>
                 )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  accept=".pdf,.docx,.txt,.md,.csv,.json,.xml,.yaml,.yml"
+                  onChange={handleFileUpload}
+                  disabled={isUploading}
+                />
+                <ScrollArea className="flex-1">
+                  <div className="p-2 space-y-1">
+                    {files.length === 0 ? (
+                      <p className="px-3 py-4 text-[11px] text-muted-foreground text-center">
+                        Upload files to give Duncan context about your project
+                      </p>
+                    ) : (
+                      files.map(file => {
+                        const extracting = isExtracting(file.id);
+                        return (
+                          <div key={file.id} className="group flex items-start gap-2 rounded-md p-2 hover:bg-secondary/60 transition-colors">
+                            <FileText className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[11px] font-medium text-foreground truncate">{file.file_name}</p>
+                              {extracting ? (
+                                <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                  <Loader2 className="h-3 w-3 animate-spin" /> Indexing...
+                                </span>
+                              ) : file.extracted_text ? (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] text-emerald-500 dark:text-emerald-400 flex items-center gap-1">
+                                    <Sparkles className="h-2.5 w-2.5" /> Indexed
+                                  </span>
+                                  <button
+                                    onClick={() => extractText(file.id)}
+                                    className="text-[10px] text-muted-foreground hover:text-primary"
+                                    title="Re-index file"
+                                  >
+                                    <RefreshCw className="h-2.5 w-2.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => extractText(file.id)}
+                                  className="text-[10px] text-primary hover:underline"
+                                >
+                                  Index file
+                                </button>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => { if (confirm("Delete this file?")) deleteFile(file.id); }}
+                              className="opacity-0 group-hover:opacity-100 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-destructive transition-all"
+                              title="Delete file"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </ScrollArea>
               </div>
-            </ScrollArea>
-          </div>
+            </div>
+          )}
         </div>
       </main>
 
