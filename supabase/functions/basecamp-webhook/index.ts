@@ -216,7 +216,7 @@ async function isDuplicateEvent(supabase: any, eventKey: string): Promise<boolea
     const { data, error } = await supabase
       .from("slack_notification_logs")
       .select("id")
-      .contains("payload", { event_key: eventKey })
+      .eq("event_key", eventKey)
       .gte("created_at", sixtySecondsAgo)
       .limit(1);
 
@@ -236,7 +236,8 @@ async function logResult(
   supabase: any,
   slackUserId: string,
   payload: any,
-  success: boolean
+  success: boolean,
+  eventKey?: string
 ) {
   try {
     await supabase.from("slack_notification_logs").insert({
@@ -244,6 +245,7 @@ async function logResult(
       payload,
       status: success ? "sent" : "failed",
       sent_at: success ? new Date().toISOString() : null,
+      event_key: eventKey || null,
     });
   } catch (err) {
     console.error("Failed to log notification result:", err);
