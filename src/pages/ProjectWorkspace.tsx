@@ -59,20 +59,31 @@ export default function ProjectWorkspace() {
     const msg = input.trim();
     setInput("");
 
-    // Auto-name chat on first message
-    const isFirstMessage = messages.length === 0;
+    let chatId = activeChatId;
 
+    // If no active chat, create one on first message
+    if (!chatId) {
+      const title = msg.length > 50 ? msg.slice(0, 47) + "..." : msg;
+      const chat = await createChat(title);
+      if (!chat) return;
+      chatId = chat.id;
+      setActiveChatId(chat.id);
+      // Small delay to let the hook pick up the new chatId
+      await new Promise(r => setTimeout(r, 100));
+    }
+
+    const isFirstMessage = messages.length === 0;
     const reply = await sendMessage(msg);
 
-    if (isFirstMessage && activeChatId && reply) {
+    if (isFirstMessage && chatId && reply && activeChatId) {
       const title = msg.length > 50 ? msg.slice(0, 47) + "..." : msg;
-      updateChatTitle(activeChatId, title);
+      updateChatTitle(chatId, title);
     }
-  }, [input, sending, sendMessage, messages.length, activeChatId, updateChatTitle]);
+  }, [input, sending, sendMessage, messages.length, activeChatId, updateChatTitle, createChat]);
 
-  const handleNewChat = async () => {
-    const chat = await createChat();
-    if (chat) setActiveChatId(chat.id);
+  const handleNewChat = () => {
+    // Just deselect current chat - a new chat will be created on first message
+    setActiveChatId(null);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
