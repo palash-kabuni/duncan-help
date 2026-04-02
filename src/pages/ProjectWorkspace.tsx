@@ -7,6 +7,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import Sidebar, { MobileMenuButton } from "@/components/Sidebar";
+import { supabase } from "@/integrations/supabase/client";
 import { useProjects, useProjectChats, useProjectChat, useProjectFiles } from "@/hooks/useProjects";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
