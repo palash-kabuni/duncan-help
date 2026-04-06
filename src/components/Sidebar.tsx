@@ -35,7 +35,21 @@ export const MobileMenuButton = ({ onClick }: { onClick: () => void }) => (
   </button>
 );
 
-const Sidebar = ({ mobileOpen, onMobileClose }: { mobileOpen?: boolean; onMobileClose?: () => void }) => {
+const Sidebar = ({
+  mobileOpen,
+  onMobileClose,
+  chatHistory,
+}: {
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
+  chatHistory?: {
+    chats: GeneralChat[];
+    activeChatId: string | null;
+    onSelectChat: (chatId: string) => void;
+    onNewChat: () => void;
+    onDeleteChat: (chatId: string) => void;
+  };
+}) => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [showModal, setShowModal] = useState(false);
