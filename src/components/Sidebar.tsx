@@ -150,6 +150,18 @@ const Sidebar = ({
           Dashboard
         </RouterNavLink>
 
+        {/* Chat History */}
+        {chatHistory && (
+          <ChatHistory
+            chats={chatHistory.chats}
+            activeChatId={chatHistory.activeChatId}
+            onSelectChat={chatHistory.onSelectChat}
+            onNewChat={chatHistory.onNewChat}
+            onDeleteChat={chatHistory.onDeleteChat}
+            onMobileClose={onMobileClose}
+          />
+        )}
+
         <RouterNavLink
           to="/projects"
           onClick={() => onMobileClose?.()}
