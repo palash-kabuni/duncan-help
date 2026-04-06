@@ -87,20 +87,6 @@ const integrations: Integration[] = [
     ],
   },
   {
-    id: "linear",
-    name: "Linear",
-    description: "Track issues, projects, and cycles. Duncan can auto-triage and update tickets.",
-    icon: Zap,
-    category: "Project Management",
-    services: ["Issues", "Projects", "Cycles", "Teams"],
-    type: "user",
-    setupSteps: [
-      "Go to Linear Settings → API → Personal API Keys",
-      "Create a new API key with the required scopes",
-      "Add the API key to Duncan's settings",
-    ],
-  },
-  {
     id: "google-calendar",
     name: "Google Calendar",
     description: "Dedicated calendar sync for scheduling intelligence and meeting automation.",
