@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { LayoutDashboard, Plug, Settings, LogOut, X, ChevronDown, CheckCircle2, Mail, FileText, MessageSquare, Calendar, FolderOpen, GitBranch, Receipt, Zap, Menu, Layers } from "lucide-react";
+import ChatHistory from "@/components/ChatHistory";
+import type { GeneralChat } from "@/hooks/useGeneralChats";
 import duncanAvatar from "@/assets/duncan-avatar.jpeg";
 import SettingsPanel from "@/components/SettingsPanel";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -33,7 +35,21 @@ export const MobileMenuButton = ({ onClick }: { onClick: () => void }) => (
   </button>
 );
 
-const Sidebar = ({ mobileOpen, onMobileClose }: { mobileOpen?: boolean; onMobileClose?: () => void }) => {
+const Sidebar = ({
+  mobileOpen,
+  onMobileClose,
+  chatHistory,
+}: {
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
+  chatHistory?: {
+    chats: GeneralChat[];
+    activeChatId: string | null;
+    onSelectChat: (chatId: string) => void;
+    onNewChat: () => void;
+    onDeleteChat: (chatId: string) => void;
+  };
+}) => {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [showModal, setShowModal] = useState(false);
@@ -133,6 +149,18 @@ const Sidebar = ({ mobileOpen, onMobileClose }: { mobileOpen?: boolean; onMobile
           <LayoutDashboard className="h-4 w-4" />
           Dashboard
         </RouterNavLink>
+
+        {/* Chat History */}
+        {chatHistory && (
+          <ChatHistory
+            chats={chatHistory.chats}
+            activeChatId={chatHistory.activeChatId}
+            onSelectChat={chatHistory.onSelectChat}
+            onNewChat={chatHistory.onNewChat}
+            onDeleteChat={chatHistory.onDeleteChat}
+            onMobileClose={onMobileClose}
+          />
+        )}
 
         <RouterNavLink
           to="/projects"
