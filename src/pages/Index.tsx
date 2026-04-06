@@ -278,15 +278,10 @@ const Index = () => {
       <Sidebar
         mobileOpen={mobileMenuOpen}
         onMobileClose={() => setMobileMenuOpen(false)}
-        chatHistory={{
-          chats: chatOps.chats,
-          activeChatId: chatOps.activeChatId,
-          onSelectChat: (id) => chatOps.setActiveChatId(id),
-          onNewChat: () => {
-            clearMessages();
-            chatOps.startNewChat();
-          },
-          onDeleteChat: chatOps.deleteChat,
+        onSelectChat={(id) => chatOps.setActiveChatId(id)}
+        onNewChat={() => {
+          clearMessages();
+          chatOps.startNewChat();
         }}
       />
       <main className="lg:ml-64 flex-1 flex flex-col h-[100dvh] w-full">
