@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { LayoutDashboard, Plug, Settings, LogOut, X, ChevronDown, CheckCircle2, Mail, FileText, MessageSquare, Calendar, FolderOpen, GitBranch, Receipt, Zap, Menu, Layers } from "lucide-react";
+import ChatHistory from "@/components/ChatHistory";
+import type { GeneralChat } from "@/hooks/useGeneralChats";
 import duncanAvatar from "@/assets/duncan-avatar.jpeg";
 import SettingsPanel from "@/components/SettingsPanel";
 import ThemeToggle from "@/components/ThemeToggle";
