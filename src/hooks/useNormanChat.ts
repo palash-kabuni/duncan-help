@@ -266,5 +266,5 @@ export function useNormanChat() {
 
   const clearMessages = useCallback(() => setMessages([]), []);
 
-  return { messages, isLoading, send, sendBriefing, clearMessages };
+  return { messages, isLoading, send, sendBriefing, clearMessages, setMessages };
 }
