@@ -14,6 +14,7 @@ import { useNormanChat } from "@/hooks/useNormanChat";
 import type { ChatAttachment } from "@/hooks/useNormanChat";
 import ChatInput from "@/components/chat/ChatInput";
 import { supabase } from "@/integrations/supabase/client";
+import { useGeneralChats } from "@/hooks/useGeneralChats";
 
 const VoiceAgent = lazy(() => import("@/components/chat/VoiceAgent"));
 
@@ -107,17 +108,31 @@ const MessageBubble = ({
 
 /* ── Main Page ── */
 const Index = () => {
-  const { messages, isLoading, send, sendBriefing, clearMessages } = useNormanChat();
+  const { messages, isLoading, send, sendBriefing, clearMessages, setMessages } = useNormanChat();
   const navigate = useNavigate();
   const briefingTriggered = useRef(false);
-  
+  const chatOps = useGeneralChats();
+
   const [downloadingUrl, setDownloadingUrl] = useState<string | null>(null);
   const [weather, setWeather] = useState<{ temp: number; description: string } | null>(null);
   const [voiceMode, setVoiceMode] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const savingRef = useRef(false);
 
-  // Auto-trigger daily briefing on every dashboard visit (delta since last briefing)
+  // Load messages when active chat changes
+  useEffect(() => {
+    if (!chatOps.activeChatId) {
+      clearMessages();
+      return;
+    }
+    (async () => {
+      const loaded = await chatOps.loadMessages(chatOps.activeChatId!);
+      setMessages(loaded.map((m) => ({ role: m.role, content: m.content })));
+    })();
+  }, [chatOps.activeChatId]);
+
+  // Auto-trigger daily briefing on every dashboard visit
   useEffect(() => {
     if (briefingTriggered.current) return;
 
@@ -208,20 +223,72 @@ const Index = () => {
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages]);
 
-  const handleChatSubmit = useCallback((input: string, attachments: ChatAttachment[]) => {
+  const handleChatSubmit = useCallback(async (input: string, attachments: ChatAttachment[]) => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+
+    let chatId = chatOps.activeChatId;
+
+    // Create chat lazily on first message
+    if (!chatId) {
+      const title = input.slice(0, 50) || "New Chat";
+      chatId = await chatOps.createChat(title);
+      if (chatId) chatOps.setActiveChatId(chatId);
+    }
+
+    // Save user message
+    if (chatId) {
+      await chatOps.saveMessage(chatId, "user", input);
+    }
+
+    // Send to AI
     send(input, "general", attachments);
-  }, [send]);
+    savingRef.current = false;
+  }, [chatOps.activeChatId, chatOps, send]);
+
+  // Save assistant responses when they finish streaming
+  const prevMessagesLen = useRef(0);
+  useEffect(() => {
+    if (isLoading || !chatOps.activeChatId) {
+      prevMessagesLen.current = messages.length;
+      return;
+    }
+    // If new assistant message appeared after loading finished
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg?.role === "assistant" && messages.length > prevMessagesLen.current) {
+      chatOps.saveMessage(chatOps.activeChatId, "assistant", lastMsg.content);
+    }
+    prevMessagesLen.current = messages.length;
+  }, [isLoading, messages.length]);
 
   const handleQuickAction = (prompt: string) => {
-    send(prompt, "general");
+    handleChatSubmit(prompt, []);
   };
+
+  const handleClearChat = useCallback(() => {
+    clearMessages();
+    chatOps.startNewChat();
+  }, [clearMessages, chatOps]);
 
   const hasMessages = messages.length > 0;
 
   return (
     <div className="flex min-h-[100dvh] bg-background">
       <WelcomeModal />
-      <Sidebar mobileOpen={mobileMenuOpen} onMobileClose={() => setMobileMenuOpen(false)} />
+      <Sidebar
+        mobileOpen={mobileMenuOpen}
+        onMobileClose={() => setMobileMenuOpen(false)}
+        chatHistory={{
+          chats: chatOps.chats,
+          activeChatId: chatOps.activeChatId,
+          onSelectChat: (id) => chatOps.setActiveChatId(id),
+          onNewChat: () => {
+            clearMessages();
+            chatOps.startNewChat();
+          },
+          onDeleteChat: chatOps.deleteChat,
+        }}
+      />
       <main className="lg:ml-64 flex-1 flex flex-col h-[100dvh] w-full">
         <div className="pointer-events-none fixed top-0 lg:left-64 left-0 right-0 h-72 gradient-radial z-0" />
 
@@ -238,8 +305,8 @@ const Index = () => {
             </h2>
           </div>
           {hasMessages && (
-            <button onClick={clearMessages} className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2 sm:px-3 py-1.5 sm:py-2 text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0">
-              <Trash2 className="h-3 w-3" /> <span className="hidden sm:inline">Clear</span>
+            <button onClick={handleClearChat} className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2 sm:px-3 py-1.5 sm:py-2 text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0">
+              <Trash2 className="h-3 w-3" /> <span className="hidden sm:inline">New Chat</span>
             </button>
           )}
         </div>
