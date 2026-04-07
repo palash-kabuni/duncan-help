@@ -543,13 +543,22 @@ const Recruitment = () => {
                             </div>
                           </TableCell>
 
-                          {/* Role */}
+                          {/* Role assignment */}
                           <TableCell>
-                            {c.job_role_id ? (
-                              <Badge variant="outline" className="text-[11px] font-normal">{roleMap.get(c.job_role_id) || "Unknown"}</Badge>
-                            ) : (
-                              <Badge variant="secondary" className="text-[11px]">Unmatched</Badge>
-                            )}
+                            <Select
+                              value={c.job_role_id || ""}
+                              onValueChange={(val) => assignCandidateRole(c.id, val)}
+                              disabled={assigningRole === c.id}
+                            >
+                              <SelectTrigger className="h-7 w-[140px] text-[11px]">
+                                <SelectValue placeholder="Assign role…" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {(jobRoles ?? []).filter((r: any) => r.status === "active").map((r: any) => (
+                                  <SelectItem key={r.id} value={r.id} className="text-xs">{r.title}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </TableCell>
 
                           {/* Status */}
