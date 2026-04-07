@@ -228,7 +228,6 @@ function ListView({ cards, onCardClick }: { cards: WorkstreamCard[]; onCardClick
               <div className="flex items-center gap-2 mb-1">
                 <h4 className="text-sm font-semibold text-foreground truncate">{card.title}</h4>
                 <StatusBadge status={card.status} />
-                </span>
               </div>
               {card.description && (
                 <p className="text-xs text-muted-foreground truncate max-w-md">{card.description}</p>
