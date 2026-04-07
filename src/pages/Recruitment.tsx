@@ -105,6 +105,7 @@ const Recruitment = () => {
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [hasFetched, setHasFetched] = useState(false);
   const [validatingPosition, setValidatingPosition] = useState(false);
+  const [assigningRole, setAssigningRole] = useState<string | null>(null);
 
   const { data: gmailStatus } = useQuery({
     queryKey: ["gmail-status"],
