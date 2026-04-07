@@ -105,10 +105,8 @@ function KanbanCard({ card, onClick, onDragStart }: {
       onClick={onClick}
       className={`group cursor-pointer rounded-lg border border-l-[3px] bg-card p-3 transition-all hover:shadow-md hover:border-primary/30 ${getStatusBorderClass(card.status)}`}
     >
-      <div className="flex items-center justify-between mb-2">
-        <span className={`text-[10px] font-medium ${priorityConfig[card.priority]?.color || "text-muted-foreground"}`}>
-          {priorityConfig[card.priority]?.label || card.priority}
-        </span>
+      {/* Tag */}
+      <div className="flex items-center justify-end mb-2">
         {card.project_tag && (
           <span className="text-[9px] font-mono bg-secondary/80 text-muted-foreground px-1.5 py-0.5 rounded">
             {card.project_tag}

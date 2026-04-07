@@ -150,9 +150,6 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
                   )}
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <StatusBadge status={card.status} size="md" />
-                    <span className={`text-xs font-medium ${priorityConfig[card.priority]?.color}`}>
-                      {priorityConfig[card.priority]?.label} Priority
-                    </span>
                     {card.project_tag && (
                       <span className="text-[10px] font-mono bg-secondary text-muted-foreground px-2 py-0.5 rounded-md">
                         {card.project_tag}
