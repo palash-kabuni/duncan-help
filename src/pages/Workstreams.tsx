@@ -34,7 +34,7 @@ const Workstreams = () => {
 
   const filters = useMemo(() => ({
     status: filterStatus !== "all" ? filterStatus as CardStatus : undefined,
-    priority: filterPriority !== "all" ? filterPriority : undefined,
+    priority: filterPriority !== "all" ? filterPriority as import("@/hooks/useWorkstreams").CardPriority : undefined,
     assignee: filterAssignee !== "all" ? filterAssignee : undefined,
     search: search || undefined,
   }), [filterStatus, filterPriority, filterAssignee, search]);

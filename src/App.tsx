@@ -21,6 +21,7 @@ import Operations from "./pages/Operations";
 import FeedbackIssues from "./pages/FeedbackIssues";
 import Projects from "./pages/Projects";
 import ProjectWorkspace from "./pages/ProjectWorkspace";
+import Workstreams from "./pages/Workstreams";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
