@@ -150,9 +150,6 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
                   )}
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <StatusBadge status={card.status} size="md" />
-                    <span className={`text-xs font-medium ${priorityConfig[card.priority]?.color}`}>
-                      {priorityConfig[card.priority]?.label} Priority
-                    </span>
                     {card.project_tag && (
                       <span className="text-[10px] font-mono bg-secondary text-muted-foreground px-2 py-0.5 rounded-md">
                         {card.project_tag}
@@ -213,19 +210,13 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
                     />
                   </MetaField>
 
-                  <MetaField icon={<Flag className="h-3.5 w-3.5" />} label="Priority" value={priorityConfig[card.priority]?.label || card.priority}>
-                    <Select
-                      value={card.priority}
-                      onValueChange={v => updateCard.mutate({ id: card.id, priority: v as CardPriority })}
-                    >
-                      <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="low">Low</SelectItem>
-                        <SelectItem value="medium">Medium</SelectItem>
-                        <SelectItem value="high">High</SelectItem>
-                        <SelectItem value="critical">Critical</SelectItem>
-                      </SelectContent>
-                    </Select>
+                  <MetaField icon={<Tag className="h-3.5 w-3.5" />} label="Project" value={card.project_tag || "None"}>
+                    <Input
+                      value={card.project_tag || ""}
+                      onChange={e => updateCard.mutate({ id: card.id, project_tag: e.target.value || null })}
+                      className="h-7 text-xs"
+                      placeholder="Tag"
+                    />
                   </MetaField>
                 </div>
 

@@ -15,13 +15,13 @@ export default function CreateCardDialog({ open, onOpenChange }: { open: boolean
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<CardStatus>("amber");
-  const [priority, setPriority] = useState<CardPriority>("medium");
+  const [priority] = useState<CardPriority>("medium");
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState("");
   const [projectTag, setProjectTag] = useState("");
 
   const reset = () => {
-    setTitle(""); setDescription(""); setStatus("amber"); setPriority("medium");
+    setTitle(""); setDescription(""); setStatus("amber");
     setAssigneeIds([]); setDueDate(""); setProjectTag("");
   };
 
@@ -77,21 +77,13 @@ export default function CreateCardDialog({ open, onOpenChange }: { open: boolean
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium flex items-center gap-1"><Flag className="h-3 w-3" /> Priority</Label>
-              <Select value={priority} onValueChange={v => setPriority(v as CardPriority)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="critical">Critical</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label className="text-xs font-medium flex items-center gap-1"><CalendarDays className="h-3 w-3" /> Due Date</Label>
+              <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 col-span-2">
               <Label className="text-xs font-medium flex items-center gap-1"><User className="h-3 w-3" /> Assignees</Label>
               <MultiAssigneeSelect
                 users={users || []}
@@ -99,11 +91,6 @@ export default function CreateCardDialog({ open, onOpenChange }: { open: boolean
                 onChange={setAssigneeIds}
                 placeholder="Assign people"
               />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium flex items-center gap-1"><CalendarDays className="h-3 w-3" /> Due Date</Label>
-              <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
             </div>
           </div>
 

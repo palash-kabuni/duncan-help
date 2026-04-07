@@ -26,7 +26,7 @@ const Workstreams = () => {
   const [viewMode, setViewMode] = useState<ViewMode>("board");
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
-  const [filterPriority, setFilterPriority] = useState<string>("all");
+  const [filterPriority] = useState<string>("all");
   const [filterAssignee, setFilterAssignee] = useState<string>("all");
   const [showCreate, setShowCreate] = useState(false);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
@@ -133,18 +133,7 @@ const Workstreams = () => {
                 </SelectContent>
               </Select>
 
-              <Select value={filterPriority} onValueChange={setFilterPriority}>
-                <SelectTrigger className="h-9 w-[110px] text-xs">
-                  <SelectValue placeholder="Priority" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Priority</SelectItem>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="critical">Critical</SelectItem>
-                </SelectContent>
-              </Select>
+
 
               <Select value={filterAssignee} onValueChange={setFilterAssignee}>
                 <SelectTrigger className="h-9 w-[130px] text-xs">
@@ -239,9 +228,6 @@ function ListView({ cards, onCardClick }: { cards: WorkstreamCard[]; onCardClick
               <div className="flex items-center gap-2 mb-1">
                 <h4 className="text-sm font-semibold text-foreground truncate">{card.title}</h4>
                 <StatusBadge status={card.status} />
-                <span className={`text-[10px] font-medium ${priorityConfig[card.priority]?.color}`}>
-                  {priorityConfig[card.priority]?.label}
-                </span>
               </div>
               {card.description && (
                 <p className="text-xs text-muted-foreground truncate max-w-md">{card.description}</p>
