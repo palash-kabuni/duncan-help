@@ -210,19 +210,13 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
                     />
                   </MetaField>
 
-                  <MetaField icon={<Flag className="h-3.5 w-3.5" />} label="Priority" value={priorityConfig[card.priority]?.label || card.priority}>
-                    <Select
-                      value={card.priority}
-                      onValueChange={v => updateCard.mutate({ id: card.id, priority: v as CardPriority })}
-                    >
-                      <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="low">Low</SelectItem>
-                        <SelectItem value="medium">Medium</SelectItem>
-                        <SelectItem value="high">High</SelectItem>
-                        <SelectItem value="critical">Critical</SelectItem>
-                      </SelectContent>
-                    </Select>
+                  <MetaField icon={<Tag className="h-3.5 w-3.5" />} label="Project" value={card.project_tag || "None"}>
+                    <Input
+                      value={card.project_tag || ""}
+                      onChange={e => updateCard.mutate({ id: card.id, project_tag: e.target.value || null })}
+                      className="h-7 text-xs"
+                      placeholder="Tag"
+                    />
                   </MetaField>
                 </div>
 
