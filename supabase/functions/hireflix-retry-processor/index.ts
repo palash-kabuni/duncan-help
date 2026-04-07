@@ -232,7 +232,7 @@ serve(async (req) => {
                   ... on InterviewAlreadyExistsInPositionError { interviewAlreadyExistsMessage: message name code }
                   ... on InterviewExternalIdAlreadyExistsInPositionError { interviewExternalIdExistsMessage: message name code }
                   ... on ExceededInvitesThisPeriodError { exceededInvitesMessage: message name code }
-                  ... on ValidationError { validationMessage: message name code fieldErrors }
+                  ... on ValidationError { validationMessage: message name code }
                 }
               }
             `;

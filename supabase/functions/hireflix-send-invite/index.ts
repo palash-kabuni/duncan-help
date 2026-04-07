@@ -225,7 +225,6 @@ serve(async (req) => {
                 validationMessage: message
                 code
                 name
-                fieldErrors
               }
             }
           }
