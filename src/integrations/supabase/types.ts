@@ -1392,6 +1392,165 @@ export type Database = {
           },
         ]
       }
+      workstream_activity: {
+        Row: {
+          action: string
+          card_id: string
+          created_at: string
+          details: Json
+          id: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          card_id: string
+          created_at?: string
+          details?: Json
+          id?: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          card_id?: string
+          created_at?: string
+          details?: Json
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workstream_activity_card_id_fkey"
+            columns: ["card_id"]
+            isOneToOne: false
+            referencedRelation: "workstream_cards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workstream_cards: {
+        Row: {
+          archived_at: string | null
+          created_at: string
+          created_by: string
+          description: string
+          due_date: string | null
+          id: string
+          owner_id: string | null
+          priority: string
+          project_tag: string | null
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          archived_at?: string | null
+          created_at?: string
+          created_by: string
+          description?: string
+          due_date?: string | null
+          id?: string
+          owner_id?: string | null
+          priority?: string
+          project_tag?: string | null
+          status?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          archived_at?: string | null
+          created_at?: string
+          created_by?: string
+          description?: string
+          due_date?: string | null
+          id?: string
+          owner_id?: string | null
+          priority?: string
+          project_tag?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      workstream_comments: {
+        Row: {
+          card_id: string
+          content: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          card_id: string
+          content: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          card_id?: string
+          content?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workstream_comments_card_id_fkey"
+            columns: ["card_id"]
+            isOneToOne: false
+            referencedRelation: "workstream_cards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workstream_tasks: {
+        Row: {
+          assignee_id: string | null
+          card_id: string
+          completed: boolean
+          created_at: string
+          description: string
+          due_date: string | null
+          id: string
+          sort_order: number
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          assignee_id?: string | null
+          card_id: string
+          completed?: boolean
+          created_at?: string
+          description?: string
+          due_date?: string | null
+          id?: string
+          sort_order?: number
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          assignee_id?: string | null
+          card_id?: string
+          completed?: boolean
+          created_at?: string
+          description?: string
+          due_date?: string | null
+          id?: string
+          sort_order?: number
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workstream_tasks_card_id_fkey"
+            columns: ["card_id"]
+            isOneToOne: false
+            referencedRelation: "workstream_cards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       xero_contacts: {
         Row: {
           contact_status: string | null
