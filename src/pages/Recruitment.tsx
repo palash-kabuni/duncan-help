@@ -187,6 +187,23 @@ const Recruitment = () => {
     setSelectedCandidates(new Set());
   };
 
+  const assignCandidateRole = async (candidateId: string, newRoleId: string) => {
+    setAssigningRole(candidateId);
+    try {
+      const { error } = await supabase
+        .from("candidates")
+        .update({ job_role_id: newRoleId })
+        .eq("id", candidateId);
+      if (error) throw error;
+      toast.success("Role assigned successfully");
+      refetchCandidates();
+    } catch (err: any) {
+      toast.error("Failed to assign role: " + err.message);
+    } finally {
+      setAssigningRole(null);
+    }
+  };
+
   const scoreValues = async () => {
     setScoring(true);
     try {
