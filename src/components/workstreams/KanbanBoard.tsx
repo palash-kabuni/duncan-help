@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { CalendarDays, GripVertical, Users, CheckCircle2, Circle } from "lucide-react";
+import { CalendarDays, Users, CheckCircle2, Circle } from "lucide-react";
 import { format, isPast, isToday } from "date-fns";
+import { Badge } from "@/components/ui/badge";
 import type { WorkstreamCard, CardStatus } from "@/hooks/useWorkstreams";
 import { useUpdateCard } from "@/hooks/useWorkstreams";
 import { StatusBadge, getStatusBorderClass, priorityConfig } from "./StatusBadge";
@@ -61,7 +62,6 @@ export default function KanbanBoard({ cards, onCardClick }: KanbanBoardProps) {
             onDragLeave={handleDragLeave}
             onDrop={e => handleDrop(e, col.status)}
           >
-            {/* Column header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
               <div className="flex items-center gap-2">
                 <span className="text-sm">{col.emoji}</span>
@@ -72,7 +72,6 @@ export default function KanbanBoard({ cards, onCardClick }: KanbanBoardProps) {
               </span>
             </div>
 
-            {/* Cards */}
             <div className="p-2 space-y-2">
               {colCards.map(card => (
                 <KanbanCard key={card.id} card={card} onClick={() => onCardClick(card)} onDragStart={handleDragStart} />
@@ -97,6 +96,7 @@ function KanbanCard({ card, onClick, onDragStart }: {
 }) {
   const isOverdue = card.due_date && isPast(new Date(card.due_date)) && card.status !== "done";
   const isDueToday = card.due_date && isToday(new Date(card.due_date));
+  const assignees = card.assignees || [];
 
   return (
     <div
@@ -105,7 +105,6 @@ function KanbanCard({ card, onClick, onDragStart }: {
       onClick={onClick}
       className={`group cursor-pointer rounded-lg border border-l-[3px] bg-card p-3 transition-all hover:shadow-md hover:border-primary/30 ${getStatusBorderClass(card.status)}`}
     >
-      {/* Top row: priority + tag */}
       <div className="flex items-center justify-between mb-2">
         <span className={`text-[10px] font-medium ${priorityConfig[card.priority]?.color || "text-muted-foreground"}`}>
           {priorityConfig[card.priority]?.label || card.priority}
@@ -117,24 +116,21 @@ function KanbanCard({ card, onClick, onDragStart }: {
         )}
       </div>
 
-      {/* Title */}
       <h4 className="text-sm font-semibold text-foreground leading-snug mb-2 line-clamp-2">
         {card.title}
       </h4>
 
-      {/* Description snippet */}
       {card.description && (
         <p className="text-[11px] text-muted-foreground leading-relaxed mb-3 line-clamp-2">
           {card.description}
         </p>
       )}
 
-      {/* Footer: tasks + assignee + due date */}
+      {/* Footer: tasks + assignees + due date */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
-          {/* Task progress */}
+        <div className="flex items-center gap-2 flex-1 overflow-hidden">
           {card.tasks_total! > 0 && (
-            <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground shrink-0">
               {card.tasks_completed === card.tasks_total ? (
                 <CheckCircle2 className="h-3 w-3 text-emerald-500" />
               ) : (
@@ -144,8 +140,21 @@ function KanbanCard({ card, onClick, onDragStart }: {
             </div>
           )}
 
-          {/* Owner */}
-          {card.owner_name && (
+          {/* Assignees */}
+          {assignees.length > 0 && (
+            <div className="flex items-center gap-1 overflow-hidden">
+              {assignees.slice(0, 2).map(a => (
+                <Badge key={a.user_id} variant="secondary" className="text-[9px] py-0 px-1 shrink-0">
+                  {(a.display_name || "?").split(" ")[0]}
+                </Badge>
+              ))}
+              {assignees.length > 2 && (
+                <span className="text-[9px] text-muted-foreground">+{assignees.length - 2}</span>
+              )}
+            </div>
+          )}
+          {/* Fallback to owner_name if no assignees */}
+          {assignees.length === 0 && card.owner_name && (
             <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
               <Users className="h-3 w-3" />
               <span className="truncate max-w-[60px]">{card.owner_name.split(" ")[0]}</span>
@@ -153,9 +162,8 @@ function KanbanCard({ card, onClick, onDragStart }: {
           )}
         </div>
 
-        {/* Due date */}
         {card.due_date && (
-          <span className={`text-[10px] flex items-center gap-1 ${
+          <span className={`text-[10px] flex items-center gap-1 shrink-0 ${
             isOverdue ? "text-red-500 font-medium" : isDueToday ? "text-amber-500" : "text-muted-foreground"
           }`}>
             <CalendarDays className="h-3 w-3" />

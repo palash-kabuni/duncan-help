@@ -1427,6 +1427,35 @@ export type Database = {
           },
         ]
       }
+      workstream_card_assignees: {
+        Row: {
+          card_id: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          card_id: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          card_id?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workstream_card_assignees_card_id_fkey"
+            columns: ["card_id"]
+            isOneToOne: false
+            referencedRelation: "workstream_cards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workstream_cards: {
         Row: {
           archived_at: string | null
@@ -1500,6 +1529,35 @@ export type Database = {
             columns: ["card_id"]
             isOneToOne: false
             referencedRelation: "workstream_cards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workstream_task_assignees: {
+        Row: {
+          created_at: string
+          id: string
+          task_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          task_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          task_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workstream_task_assignees_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "workstream_tasks"
             referencedColumns: ["id"]
           },
         ]

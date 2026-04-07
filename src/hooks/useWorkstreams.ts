@@ -19,10 +19,15 @@ export interface WorkstreamCard {
   archived_at: string | null;
   created_at: string;
   updated_at: string;
-  // Joined data
   tasks_total?: number;
   tasks_completed?: number;
   owner_name?: string;
+  assignees?: AssigneeInfo[];
+}
+
+export interface AssigneeInfo {
+  user_id: string;
+  display_name: string | null;
 }
 
 export interface WorkstreamTask {
@@ -37,6 +42,7 @@ export interface WorkstreamTask {
   created_at: string;
   updated_at: string;
   assignee_name?: string;
+  assignees?: AssigneeInfo[];
 }
 
 export interface WorkstreamComment {
@@ -65,7 +71,6 @@ export interface UserProfile {
   avatar_url: string | null;
 }
 
-// Fetch all user profiles for assignment dropdowns
 export function useUserProfiles() {
   return useQuery({
     queryKey: ["user-profiles-all"],
@@ -81,7 +86,7 @@ export function useUserProfiles() {
   });
 }
 
-// Fetch all cards with task counts
+// Fetch all cards with task counts and assignees
 export function useWorkstreamCards(filters?: {
   status?: CardStatus;
   assignee?: string;
@@ -92,7 +97,6 @@ export function useWorkstreamCards(filters?: {
   return useQuery({
     queryKey: ["workstream-cards", filters],
     queryFn: async () => {
-      // First get cards
       let query = supabase
         .from("workstream_cards")
         .select("*")
@@ -100,7 +104,6 @@ export function useWorkstreamCards(filters?: {
         .order("updated_at", { ascending: false });
 
       if (filters?.status) query = query.eq("status", filters.status);
-      if (filters?.assignee) query = query.eq("owner_id", filters.assignee);
       if (filters?.priority) query = query.eq("priority", filters.priority);
       if (filters?.project_tag) query = query.eq("project_tag", filters.project_tag);
       if (filters?.search) query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
@@ -109,39 +112,60 @@ export function useWorkstreamCards(filters?: {
       if (error) throw error;
       if (!cards || cards.length === 0) return [];
 
-      // Get task counts per card
       const cardIds = cards.map(c => c.id);
-      const { data: tasks } = await supabase
-        .from("workstream_tasks")
-        .select("card_id, completed")
-        .in("card_id", cardIds);
 
-      // Get owner profiles
-      const ownerIds = [...new Set(cards.map(c => c.owner_id).filter(Boolean))] as string[];
+      // Fetch task counts, card assignees, and owner profiles in parallel
+      const [tasksRes, cardAssigneesRes] = await Promise.all([
+        supabase.from("workstream_tasks").select("card_id, completed").in("card_id", cardIds),
+        supabase.from("workstream_card_assignees").select("card_id, user_id").in("card_id", cardIds),
+      ]);
+
+      // Collect all user IDs for profile resolution
+      const allUserIds = new Set<string>();
+      cards.forEach(c => { if (c.owner_id) allUserIds.add(c.owner_id); });
+      (cardAssigneesRes.data || []).forEach(a => allUserIds.add(a.user_id));
+
       let profileMap: Record<string, string> = {};
-      if (ownerIds.length > 0) {
+      if (allUserIds.size > 0) {
         const { data: profiles } = await supabase
           .from("profiles")
           .select("user_id, display_name")
-          .in("user_id", ownerIds);
+          .in("user_id", [...allUserIds]);
         profileMap = (profiles || []).reduce((acc, p) => ({ ...acc, [p.user_id]: p.display_name || "Unknown" }), {});
       }
 
-      // Aggregate
+      // Aggregate task counts
       const taskCounts: Record<string, { total: number; completed: number }> = {};
-      (tasks || []).forEach(t => {
+      (tasksRes.data || []).forEach(t => {
         if (!taskCounts[t.card_id]) taskCounts[t.card_id] = { total: 0, completed: 0 };
         taskCounts[t.card_id].total++;
         if (t.completed) taskCounts[t.card_id].completed++;
       });
 
-      return cards.map(c => ({
+      // Aggregate card assignees
+      const cardAssigneeMap: Record<string, AssigneeInfo[]> = {};
+      (cardAssigneesRes.data || []).forEach(a => {
+        if (!cardAssigneeMap[a.card_id]) cardAssigneeMap[a.card_id] = [];
+        cardAssigneeMap[a.card_id].push({ user_id: a.user_id, display_name: profileMap[a.user_id] || "Unknown" });
+      });
+
+      // Filter by assignee if needed (check both owner_id and card_assignees)
+      let filteredCards = cards;
+      if (filters?.assignee) {
+        filteredCards = cards.filter(c =>
+          c.owner_id === filters.assignee ||
+          (cardAssigneeMap[c.id] || []).some(a => a.user_id === filters.assignee)
+        );
+      }
+
+      return filteredCards.map(c => ({
         ...c,
         status: c.status as CardStatus,
         priority: c.priority as CardPriority,
         tasks_total: taskCounts[c.id]?.total || 0,
         tasks_completed: taskCounts[c.id]?.completed || 0,
         owner_name: c.owner_id ? profileMap[c.owner_id] : undefined,
+        assignees: cardAssigneeMap[c.id] || [],
       })) as WorkstreamCard[];
     },
   });
@@ -162,35 +186,81 @@ export function useWorkstreamCard(cardId: string | null) {
         .single();
       if (error) throw error;
 
-      // Fetch tasks
-      const { data: tasks } = await supabase
-        .from("workstream_tasks")
-        .select("*")
-        .eq("card_id", cardId)
-        .order("sort_order");
+      // Fetch tasks, comments, activity, card assignees, task assignees in parallel
+      const [tasksRes, commentsRes, activityRes, cardAssigneesRes] = await Promise.all([
+        supabase.from("workstream_tasks").select("*").eq("card_id", cardId).order("sort_order"),
+        supabase.from("workstream_comments").select("*").eq("card_id", cardId).order("created_at", { ascending: false }),
+        supabase.from("workstream_activity").select("*").eq("card_id", cardId).order("created_at", { ascending: false }).limit(50),
+        supabase.from("workstream_card_assignees").select("card_id, user_id").eq("card_id", cardId),
+      ]);
 
-      // Fetch comments
-      const { data: comments } = await supabase
-        .from("workstream_comments")
-        .select("*")
-        .eq("card_id", cardId)
-        .order("created_at", { ascending: false });
+      const tasks = tasksRes.data || [];
+      const comments = commentsRes.data || [];
+      const activity = activityRes.data || [];
+      const cardAssignees = cardAssigneesRes.data || [];
 
-      // Fetch activity
-      const { data: activity } = await supabase
-        .from("workstream_activity")
-        .select("*")
-        .eq("card_id", cardId)
-        .order("created_at", { ascending: false })
-        .limit(50);
+      // Fetch task assignees if there are tasks
+      let taskAssigneeMap: Record<string, AssigneeInfo[]> = {};
+      if (tasks.length > 0) {
+        const taskIds = tasks.map(t => t.id);
+        const { data: taskAssignees } = await supabase
+          .from("workstream_task_assignees")
+          .select("task_id, user_id")
+          .in("task_id", taskIds);
 
-      // Get all user IDs for name resolution
+        // Collect user IDs from task assignees
+        const taUserIds = (taskAssignees || []).map(ta => ta.user_id);
+
+        // Get all user IDs for name resolution
+        const userIds = new Set<string>();
+        if (card.owner_id) userIds.add(card.owner_id);
+        userIds.add(card.created_by);
+        tasks.forEach(t => { if (t.assignee_id) userIds.add(t.assignee_id); });
+        comments.forEach(c => userIds.add(c.user_id));
+        activity.forEach(a => userIds.add(a.user_id));
+        cardAssignees.forEach(a => userIds.add(a.user_id));
+        taUserIds.forEach(id => userIds.add(id));
+
+        let profileMap: Record<string, string> = {};
+        if (userIds.size > 0) {
+          const { data: profiles } = await supabase
+            .from("profiles")
+            .select("user_id, display_name")
+            .in("user_id", [...userIds]);
+          profileMap = (profiles || []).reduce((acc, p) => ({ ...acc, [p.user_id]: p.display_name || "Unknown" }), {});
+        }
+
+        // Build task assignee map
+        (taskAssignees || []).forEach(ta => {
+          if (!taskAssigneeMap[ta.task_id]) taskAssigneeMap[ta.task_id] = [];
+          taskAssigneeMap[ta.task_id].push({ user_id: ta.user_id, display_name: profileMap[ta.user_id] || "Unknown" });
+        });
+
+        return {
+          card: {
+            ...card,
+            status: card.status as CardStatus,
+            priority: card.priority as CardPriority,
+            owner_name: card.owner_id ? profileMap[card.owner_id] : undefined,
+            assignees: cardAssignees.map(a => ({ user_id: a.user_id, display_name: profileMap[a.user_id] || "Unknown" })),
+          } as WorkstreamCard,
+          tasks: tasks.map(t => ({
+            ...t,
+            assignee_name: t.assignee_id ? profileMap[t.assignee_id] : undefined,
+            assignees: taskAssigneeMap[t.id] || [],
+          })) as WorkstreamTask[],
+          comments: comments.map(c => ({ ...c, user_name: profileMap[c.user_id] })) as WorkstreamComment[],
+          activity: activity.map(a => ({ ...a, user_name: profileMap[a.user_id] })) as WorkstreamActivity[],
+        };
+      }
+
+      // No tasks case - still resolve profiles
       const userIds = new Set<string>();
       if (card.owner_id) userIds.add(card.owner_id);
       userIds.add(card.created_by);
-      (tasks || []).forEach(t => { if (t.assignee_id) userIds.add(t.assignee_id); });
-      (comments || []).forEach(c => userIds.add(c.user_id));
-      (activity || []).forEach(a => userIds.add(a.user_id));
+      comments.forEach(c => userIds.add(c.user_id));
+      activity.forEach(a => userIds.add(a.user_id));
+      cardAssignees.forEach(a => userIds.add(a.user_id));
 
       let profileMap: Record<string, string> = {};
       if (userIds.size > 0) {
@@ -202,37 +272,49 @@ export function useWorkstreamCard(cardId: string | null) {
       }
 
       return {
-        card: { ...card, status: card.status as CardStatus, priority: card.priority as CardPriority, owner_name: card.owner_id ? profileMap[card.owner_id] : undefined } as WorkstreamCard,
-        tasks: (tasks || []).map(t => ({ ...t, assignee_name: t.assignee_id ? profileMap[t.assignee_id] : undefined })) as WorkstreamTask[],
-        comments: (comments || []).map(c => ({ ...c, user_name: profileMap[c.user_id] })) as WorkstreamComment[],
-        activity: (activity || []).map(a => ({ ...a, user_name: profileMap[a.user_id] })) as WorkstreamActivity[],
+        card: {
+          ...card,
+          status: card.status as CardStatus,
+          priority: card.priority as CardPriority,
+          owner_name: card.owner_id ? profileMap[card.owner_id] : undefined,
+          assignees: cardAssignees.map(a => ({ user_id: a.user_id, display_name: profileMap[a.user_id] || "Unknown" })),
+        } as WorkstreamCard,
+        tasks: [] as WorkstreamTask[],
+        comments: comments.map(c => ({ ...c, user_name: profileMap[c.user_id] })) as WorkstreamComment[],
+        activity: activity.map(a => ({ ...a, user_name: profileMap[a.user_id] })) as WorkstreamActivity[],
       };
     },
   });
 }
 
-// Mutations
+// Card mutations
 export function useCreateCard() {
   const qc = useQueryClient();
   const { user } = useAuth();
   return useMutation({
-    mutationFn: async (input: { title: string; description?: string; status?: CardStatus; priority?: CardPriority; owner_id?: string; due_date?: string; project_tag?: string }) => {
+    mutationFn: async (input: {
+      title: string; description?: string; status?: CardStatus; priority?: CardPriority;
+      owner_id?: string; due_date?: string; project_tag?: string; assignee_ids?: string[];
+    }) => {
       if (!user) throw new Error("Not authenticated");
+      const { assignee_ids, ...cardInput } = input;
       const { data, error } = await supabase
         .from("workstream_cards")
-        .insert({ ...input, created_by: user.id })
+        .insert({ ...cardInput, created_by: user.id })
         .select("id")
         .single();
       if (error) throw error;
 
-      // Log activity
-      await supabase.from("workstream_activity").insert({
-        card_id: data.id,
-        user_id: user.id,
-        action: "card_created",
-        details: { title: input.title },
-      });
+      // Insert assignees
+      if (assignee_ids && assignee_ids.length > 0) {
+        await supabase.from("workstream_card_assignees").insert(
+          assignee_ids.map(uid => ({ card_id: data.id, user_id: uid }))
+        );
+      }
 
+      await supabase.from("workstream_activity").insert({
+        card_id: data.id, user_id: user.id, action: "card_created", details: { title: input.title },
+      });
       return data;
     },
     onSuccess: () => {
@@ -249,20 +331,39 @@ export function useUpdateCard() {
   return useMutation({
     mutationFn: async ({ id, ...updates }: Partial<WorkstreamCard> & { id: string }) => {
       if (!user) throw new Error("Not authenticated");
+      // Remove non-DB fields
+      const { assignees, tasks_total, tasks_completed, owner_name, ...dbUpdates } = updates as any;
       const { error } = await supabase
         .from("workstream_cards")
-        .update({ ...updates, updated_at: new Date().toISOString() })
+        .update({ ...dbUpdates, updated_at: new Date().toISOString() })
         .eq("id", id);
       if (error) throw error;
 
-      // Log status change specifically
       if (updates.status) {
         await supabase.from("workstream_activity").insert({
-          card_id: id,
-          user_id: user.id,
-          action: "status_changed",
-          details: { new_status: updates.status },
+          card_id: id, user_id: user.id, action: "status_changed", details: { new_status: updates.status },
         });
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workstream-cards"] });
+      qc.invalidateQueries({ queryKey: ["workstream-card"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function useUpdateCardAssignees() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ cardId, userIds }: { cardId: string; userIds: string[] }) => {
+      // Delete existing, then insert new
+      await supabase.from("workstream_card_assignees").delete().eq("card_id", cardId);
+      if (userIds.length > 0) {
+        const { error } = await supabase.from("workstream_card_assignees").insert(
+          userIds.map(uid => ({ card_id: cardId, user_id: uid }))
+        );
+        if (error) throw error;
       }
     },
     onSuccess: () => {
@@ -293,20 +394,25 @@ export function useCreateTask() {
   const qc = useQueryClient();
   const { user } = useAuth();
   return useMutation({
-    mutationFn: async (input: { card_id: string; title: string; description?: string; assignee_id?: string; due_date?: string; sort_order?: number }) => {
+    mutationFn: async (input: { card_id: string; title: string; description?: string; assignee_id?: string; due_date?: string; sort_order?: number; assignee_ids?: string[] }) => {
+      const { assignee_ids, ...taskInput } = input;
       const { data, error } = await supabase
         .from("workstream_tasks")
-        .insert(input)
+        .insert(taskInput)
         .select()
         .single();
       if (error) throw error;
 
+      // Insert task assignees
+      if (assignee_ids && assignee_ids.length > 0) {
+        await supabase.from("workstream_task_assignees").insert(
+          assignee_ids.map(uid => ({ task_id: data.id, user_id: uid }))
+        );
+      }
+
       if (user) {
         await supabase.from("workstream_activity").insert({
-          card_id: input.card_id,
-          user_id: user.id,
-          action: "task_added",
-          details: { title: input.title },
+          card_id: input.card_id, user_id: user.id, action: "task_added", details: { title: input.title },
         });
       }
       return data;
@@ -324,16 +430,16 @@ export function useUpdateTask() {
   const { user } = useAuth();
   return useMutation({
     mutationFn: async ({ id, card_id, ...updates }: Partial<WorkstreamTask> & { id: string; card_id: string }) => {
+      const { assignees, assignee_name, ...dbUpdates } = updates as any;
       const { error } = await supabase
         .from("workstream_tasks")
-        .update({ ...updates, updated_at: new Date().toISOString() })
+        .update({ ...dbUpdates, updated_at: new Date().toISOString() })
         .eq("id", id);
       if (error) throw error;
 
       if (user && updates.completed !== undefined) {
         await supabase.from("workstream_activity").insert({
-          card_id,
-          user_id: user.id,
+          card_id, user_id: user.id,
           action: updates.completed ? "task_completed" : "task_uncompleted",
           details: { task_id: id },
         });
@@ -341,6 +447,26 @@ export function useUpdateTask() {
     },
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["workstream-card", vars.card_id] });
+      qc.invalidateQueries({ queryKey: ["workstream-cards"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function useUpdateTaskAssignees() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ taskId, cardId, userIds }: { taskId: string; cardId: string; userIds: string[] }) => {
+      await supabase.from("workstream_task_assignees").delete().eq("task_id", taskId);
+      if (userIds.length > 0) {
+        const { error } = await supabase.from("workstream_task_assignees").insert(
+          userIds.map(uid => ({ task_id: taskId, user_id: uid }))
+        );
+        if (error) throw error;
+      }
+    },
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["workstream-card", vars.cardId] });
       qc.invalidateQueries({ queryKey: ["workstream-cards"] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -375,10 +501,7 @@ export function useAddComment() {
       if (error) throw error;
 
       await supabase.from("workstream_activity").insert({
-        card_id: input.card_id,
-        user_id: user.id,
-        action: "comment_added",
-        details: {},
+        card_id: input.card_id, user_id: user.id, action: "comment_added", details: {},
       });
     },
     onSuccess: (_, vars) => {

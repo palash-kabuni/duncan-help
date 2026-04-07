@@ -9,6 +9,7 @@ import AppLayout from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { useWorkstreamCards, useUserProfiles, type WorkstreamCard, type CardStatus } from "@/hooks/useWorkstreams";
 import { useAuth } from "@/hooks/useAuth";
 import { isPast, isThisWeek } from "date-fns";
@@ -253,11 +254,22 @@ function ListView({ cards, onCardClick }: { cards: WorkstreamCard[]; onCardClick
                   <CheckCircle2 className="h-3 w-3" /> {card.tasks_completed}/{card.tasks_total}
                 </span>
               )}
-              {card.owner_name && (
+              {(card.assignees || []).length > 0 ? (
+                <div className="flex items-center gap-1">
+                  {card.assignees!.slice(0, 3).map(a => (
+                    <Badge key={a.user_id} variant="secondary" className="text-[9px] py-0 px-1">
+                      {(a.display_name || "?").split(" ")[0]}
+                    </Badge>
+                  ))}
+                  {card.assignees!.length > 3 && (
+                    <span className="text-[9px] text-muted-foreground">+{card.assignees!.length - 3}</span>
+                  )}
+                </div>
+              ) : card.owner_name ? (
                 <span className="text-[10px] text-muted-foreground flex items-center gap-1">
                   <User className="h-3 w-3" /> {card.owner_name.split(" ")[0]}
                 </span>
-              )}
+              ) : null}
               {card.due_date && (
                 <span className={`text-[10px] flex items-center gap-1 ${isOverdue ? "text-red-500" : "text-muted-foreground"}`}>
                   <CalendarDays className="h-3 w-3" /> {format(new Date(card.due_date), "MMM d")}

@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCreateCard, useUserProfiles, type CardStatus, type CardPriority } from "@/hooks/useWorkstreams";
+import MultiAssigneeSelect from "./MultiAssigneeSelect";
 
 export default function CreateCardDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const createCard = useCreateCard();
@@ -15,13 +16,13 @@ export default function CreateCardDialog({ open, onOpenChange }: { open: boolean
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<CardStatus>("amber");
   const [priority, setPriority] = useState<CardPriority>("medium");
-  const [ownerId, setOwnerId] = useState<string>("");
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState("");
   const [projectTag, setProjectTag] = useState("");
 
   const reset = () => {
     setTitle(""); setDescription(""); setStatus("amber"); setPriority("medium");
-    setOwnerId(""); setDueDate(""); setProjectTag("");
+    setAssigneeIds([]); setDueDate(""); setProjectTag("");
   };
 
   const handleSubmit = async () => {
@@ -31,9 +32,10 @@ export default function CreateCardDialog({ open, onOpenChange }: { open: boolean
       description: description.trim(),
       status,
       priority,
-      owner_id: ownerId || undefined,
+      owner_id: assigneeIds[0] || undefined,
       due_date: dueDate || undefined,
       project_tag: projectTag.trim() || undefined,
+      assignee_ids: assigneeIds,
     });
     reset();
     onOpenChange(false);
@@ -90,15 +92,13 @@ export default function CreateCardDialog({ open, onOpenChange }: { open: boolean
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium flex items-center gap-1"><User className="h-3 w-3" /> Owner</Label>
-              <Select value={ownerId} onValueChange={setOwnerId}>
-                <SelectTrigger><SelectValue placeholder="Select owner" /></SelectTrigger>
-                <SelectContent>
-                  {(users || []).map(u => (
-                    <SelectItem key={u.user_id} value={u.user_id}>{u.display_name || "Unnamed"}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label className="text-xs font-medium flex items-center gap-1"><User className="h-3 w-3" /> Assignees</Label>
+              <MultiAssigneeSelect
+                users={users || []}
+                selectedIds={assigneeIds}
+                onChange={setAssigneeIds}
+                placeholder="Assign people"
+              />
             </div>
 
             <div className="space-y-1.5">
