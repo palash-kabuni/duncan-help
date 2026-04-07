@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { format, formatDistanceToNow } from "date-fns";
 import {
   X, CalendarDays, User, Flag, Tag, Plus, Trash2, CheckCircle2,
-  Circle, Send, MessageSquare, Activity, Clock, Loader2, MoreHorizontal,
+  Circle, Send, MessageSquare, Activity, Clock, Loader2, Users,
 } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -13,12 +13,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 import {
-  useWorkstreamCard, useUpdateCard, useCreateTask, useUpdateTask, useDeleteTask,
+  useWorkstreamCard, useUpdateCard, useUpdateCardAssignees, useCreateTask,
+  useUpdateTask, useUpdateTaskAssignees, useDeleteTask,
   useAddComment, useDeleteComment, useDeleteCard, useUserProfiles,
   type CardStatus, type CardPriority, type WorkstreamTask,
 } from "@/hooks/useWorkstreams";
 import { StatusBadge, priorityConfig } from "./StatusBadge";
+import MultiAssigneeSelect from "./MultiAssigneeSelect";
 import { useAuth } from "@/hooks/useAuth";
 
 interface CardDetailModalProps {
@@ -31,8 +34,10 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
   const { data, isLoading } = useWorkstreamCard(cardId);
   const { data: users } = useUserProfiles();
   const updateCard = useUpdateCard();
+  const updateCardAssignees = useUpdateCardAssignees();
   const createTask = useCreateTask();
   const updateTask = useUpdateTask();
+  const updateTaskAssignees = useUpdateTaskAssignees();
   const deleteTask = useDeleteTask();
   const addComment = useAddComment();
   const deleteComment = useDeleteComment();
@@ -187,23 +192,17 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
               <div className="px-6 py-4">
                 {/* Meta row */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-                  <MetaField
-                    icon={<User className="h-3.5 w-3.5" />}
-                    label="Owner"
-                    value={card.owner_name || "Unassigned"}
-                  >
-                    <Select
-                      value={card.owner_id || ""}
-                      onValueChange={v => updateCard.mutate({ id: card.id, owner_id: v || null })}
-                    >
-                      <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Assign" /></SelectTrigger>
-                      <SelectContent>
-                        {(users || []).map(u => (
-                          <SelectItem key={u.user_id} value={u.user_id}>{u.display_name || "Unnamed"}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </MetaField>
+                  <div className="space-y-1 col-span-2">
+                    <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-medium">
+                      <Users className="h-3.5 w-3.5" /> Assignees
+                    </div>
+                    <MultiAssigneeSelect
+                      users={users || []}
+                      selectedIds={(card.assignees || []).map(a => a.user_id)}
+                      onChange={(ids) => updateCardAssignees.mutate({ cardId: card.id, userIds: ids })}
+                      compact
+                    />
+                  </div>
 
                   <MetaField icon={<CalendarDays className="h-3.5 w-3.5" />} label="Due Date" value={card.due_date ? format(new Date(card.due_date), "MMM d, yyyy") : "None"}>
                     <Input
@@ -227,15 +226,6 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
                         <SelectItem value="critical">Critical</SelectItem>
                       </SelectContent>
                     </Select>
-                  </MetaField>
-
-                  <MetaField icon={<Tag className="h-3.5 w-3.5" />} label="Project" value={card.project_tag || "None"}>
-                    <Input
-                      value={card.project_tag || ""}
-                      onChange={e => updateCard.mutate({ id: card.id, project_tag: e.target.value || null })}
-                      className="h-7 text-xs"
-                      placeholder="Tag"
-                    />
                   </MetaField>
                 </div>
 
@@ -290,12 +280,12 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
                           <span className={`text-sm ${task.completed ? "line-through text-muted-foreground" : "text-foreground"}`}>
                             {task.title}
                           </span>
-                          <div className="flex items-center gap-2 mt-1">
-                            {task.assignee_name && (
-                              <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                                <User className="h-2.5 w-2.5" /> {task.assignee_name}
-                              </span>
-                            )}
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            {(task.assignees || []).map(a => (
+                              <Badge key={a.user_id} variant="secondary" className="text-[10px] py-0 px-1.5">
+                                {(a.display_name || "?").split(" ")[0]}
+                              </Badge>
+                            ))}
                             {task.due_date && (
                               <span className="text-[10px] text-muted-foreground flex items-center gap-1">
                                 <CalendarDays className="h-2.5 w-2.5" /> {format(new Date(task.due_date), "MMM d")}
@@ -304,19 +294,15 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
                           </div>
                         </div>
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Select
-                            value={task.assignee_id || ""}
-                            onValueChange={v => updateTask.mutate({ id: task.id, card_id: task.card_id, assignee_id: v || null })}
-                          >
-                            <SelectTrigger className="h-6 w-6 p-0 border-0 bg-transparent">
-                              <User className="h-3 w-3 text-muted-foreground" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {(users || []).map(u => (
-                                <SelectItem key={u.user_id} value={u.user_id}>{u.display_name || "Unnamed"}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <div className="w-[120px]">
+                            <MultiAssigneeSelect
+                              users={users || []}
+                              selectedIds={(task.assignees || []).map(a => a.user_id)}
+                              onChange={(ids) => updateTaskAssignees.mutate({ taskId: task.id, cardId: task.card_id, userIds: ids })}
+                              compact
+                              placeholder="Assign"
+                            />
+                          </div>
                           <button
                             onClick={() => deleteTask.mutate({ id: task.id, card_id: task.card_id })}
                             className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive transition-colors"
