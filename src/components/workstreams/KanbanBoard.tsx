@@ -1,0 +1,168 @@
+import { useState } from "react";
+import { CalendarDays, GripVertical, Users, CheckCircle2, Circle } from "lucide-react";
+import { format, isPast, isToday } from "date-fns";
+import type { WorkstreamCard, CardStatus } from "@/hooks/useWorkstreams";
+import { useUpdateCard } from "@/hooks/useWorkstreams";
+import { StatusBadge, getStatusBorderClass, priorityConfig } from "./StatusBadge";
+
+const COLUMNS: { status: CardStatus; label: string; emoji: string }[] = [
+  { status: "red", label: "Red", emoji: "🔴" },
+  { status: "amber", label: "Amber", emoji: "🟡" },
+  { status: "green", label: "Green", emoji: "🟢" },
+  { status: "done", label: "Done", emoji: "✅" },
+];
+
+interface KanbanBoardProps {
+  cards: WorkstreamCard[];
+  onCardClick: (card: WorkstreamCard) => void;
+}
+
+export default function KanbanBoard({ cards, onCardClick }: KanbanBoardProps) {
+  const updateCard = useUpdateCard();
+  const [dragOverCol, setDragOverCol] = useState<CardStatus | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, card: WorkstreamCard) => {
+    e.dataTransfer.setData("cardId", card.id);
+    e.dataTransfer.setData("cardStatus", card.status);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: React.DragEvent, status: CardStatus) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverCol(status);
+  };
+
+  const handleDragLeave = () => setDragOverCol(null);
+
+  const handleDrop = (e: React.DragEvent, newStatus: CardStatus) => {
+    e.preventDefault();
+    setDragOverCol(null);
+    const cardId = e.dataTransfer.getData("cardId");
+    const oldStatus = e.dataTransfer.getData("cardStatus");
+    if (cardId && oldStatus !== newStatus) {
+      updateCard.mutate({ id: cardId, status: newStatus });
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
+      {COLUMNS.map(col => {
+        const colCards = cards.filter(c => c.status === col.status);
+        return (
+          <div
+            key={col.status}
+            className={`min-h-[200px] rounded-xl border transition-colors duration-200 ${
+              dragOverCol === col.status
+                ? "border-primary bg-primary/5"
+                : "border-border bg-card/30"
+            }`}
+            onDragOver={e => handleDragOver(e, col.status)}
+            onDragLeave={handleDragLeave}
+            onDrop={e => handleDrop(e, col.status)}
+          >
+            {/* Column header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">{col.emoji}</span>
+                <span className="text-xs font-semibold text-foreground">{col.label}</span>
+              </div>
+              <span className="text-[10px] font-mono text-muted-foreground bg-secondary/60 px-1.5 py-0.5 rounded-md">
+                {colCards.length}
+              </span>
+            </div>
+
+            {/* Cards */}
+            <div className="p-2 space-y-2">
+              {colCards.map(card => (
+                <KanbanCard key={card.id} card={card} onClick={() => onCardClick(card)} onDragStart={handleDragStart} />
+              ))}
+              {colCards.length === 0 && (
+                <div className="flex items-center justify-center py-8 text-xs text-muted-foreground/50">
+                  No cards
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function KanbanCard({ card, onClick, onDragStart }: {
+  card: WorkstreamCard;
+  onClick: () => void;
+  onDragStart: (e: React.DragEvent, card: WorkstreamCard) => void;
+}) {
+  const isOverdue = card.due_date && isPast(new Date(card.due_date)) && card.status !== "done";
+  const isDueToday = card.due_date && isToday(new Date(card.due_date));
+
+  return (
+    <div
+      draggable
+      onDragStart={e => onDragStart(e, card)}
+      onClick={onClick}
+      className={`group cursor-pointer rounded-lg border border-l-[3px] bg-card p-3 transition-all hover:shadow-md hover:border-primary/30 ${getStatusBorderClass(card.status)}`}
+    >
+      {/* Top row: priority + tag */}
+      <div className="flex items-center justify-between mb-2">
+        <span className={`text-[10px] font-medium ${priorityConfig[card.priority]?.color || "text-muted-foreground"}`}>
+          {priorityConfig[card.priority]?.label || card.priority}
+        </span>
+        {card.project_tag && (
+          <span className="text-[9px] font-mono bg-secondary/80 text-muted-foreground px-1.5 py-0.5 rounded">
+            {card.project_tag}
+          </span>
+        )}
+      </div>
+
+      {/* Title */}
+      <h4 className="text-sm font-semibold text-foreground leading-snug mb-2 line-clamp-2">
+        {card.title}
+      </h4>
+
+      {/* Description snippet */}
+      {card.description && (
+        <p className="text-[11px] text-muted-foreground leading-relaxed mb-3 line-clamp-2">
+          {card.description}
+        </p>
+      )}
+
+      {/* Footer: tasks + assignee + due date */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-3">
+          {/* Task progress */}
+          {card.tasks_total! > 0 && (
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              {card.tasks_completed === card.tasks_total ? (
+                <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+              ) : (
+                <Circle className="h-3 w-3" />
+              )}
+              <span>{card.tasks_completed}/{card.tasks_total}</span>
+            </div>
+          )}
+
+          {/* Owner */}
+          {card.owner_name && (
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              <Users className="h-3 w-3" />
+              <span className="truncate max-w-[60px]">{card.owner_name.split(" ")[0]}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Due date */}
+        {card.due_date && (
+          <span className={`text-[10px] flex items-center gap-1 ${
+            isOverdue ? "text-red-500 font-medium" : isDueToday ? "text-amber-500" : "text-muted-foreground"
+          }`}>
+            <CalendarDays className="h-3 w-3" />
+            {format(new Date(card.due_date), "MMM d")}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
