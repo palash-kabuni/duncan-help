@@ -105,6 +105,7 @@ const Recruitment = () => {
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [hasFetched, setHasFetched] = useState(false);
   const [validatingPosition, setValidatingPosition] = useState(false);
+  const [assigningRole, setAssigningRole] = useState<string | null>(null);
 
   const { data: gmailStatus } = useQuery({
     queryKey: ["gmail-status"],
@@ -184,6 +185,23 @@ const Recruitment = () => {
     setSelectedRoleId(roleId);
     setHasFetched(false);
     setSelectedCandidates(new Set());
+  };
+
+  const assignCandidateRole = async (candidateId: string, newRoleId: string) => {
+    setAssigningRole(candidateId);
+    try {
+      const { error } = await supabase
+        .from("candidates")
+        .update({ job_role_id: newRoleId })
+        .eq("id", candidateId);
+      if (error) throw error;
+      toast.success("Role assigned successfully");
+      refetchCandidates();
+    } catch (err: any) {
+      toast.error("Failed to assign role: " + err.message);
+    } finally {
+      setAssigningRole(null);
+    }
   };
 
   const scoreValues = async () => {
@@ -525,13 +543,22 @@ const Recruitment = () => {
                             </div>
                           </TableCell>
 
-                          {/* Role */}
+                          {/* Role assignment */}
                           <TableCell>
-                            {c.job_role_id ? (
-                              <Badge variant="outline" className="text-[11px] font-normal">{roleMap.get(c.job_role_id) || "Unknown"}</Badge>
-                            ) : (
-                              <Badge variant="secondary" className="text-[11px]">Unmatched</Badge>
-                            )}
+                            <Select
+                              value={c.job_role_id || ""}
+                              onValueChange={(val) => assignCandidateRole(c.id, val)}
+                              disabled={assigningRole === c.id}
+                            >
+                              <SelectTrigger className="h-7 w-[140px] text-[11px]">
+                                <SelectValue placeholder="Assign role…" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {(jobRoles ?? []).filter((r: any) => r.status === "active").map((r: any) => (
+                                  <SelectItem key={r.id} value={r.id} className="text-xs">{r.title}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </TableCell>
 
                           {/* Status */}
