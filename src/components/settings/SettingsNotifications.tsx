@@ -151,7 +151,7 @@ export default function SettingsNotifications() {
             <div>
               <Label className="text-sm text-foreground">Auto Status Escalation</Label>
               <p className="text-xs text-muted-foreground">
-                Automatically move cards to Amber (5d) or Red (7d) if tasks remain overdue
+                Automatically move cards to Yellow (5d) or Red (7d) if tasks remain overdue
               </p>
             </div>
             <Switch checked={slackEscalation} onCheckedChange={toggle(setSlackEscalation)} />

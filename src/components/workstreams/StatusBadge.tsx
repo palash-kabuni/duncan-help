@@ -2,7 +2,7 @@ import type { CardStatus } from "@/hooks/useWorkstreams";
 
 const statusConfig: Record<CardStatus, { label: string; bg: string; text: string; dot: string; border: string }> = {
   red: { label: "Red", bg: "bg-red-500/10", text: "text-red-500", dot: "bg-red-500", border: "border-red-500/30" },
-  amber: { label: "Amber", bg: "bg-amber-500/10", text: "text-amber-500", dot: "bg-amber-500", border: "border-amber-500/30" },
+  amber: { label: "Yellow", bg: "bg-amber-500/10", text: "text-amber-500", dot: "bg-amber-500", border: "border-amber-500/30" },
   green: { label: "Green", bg: "bg-emerald-500/10", text: "text-emerald-500", dot: "bg-emerald-500", border: "border-emerald-500/30" },
   done: { label: "Done", bg: "bg-primary/10", text: "text-primary", dot: "bg-primary", border: "border-primary/30" },
 };

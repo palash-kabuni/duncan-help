@@ -178,7 +178,7 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
                         : "bg-secondary/50 text-muted-foreground border-border hover:bg-secondary"
                     }`}
                   >
-                    {s === "red" ? "🔴" : s === "amber" ? "🟡" : s === "green" ? "🟢" : "✅"} {s.charAt(0).toUpperCase() + s.slice(1)}
+                    {s === "red" ? "🔴" : s === "amber" ? "🟡" : s === "green" ? "🟢" : "✅"} {s === "amber" ? "Yellow" : s.charAt(0).toUpperCase() + s.slice(1)}
                   </button>
                 ))}
               </div>

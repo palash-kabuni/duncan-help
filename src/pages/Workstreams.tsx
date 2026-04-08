@@ -94,7 +94,7 @@ const Workstreams = () => {
           >
             <StatCard label="Total" value={stats.total} icon={<LayoutGrid className="h-3.5 w-3.5" />} />
             <StatCard label="Red" value={stats.red} icon={<span className="h-2.5 w-2.5 rounded-full bg-red-500" />} valueColor="text-red-500" />
-            <StatCard label="Amber" value={stats.amber} icon={<span className="h-2.5 w-2.5 rounded-full bg-amber-500" />} valueColor="text-amber-500" />
+            <StatCard label="Yellow" value={stats.amber} icon={<span className="h-2.5 w-2.5 rounded-full bg-amber-500" />} valueColor="text-amber-500" />
             <StatCard label="Green" value={stats.green} icon={<span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />} valueColor="text-emerald-500" />
             <StatCard label="Done" value={stats.done} icon={<CheckCircle2 className="h-3.5 w-3.5 text-primary" />} valueColor="text-primary" />
             <StatCard label="Overdue" value={stats.overdue} icon={<AlertTriangle className="h-3.5 w-3.5 text-red-500" />} valueColor="text-red-500" />
@@ -127,7 +127,7 @@ const Workstreams = () => {
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="red">🔴 Red</SelectItem>
-                  <SelectItem value="amber">🟡 Amber</SelectItem>
+                  <SelectItem value="amber">🟡 Yellow</SelectItem>
                   <SelectItem value="green">🟢 Green</SelectItem>
                   <SelectItem value="done">✅ Done</SelectItem>
                 </SelectContent>
