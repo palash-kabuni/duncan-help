@@ -8,7 +8,7 @@ import { StatusBadge, getStatusBorderClass, priorityConfig } from "./StatusBadge
 
 const COLUMNS: { status: CardStatus; label: string; emoji: string }[] = [
   { status: "red", label: "Red", emoji: "🔴" },
-  { status: "amber", label: "Amber", emoji: "🟡" },
+  { status: "amber", label: "Yellow", emoji: "🟡" },
   { status: "green", label: "Green", emoji: "🟢" },
   { status: "done", label: "Done", emoji: "✅" },
 ];

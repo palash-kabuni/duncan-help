@@ -69,7 +69,7 @@ export default function CreateCardDialog({ open, onOpenChange }: { open: boolean
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="red">🔴 Red</SelectItem>
-                  <SelectItem value="amber">🟡 Amber</SelectItem>
+                  <SelectItem value="amber">🟡 Yellow</SelectItem>
                   <SelectItem value="green">🟢 Green</SelectItem>
                   <SelectItem value="done">✅ Done</SelectItem>
                 </SelectContent>
