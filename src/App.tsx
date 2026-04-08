@@ -22,6 +22,7 @@ import FeedbackIssues from "./pages/FeedbackIssues";
 import Projects from "./pages/Projects";
 import ProjectWorkspace from "./pages/ProjectWorkspace";
 import Workstreams from "./pages/Workstreams";
+import Gmail from "./pages/Gmail";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -49,6 +50,7 @@ const AppContent = () => {
           <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
           <Route path="/projects/:projectId" element={<ProtectedRoute><ProjectWorkspace /></ProtectedRoute>} />
           <Route path="/workstreams" element={<ProtectedRoute><Workstreams /></ProtectedRoute>} />
+          <Route path="/gmail" element={<ProtectedRoute><Gmail /></ProtectedRoute>} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
