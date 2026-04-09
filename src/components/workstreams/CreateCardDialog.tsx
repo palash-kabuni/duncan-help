@@ -95,8 +95,17 @@ export default function CreateCardDialog({ open, onOpenChange }: { open: boolean
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs font-medium flex items-center gap-1"><Tag className="h-3 w-3" /> Project / Workstream Tag</Label>
-            <Input value={projectTag} onChange={e => setProjectTag(e.target.value)} placeholder="e.g. Product, Marketing, Ops" />
+            <Label className="text-xs font-medium flex items-center gap-1"><Tag className="h-3 w-3" /> Project / Workstream</Label>
+            <Select value={projectTag || "none"} onValueChange={v => setProjectTag(v === "none" ? "" : v)}>
+              <SelectTrigger><SelectValue placeholder="Select workstream" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                <SelectItem value="Lightning Strike Event">Lightning Strike Event</SelectItem>
+                <SelectItem value="Website">Website</SelectItem>
+                <SelectItem value="K10 App">K10 App</SelectItem>
+                <SelectItem value="School Integrations">School Integrations</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
