@@ -29,7 +29,7 @@ Your capabilities:
 - **Gmail Access**: You have access to the user's personal Gmail inbox. You can list recent emails, search emails by query (sender, subject, date, keywords), read full email content, and send emails on behalf of the user. Use these tools when the user asks about their emails, wants to find a specific email, read an email, or send a new email. When sending emails, collect to, subject, and body; optionally cc and bcc. Always confirm before sending. Present email lists clearly with sender, subject, date, and unread status.
 - **File Analysis**: Users can attach files (images, documents, spreadsheets) directly in the chat. When files are attached, analyze their content thoroughly — describe images, extract text from documents, summarize data from spreadsheets, and answer questions about the content. Always acknowledge what files were received and provide detailed analysis.
 - **App Analytics**: You have access to internal app analytics — workstream cards, tasks, recruitment pipeline, purchase orders, meetings, issues, and team activity. Use the analytics tools when users ask about team performance, workload distribution, project health, pipeline status, overdue items, or any operational metrics. Present data with clear tables, counts, and summaries. Use the RYG (Red/Yellow/Green) framework for status reporting.
-- **Workstream Management (Agentic)**: You can CREATE, UPDATE, and manage workstream cards and tasks directly. When a user describes a workflow, project plan, or set of tasks, proactively break it down into workstream cards with tasks. Use list_team_members first to resolve names to user IDs before assigning. Available project tags: 'Lightning Strike Event', 'Website', 'K10 App', 'School Integrations'. Default status is 'amber' (Yellow) for new cards. When the user says "create", "set up", or "build the workflow", execute directly. Otherwise, present the plan first and ask for confirmation before creating.
+- **Workstream Management (Agentic)**: You can CREATE, UPDATE, and manage workstream cards and tasks directly. When a user describes a workflow, project plan, or set of tasks, proactively break it down into workstream cards with tasks. IMPORTANT: When creating cards, they are ALWAYS auto-assigned to the creator only. Do NOT try to assign cards to others during creation. If the user wants to assign cards to other team members, use update_workstream_card AFTER creation. Use list_team_members to resolve names to user IDs. When assigning tasks to people, use check_team_availability first to look at their calendars and find suitable time slots. Suggest specific times based on their availability. Available project tags: 'Lightning Strike Event', 'Website', 'K10 App', 'School Integrations'. Default status is 'amber' (Yellow) for new cards. When the user says "create", "set up", or "build the workflow", execute directly. Otherwise, present the plan first and ask for confirmation before creating.
 - **Google Forms**: You can fill and submit pre-configured Google Forms on behalf of the user. You can also parse a Google Form URL to automatically extract its fields and save it as a new pre-configured form. When a user asks to fill a form, first list available forms, then ask each required field ONE AT A TIME as a conversational question. Wait for the user to answer each question before asking the next. After collecting all answers, confirm the details and submit. When a user provides a Google Form URL, use parse_google_form to extract the fields, show the parsed result to the user for confirmation, then save it with save_parsed_google_form.
 
 Your personality:
@@ -1174,7 +1174,7 @@ const WORKSTREAM_TOOLS = [
     type: "function",
     function: {
       name: "create_workstream_card",
-      description: "Create a new workstream card. Returns the created card ID for chaining with add_tasks_to_card. Use list_team_members first to get user IDs for assignees.",
+      description: "Create a new workstream card. The card is automatically assigned ONLY to the creator (current user). To assign to others, use update_workstream_card after creation. Returns the created card ID for chaining with add_tasks_to_card.",
       parameters: {
         type: "object",
         properties: {
@@ -1184,9 +1184,25 @@ const WORKSTREAM_TOOLS = [
           project_tag: { type: "string", enum: ["Lightning Strike Event", "Website", "K10 App", "School Integrations"], description: "Project tag" },
           priority: { type: "string", enum: ["low", "medium", "high", "urgent"], description: "Priority (default: medium)" },
           due_date: { type: "string", description: "Due date in YYYY-MM-DD format" },
-          assignee_user_ids: { type: "array", items: { type: "string" }, description: "Array of user_id UUIDs to assign to this card" },
         },
         required: ["title"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "check_team_availability",
+      description: "Check Google Calendar availability for one or more team members to find free time slots for scheduling tasks. Use this when assigning work to find when people are free. Requires the team member's user_id (get from list_team_members). Returns busy periods and suggested free slots.",
+      parameters: {
+        type: "object",
+        properties: {
+          user_ids: { type: "array", items: { type: "string" }, description: "Array of user_id UUIDs to check calendars for" },
+          date: { type: "string", description: "Date to check in YYYY-MM-DD format (defaults to today)" },
+          days: { type: "number", description: "Number of days to look ahead (default: 3, max: 7)" },
+          task_duration_minutes: { type: "number", description: "How long the task needs in minutes (default: 60). Duncan uses this to find suitable free slots." },
+        },
+        required: ["user_ids"],
       },
     },
   },
@@ -1282,24 +1298,21 @@ async function executeWorkstreamTool(
 
       if (error) throw new Error(`Failed to create card: ${error.message}`);
 
-      // Add assignees
-      if (args.assignee_user_ids?.length > 0) {
-        const assigneeRows = args.assignee_user_ids.map((uid: string) => ({
-          card_id: card.id,
-          user_id: uid,
-        }));
-        await supabaseAdmin.from("workstream_card_assignees").insert(assigneeRows);
-      }
+      // Auto-assign only the creator
+      await supabaseAdmin.from("workstream_card_assignees").insert({
+        card_id: card.id,
+        user_id: userId,
+      });
 
       // Log activity
       await supabaseAdmin.from("workstream_activity").insert({
         card_id: card.id,
         user_id: userId,
         action: "created",
-        details: { title: card.title, created_by_duncan: true },
+        details: { title: card.title, created_by_duncan: true, auto_assigned_to_creator: true },
       });
 
-      return { success: true, card_id: card.id, title: card.title, status: card.status, project_tag: card.project_tag };
+      return { success: true, card_id: card.id, title: card.title, status: card.status, project_tag: card.project_tag, assigned_to: "creator (you)" };
     }
 
     case "add_tasks_to_card": {
@@ -1387,6 +1400,156 @@ async function executeWorkstreamTool(
       });
 
       return { success: true, card_id, updated_fields: Object.keys(updateData) };
+    }
+
+    case "check_team_availability": {
+      const { user_ids, date, days: daysAhead, task_duration_minutes } = args;
+      const startDate = date ? new Date(date + "T00:00:00Z") : new Date();
+      startDate.setUTCHours(0, 0, 0, 0);
+      const numDays = Math.min(daysAhead || 3, 7);
+      const endDate = new Date(startDate.getTime() + numDays * 24 * 60 * 60 * 1000);
+      const taskDuration = task_duration_minutes || 60;
+
+      const clientId = Deno.env.get("GOOGLE_CALENDAR_CLIENT_ID");
+      const clientSecret = Deno.env.get("GOOGLE_CALENDAR_CLIENT_SECRET");
+
+      if (!clientId || !clientSecret) {
+        return { error: "Google Calendar credentials not configured. Cannot check availability." };
+      }
+
+      const results: any[] = [];
+
+      for (const uid of user_ids) {
+        // Get profile name
+        const { data: profile } = await supabaseAdmin
+          .from("profiles")
+          .select("display_name")
+          .eq("user_id", uid)
+          .single();
+
+        const memberName = profile?.display_name || uid;
+
+        // Get their calendar token
+        const { data: tokenData } = await supabaseAdmin
+          .from("google_calendar_tokens")
+          .select("*")
+          .eq("user_id", uid)
+          .single();
+
+        if (!tokenData) {
+          results.push({ user_id: uid, name: memberName, calendar_connected: false, note: "Calendar not connected — cannot check availability" });
+          continue;
+        }
+
+        // Refresh token if expired
+        let accessToken = tokenData.access_token;
+        if (new Date(tokenData.token_expiry) <= new Date()) {
+          const refreshResp = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              client_id: clientId,
+              client_secret: clientSecret,
+              refresh_token: tokenData.refresh_token,
+              grant_type: "refresh_token",
+            }),
+          });
+          if (!refreshResp.ok) {
+            results.push({ user_id: uid, name: memberName, calendar_connected: true, error: "Token refresh failed" });
+            continue;
+          }
+          const newTokens = await refreshResp.json();
+          accessToken = newTokens.access_token;
+          await supabaseAdmin.from("google_calendar_tokens").update({
+            access_token: accessToken,
+            token_expiry: new Date(Date.now() + newTokens.expires_in * 1000).toISOString(),
+          }).eq("user_id", uid);
+        }
+
+        // Fetch events
+        const eventsUrl = new URL(`${GOOGLE_CALENDAR_API}/calendars/primary/events`);
+        eventsUrl.searchParams.set("timeMin", startDate.toISOString());
+        eventsUrl.searchParams.set("timeMax", endDate.toISOString());
+        eventsUrl.searchParams.set("singleEvents", "true");
+        eventsUrl.searchParams.set("orderBy", "startTime");
+        eventsUrl.searchParams.set("maxResults", "100");
+
+        const eventsResp = await fetch(eventsUrl.toString(), {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+
+        if (!eventsResp.ok) {
+          results.push({ user_id: uid, name: memberName, calendar_connected: true, error: "Failed to fetch calendar events" });
+          continue;
+        }
+
+        const eventsData = await eventsResp.json();
+        const events = (eventsData.items || [])
+          .filter((e: any) => e.start?.dateTime && e.end?.dateTime)
+          .map((e: any) => ({
+            title: e.summary || "Busy",
+            start: e.start.dateTime,
+            end: e.end.dateTime,
+          }));
+
+        // Find free slots (working hours 9am-6pm)
+        const freeSlots: any[] = [];
+        for (let d = 0; d < numDays; d++) {
+          const dayStart = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
+          const workStart = new Date(dayStart);
+          workStart.setUTCHours(9, 0, 0, 0);
+          const workEnd = new Date(dayStart);
+          workEnd.setUTCHours(18, 0, 0, 0);
+          
+          // Skip weekends
+          const dayOfWeek = workStart.getDay();
+          if (dayOfWeek === 0 || dayOfWeek === 6) continue;
+
+          // Get busy periods for this day
+          const dayEvents = events.filter((e: any) => {
+            const eStart = new Date(e.start);
+            const eEnd = new Date(e.end);
+            return eStart < workEnd && eEnd > workStart;
+          }).sort((a: any, b: any) => new Date(a.start).getTime() - new Date(b.start).getTime());
+
+          // Find gaps
+          let cursor = workStart.getTime();
+          for (const evt of dayEvents) {
+            const evtStart = Math.max(new Date(evt.start).getTime(), workStart.getTime());
+            const evtEnd = Math.min(new Date(evt.end).getTime(), workEnd.getTime());
+            if (evtStart > cursor && (evtStart - cursor) >= taskDuration * 60 * 1000) {
+              freeSlots.push({
+                date: workStart.toISOString().split("T")[0],
+                start: new Date(cursor).toISOString(),
+                end: new Date(evtStart).toISOString(),
+                duration_minutes: Math.round((evtStart - cursor) / 60000),
+              });
+            }
+            cursor = Math.max(cursor, evtEnd);
+          }
+          // Gap after last event
+          if (cursor < workEnd.getTime() && (workEnd.getTime() - cursor) >= taskDuration * 60 * 1000) {
+            freeSlots.push({
+              date: workStart.toISOString().split("T")[0],
+              start: new Date(cursor).toISOString(),
+              end: workEnd.toISOString(),
+              duration_minutes: Math.round((workEnd.getTime() - cursor) / 60000),
+            });
+          }
+        }
+
+        results.push({
+          user_id: uid,
+          name: memberName,
+          calendar_connected: true,
+          busy_events_count: events.length,
+          busy_events: events.slice(0, 15), // Cap to avoid token overflow
+          free_slots: freeSlots,
+          suggested_slot: freeSlots.length > 0 ? freeSlots[0] : null,
+        });
+      }
+
+      return { availability: results, checked_from: startDate.toISOString(), checked_to: endDate.toISOString(), task_duration_minutes: taskDuration };
     }
 
     default:
@@ -3097,7 +3260,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
       const xeroToolNames = ["list_xero_invoices", "get_xero_invoice", "approve_xero_invoice_payment", "search_xero_contacts", "create_xero_invoice", "list_xero_bank_accounts", "create_xero_expense"];
       const gmailToolNames = ["list_gmail_emails", "search_gmail", "read_gmail_email", "send_gmail_email"];
       const analyticsToolNames = ["get_workstream_analytics", "get_recruitment_analytics", "get_team_activity_analytics", "get_operational_summary"];
-      const workstreamMgmtToolNames = ["list_team_members", "create_workstream_card", "add_tasks_to_card", "update_workstream_card"];
+      const workstreamMgmtToolNames = ["list_team_members", "create_workstream_card", "add_tasks_to_card", "update_workstream_card", "check_team_availability"];
       const toolResults: any[] = [];
 
       for (const tc of toolCalls) {
