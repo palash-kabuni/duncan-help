@@ -29,6 +29,7 @@ Your capabilities:
 - **Gmail Access**: You have access to the user's personal Gmail inbox. You can list recent emails, search emails by query (sender, subject, date, keywords), read full email content, and send emails on behalf of the user. Use these tools when the user asks about their emails, wants to find a specific email, read an email, or send a new email. When sending emails, collect to, subject, and body; optionally cc and bcc. Always confirm before sending. Present email lists clearly with sender, subject, date, and unread status.
 - **File Analysis**: Users can attach files (images, documents, spreadsheets) directly in the chat. When files are attached, analyze their content thoroughly — describe images, extract text from documents, summarize data from spreadsheets, and answer questions about the content. Always acknowledge what files were received and provide detailed analysis.
 - **App Analytics**: You have access to internal app analytics — workstream cards, tasks, recruitment pipeline, purchase orders, meetings, issues, and team activity. Use the analytics tools when users ask about team performance, workload distribution, project health, pipeline status, overdue items, or any operational metrics. Present data with clear tables, counts, and summaries. Use the RYG (Red/Yellow/Green) framework for status reporting.
+- **Workstream Management (Agentic)**: You can CREATE, UPDATE, and manage workstream cards and tasks directly. When a user describes a workflow, project plan, or set of tasks, proactively break it down into workstream cards with tasks. Use list_team_members first to resolve names to user IDs before assigning. Available project tags: 'Lightning Strike Event', 'Website', 'K10 App', 'School Integrations'. Default status is 'amber' (Yellow) for new cards. When the user says "create", "set up", or "build the workflow", execute directly. Otherwise, present the plan first and ask for confirmation before creating.
 - **Google Forms**: You can fill and submit pre-configured Google Forms on behalf of the user. You can also parse a Google Form URL to automatically extract its fields and save it as a new pre-configured form. When a user asks to fill a form, first list available forms, then ask each required field ONE AT A TIME as a conversational question. Wait for the user to answer each question before asking the next. After collecting all answers, confirm the details and submit. When a user provides a Google Form URL, use parse_google_form to extract the fields, show the parsed result to the user for confirmation, then save it with save_parsed_google_form.
 
 Your personality:
@@ -1150,6 +1151,246 @@ async function executeAnalyticsTool(
 
     default:
       throw new Error(`Unknown analytics tool: ${toolName}`);
+  }
+}
+
+// ==================== WORKSTREAM MANAGEMENT TOOLS ====================
+const WORKSTREAM_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "list_team_members",
+      description: "Look up available team members. Returns profile IDs, display names, departments, and roles. Use this FIRST to resolve names to user IDs before assigning cards or tasks.",
+      parameters: {
+        type: "object",
+        properties: {
+          name_filter: { type: "string", description: "Optional name to search for (fuzzy match)" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_workstream_card",
+      description: "Create a new workstream card. Returns the created card ID for chaining with add_tasks_to_card. Use list_team_members first to get user IDs for assignees.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Card title" },
+          description: { type: "string", description: "Card description" },
+          status: { type: "string", enum: ["red", "amber", "green", "done"], description: "Card status (default: amber)" },
+          project_tag: { type: "string", enum: ["Lightning Strike Event", "Website", "K10 App", "School Integrations"], description: "Project tag" },
+          priority: { type: "string", enum: ["low", "medium", "high", "urgent"], description: "Priority (default: medium)" },
+          due_date: { type: "string", description: "Due date in YYYY-MM-DD format" },
+          assignee_user_ids: { type: "array", items: { type: "string" }, description: "Array of user_id UUIDs to assign to this card" },
+        },
+        required: ["title"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "add_tasks_to_card",
+      description: "Add multiple tasks/checklist items to an existing workstream card. Call after create_workstream_card with the returned card_id.",
+      parameters: {
+        type: "object",
+        properties: {
+          card_id: { type: "string", description: "The card ID to add tasks to" },
+          tasks: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string", description: "Task title" },
+                description: { type: "string", description: "Task description" },
+                due_date: { type: "string", description: "Due date in YYYY-MM-DD" },
+                assignee_user_ids: { type: "array", items: { type: "string" }, description: "User IDs to assign to this task" },
+              },
+              required: ["title"],
+            },
+            description: "Array of tasks to create",
+          },
+        },
+        required: ["card_id", "tasks"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_workstream_card",
+      description: "Update an existing workstream card's status, description, project tag, due date, or assignees.",
+      parameters: {
+        type: "object",
+        properties: {
+          card_id: { type: "string", description: "The card ID to update" },
+          title: { type: "string", description: "New title" },
+          description: { type: "string", description: "New description" },
+          status: { type: "string", enum: ["red", "amber", "green", "done"], description: "New status" },
+          project_tag: { type: "string", enum: ["Lightning Strike Event", "Website", "K10 App", "School Integrations"], description: "New project tag" },
+          due_date: { type: "string", description: "New due date in YYYY-MM-DD" },
+          assignee_user_ids: { type: "array", items: { type: "string" }, description: "Replace assignees with these user IDs" },
+        },
+        required: ["card_id"],
+      },
+    },
+  },
+];
+
+async function executeWorkstreamTool(
+  toolName: string,
+  args: any,
+  supabaseAdmin: any,
+  userId: string
+): Promise<any> {
+  switch (toolName) {
+    case "list_team_members": {
+      let query = supabaseAdmin
+        .from("profiles")
+        .select("user_id, display_name, department, role_title")
+        .eq("approval_status", "approved");
+
+      if (args.name_filter) {
+        query = query.ilike("display_name", `%${args.name_filter}%`);
+      }
+
+      const { data, error } = await query.order("display_name");
+      if (error) throw new Error(`Failed to list team members: ${error.message}`);
+      return { members: data || [], count: (data || []).length };
+    }
+
+    case "create_workstream_card": {
+      const cardData: any = {
+        title: args.title,
+        description: args.description || "",
+        status: args.status || "amber",
+        project_tag: args.project_tag || null,
+        priority: args.priority || "medium",
+        due_date: args.due_date || null,
+        created_by: userId,
+        owner_id: userId,
+      };
+
+      const { data: card, error } = await supabaseAdmin
+        .from("workstream_cards")
+        .insert(cardData)
+        .select("id, title, status, project_tag")
+        .single();
+
+      if (error) throw new Error(`Failed to create card: ${error.message}`);
+
+      // Add assignees
+      if (args.assignee_user_ids?.length > 0) {
+        const assigneeRows = args.assignee_user_ids.map((uid: string) => ({
+          card_id: card.id,
+          user_id: uid,
+        }));
+        await supabaseAdmin.from("workstream_card_assignees").insert(assigneeRows);
+      }
+
+      // Log activity
+      await supabaseAdmin.from("workstream_activity").insert({
+        card_id: card.id,
+        user_id: userId,
+        action: "created",
+        details: { title: card.title, created_by_duncan: true },
+      });
+
+      return { success: true, card_id: card.id, title: card.title, status: card.status, project_tag: card.project_tag };
+    }
+
+    case "add_tasks_to_card": {
+      const { card_id, tasks } = args;
+      const createdTasks: any[] = [];
+
+      for (let i = 0; i < tasks.length; i++) {
+        const t = tasks[i];
+        const { data: task, error } = await supabaseAdmin
+          .from("workstream_tasks")
+          .insert({
+            card_id,
+            title: t.title,
+            description: t.description || "",
+            due_date: t.due_date || null,
+            sort_order: i,
+            completed: false,
+          })
+          .select("id, title")
+          .single();
+
+        if (error) {
+          console.error(`Failed to create task "${t.title}":`, error.message);
+          continue;
+        }
+
+        // Add task assignees
+        if (t.assignee_user_ids?.length > 0) {
+          const taskAssigneeRows = t.assignee_user_ids.map((uid: string) => ({
+            task_id: task.id,
+            user_id: uid,
+          }));
+          await supabaseAdmin.from("workstream_task_assignees").insert(taskAssigneeRows);
+        }
+
+        createdTasks.push({ id: task.id, title: task.title });
+      }
+
+      // Log activity
+      await supabaseAdmin.from("workstream_activity").insert({
+        card_id,
+        user_id: userId,
+        action: "tasks_added",
+        details: { task_count: createdTasks.length, created_by_duncan: true },
+      });
+
+      return { success: true, card_id, tasks_created: createdTasks.length, tasks: createdTasks };
+    }
+
+    case "update_workstream_card": {
+      const { card_id, assignee_user_ids, ...updates } = args;
+      const updateData: any = {};
+      if (updates.title) updateData.title = updates.title;
+      if (updates.description) updateData.description = updates.description;
+      if (updates.status) updateData.status = updates.status;
+      if (updates.project_tag) updateData.project_tag = updates.project_tag;
+      if (updates.due_date) updateData.due_date = updates.due_date;
+
+      if (Object.keys(updateData).length > 0) {
+        const { error } = await supabaseAdmin
+          .from("workstream_cards")
+          .update(updateData)
+          .eq("id", card_id);
+        if (error) throw new Error(`Failed to update card: ${error.message}`);
+      }
+
+      // Replace assignees if provided
+      if (assignee_user_ids) {
+        await supabaseAdmin.from("workstream_card_assignees").delete().eq("card_id", card_id);
+        if (assignee_user_ids.length > 0) {
+          const assigneeRows = assignee_user_ids.map((uid: string) => ({
+            card_id,
+            user_id: uid,
+          }));
+          await supabaseAdmin.from("workstream_card_assignees").insert(assigneeRows);
+        }
+      }
+
+      // Log activity
+      await supabaseAdmin.from("workstream_activity").insert({
+        card_id,
+        user_id: userId,
+        action: "updated",
+        details: { updates: Object.keys(updateData), updated_by_duncan: true },
+      });
+
+      return { success: true, card_id, updated_fields: Object.keys(updateData) };
+    }
+
+    default:
+      throw new Error(`Unknown workstream tool: ${toolName}`);
   }
 }
 
@@ -2707,6 +2948,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
     tools.push(...GMAIL_TOOLS);
     // Analytics tools always available
     tools.push(...ANALYTICS_TOOLS);
+    // Workstream management tools always available
+    tools.push(...WORKSTREAM_TOOLS);
     if (tools.length > 0) {
       requestBody.tools = tools;
     }
@@ -2854,6 +3097,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
       const xeroToolNames = ["list_xero_invoices", "get_xero_invoice", "approve_xero_invoice_payment", "search_xero_contacts", "create_xero_invoice", "list_xero_bank_accounts", "create_xero_expense"];
       const gmailToolNames = ["list_gmail_emails", "search_gmail", "read_gmail_email", "send_gmail_email"];
       const analyticsToolNames = ["get_workstream_analytics", "get_recruitment_analytics", "get_team_activity_analytics", "get_operational_summary"];
+      const workstreamMgmtToolNames = ["list_team_members", "create_workstream_card", "add_tasks_to_card", "update_workstream_card"];
       const toolResults: any[] = [];
 
       for (const tc of toolCalls) {
@@ -2900,6 +3144,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
               result = await executeGmailTool(tc.function.name, args, supabaseUrl, authHeader || "");
           } else if (analyticsToolNames.includes(tc.function.name)) {
               result = await executeAnalyticsTool(tc.function.name, args, supabaseAdmin);
+          } else if (workstreamMgmtToolNames.includes(tc.function.name)) {
+              result = await executeWorkstreamTool(tc.function.name, args, supabaseAdmin, userId || "");
           } else {
           }
           
