@@ -24,9 +24,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      (event, session) => {
         setSession(session);
         setLoading(false);
+        if (event === "SIGNED_IN") {
+          sessionStorage.removeItem("duncan_briefing_done");
+        }
+        if (event === "SIGNED_OUT") {
+          sessionStorage.removeItem("duncan_briefing_done");
+        }
       }
     );
 

@@ -110,7 +110,7 @@ const MessageBubble = ({
 const Index = () => {
   const { messages, isLoading, send, sendBriefing, clearMessages, setMessages } = useNormanChat();
   const navigate = useNavigate();
-  const briefingTriggered = useRef(false);
+  const briefingTriggered = useRef(sessionStorage.getItem("duncan_briefing_done") === "true");
   const chatOps = useGeneralChats();
 
   const [downloadingUrl, setDownloadingUrl] = useState<string | null>(null);
@@ -139,6 +139,7 @@ const Index = () => {
     const fetchBriefing = async (accessToken: string) => {
       if (briefingTriggered.current) return;
       briefingTriggered.current = true;
+      sessionStorage.setItem("duncan_briefing_done", "true");
 
       try {
         console.log("Duncan: Fetching daily briefing...");
