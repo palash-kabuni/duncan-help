@@ -139,6 +139,7 @@ const Index = () => {
     const fetchBriefing = async (accessToken: string) => {
       if (briefingTriggered.current) return;
       briefingTriggered.current = true;
+      sessionStorage.setItem("duncan_briefing_done", "true");
 
       try {
         console.log("Duncan: Fetching daily briefing...");
