@@ -855,7 +855,305 @@ const GMAIL_TOOLS = [
   },
 ];
 
-async function executeXeroTool(
+const ANALYTICS_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "get_workstream_analytics",
+      description: "Get analytics for workstream cards and tasks. Returns card counts by status (red/amber/green/done), overdue tasks, task completion rates, and assignee workload. Use when users ask about project health, team workload, workstream status, or card/task metrics.",
+      parameters: {
+        type: "object",
+        properties: {
+          project_tag: { type: "string", description: "Filter by project tag (e.g. 'Lightning Strike Event', 'Website', 'K10 App', 'School Integrations')" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_recruitment_analytics",
+      description: "Get recruitment pipeline analytics. Returns candidate counts by status, average scores, job role breakdown, and Hireflix interview stats. Use when users ask about hiring pipeline, recruitment progress, or candidate metrics.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_team_activity_analytics",
+      description: "Get recent team activity across workstreams. Returns activity log, most active users, recent comments, and card creation trends. Use when users ask about team activity, who's been active, or recent changes.",
+      parameters: {
+        type: "object",
+        properties: {
+          days: { type: "number", description: "Number of days to look back (default 7)" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_operational_summary",
+      description: "Get a comprehensive operational summary across all systems: workstream health, open POs, recruitment pipeline, recent meetings, outstanding issues, and overdue items. Use when users ask for an overview, dashboard, or operational status report.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+];
+
+async function executeAnalyticsTool(
+  toolName: string,
+  args: any,
+  supabaseAdmin: any
+): Promise<any> {
+  switch (toolName) {
+    case "get_workstream_analytics": {
+      // Cards by status
+      let cardsQuery = supabaseAdmin
+        .from("workstream_cards")
+        .select("id, title, status, project_tag, due_date, created_at, archived_at, owner_id")
+        .is("archived_at", null);
+      if (args.project_tag) cardsQuery = cardsQuery.eq("project_tag", args.project_tag);
+      const { data: cards, error: cardsErr } = await cardsQuery;
+      if (cardsErr) throw new Error(`Failed to fetch cards: ${cardsErr.message}`);
+
+      const statusCounts: Record<string, number> = { red: 0, amber: 0, green: 0, done: 0 };
+      for (const c of cards || []) {
+        statusCounts[c.status] = (statusCounts[c.status] || 0) + 1;
+      }
+
+      // Tasks
+      const cardIds = (cards || []).map((c: any) => c.id);
+      let taskData: any[] = [];
+      if (cardIds.length > 0) {
+        const { data: tasks } = await supabaseAdmin
+          .from("workstream_tasks")
+          .select("id, completed, due_date, card_id")
+          .in("card_id", cardIds);
+        taskData = tasks || [];
+      }
+
+      const totalTasks = taskData.length;
+      const completedTasks = taskData.filter((t: any) => t.completed).length;
+      const now = new Date().toISOString();
+      const overdueTasks = taskData.filter((t: any) => !t.completed && t.due_date && t.due_date < now).length;
+
+      // Assignee workload
+      let assigneeData: any[] = [];
+      if (cardIds.length > 0) {
+        const { data: assignees } = await supabaseAdmin
+          .from("workstream_card_assignees")
+          .select("user_id, card_id")
+          .in("card_id", cardIds);
+        assigneeData = assignees || [];
+      }
+
+      const workload: Record<string, number> = {};
+      for (const a of assigneeData) {
+        workload[a.user_id] = (workload[a.user_id] || 0) + 1;
+      }
+
+      // Get display names for assignees
+      const userIds = Object.keys(workload);
+      let userNames: Record<string, string> = {};
+      if (userIds.length > 0) {
+        const { data: profiles } = await supabaseAdmin
+          .from("profiles")
+          .select("user_id, display_name")
+          .in("user_id", userIds);
+        for (const p of profiles || []) {
+          userNames[p.user_id] = p.display_name || "Unknown";
+        }
+      }
+
+      return {
+        total_cards: (cards || []).length,
+        cards_by_status: statusCounts,
+        tasks: { total: totalTasks, completed: completedTasks, overdue: overdueTasks, completion_rate: totalTasks > 0 ? `${Math.round((completedTasks / totalTasks) * 100)}%` : "N/A" },
+        assignee_workload: Object.entries(workload).map(([uid, count]) => ({ name: userNames[uid] || uid, cards_assigned: count })),
+        filter: args.project_tag || "All projects",
+      };
+    }
+
+    case "get_recruitment_analytics": {
+      const { data: candidates } = await supabaseAdmin
+        .from("candidates")
+        .select("id, status, competency_score, values_score, total_score, job_role_id, hireflix_status");
+
+      const { data: jobRoles } = await supabaseAdmin
+        .from("job_roles")
+        .select("id, title, status");
+
+      const statusCounts: Record<string, number> = {};
+      let totalScore = 0, scoredCount = 0;
+      const hireflixCounts: Record<string, number> = {};
+      const roleBreakdown: Record<string, number> = {};
+
+      for (const c of candidates || []) {
+        statusCounts[c.status] = (statusCounts[c.status] || 0) + 1;
+        if (c.total_score) { totalScore += Number(c.total_score); scoredCount++; }
+        if (c.hireflix_status) { hireflixCounts[c.hireflix_status] = (hireflixCounts[c.hireflix_status] || 0) + 1; }
+        if (c.job_role_id) { roleBreakdown[c.job_role_id] = (roleBreakdown[c.job_role_id] || 0) + 1; }
+      }
+
+      const roleMap: Record<string, string> = {};
+      for (const r of jobRoles || []) { roleMap[r.id] = r.title; }
+
+      return {
+        total_candidates: (candidates || []).length,
+        candidates_by_status: statusCounts,
+        average_score: scoredCount > 0 ? (totalScore / scoredCount).toFixed(1) : "N/A",
+        hireflix_interviews: hireflixCounts,
+        active_job_roles: (jobRoles || []).filter((r: any) => r.status === "active").length,
+        total_job_roles: (jobRoles || []).length,
+        candidates_per_role: Object.entries(roleBreakdown).map(([roleId, count]) => ({ role: roleMap[roleId] || roleId, candidates: count })),
+      };
+    }
+
+    case "get_team_activity_analytics": {
+      const days = args.days || 7;
+      const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+      const { data: activity } = await supabaseAdmin
+        .from("workstream_activity")
+        .select("id, action, user_id, card_id, created_at, details")
+        .gte("created_at", since)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      const { data: comments } = await supabaseAdmin
+        .from("workstream_comments")
+        .select("id, user_id, card_id, created_at")
+        .gte("created_at", since)
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      // User activity counts
+      const userActivity: Record<string, number> = {};
+      for (const a of activity || []) {
+        userActivity[a.user_id] = (userActivity[a.user_id] || 0) + 1;
+      }
+
+      // Get names
+      const userIds = [...new Set([...Object.keys(userActivity), ...(comments || []).map((c: any) => c.user_id)])];
+      let userNames: Record<string, string> = {};
+      if (userIds.length > 0) {
+        const { data: profiles } = await supabaseAdmin
+          .from("profiles")
+          .select("user_id, display_name")
+          .in("user_id", userIds);
+        for (const p of profiles || []) {
+          userNames[p.user_id] = p.display_name || "Unknown";
+        }
+      }
+
+      // Action breakdown
+      const actionCounts: Record<string, number> = {};
+      for (const a of activity || []) {
+        actionCounts[a.action] = (actionCounts[a.action] || 0) + 1;
+      }
+
+      return {
+        period: `Last ${days} days`,
+        total_activities: (activity || []).length,
+        total_comments: (comments || []).length,
+        action_breakdown: actionCounts,
+        most_active_users: Object.entries(userActivity)
+          .sort(([, a], [, b]) => (b as number) - (a as number))
+          .slice(0, 10)
+          .map(([uid, count]) => ({ name: userNames[uid] || uid, actions: count })),
+        recent_activity: (activity || []).slice(0, 10).map((a: any) => ({
+          action: a.action,
+          user: userNames[a.user_id] || a.user_id,
+          time: a.created_at,
+        })),
+      };
+    }
+
+    case "get_operational_summary": {
+      // Workstream cards
+      const { data: cards } = await supabaseAdmin
+        .from("workstream_cards")
+        .select("id, status, project_tag")
+        .is("archived_at", null);
+
+      const cardStatus: Record<string, number> = {};
+      for (const c of cards || []) { cardStatus[c.status] = (cardStatus[c.status] || 0) + 1; }
+
+      // Purchase orders
+      const { data: pos } = await supabaseAdmin
+        .from("purchase_orders")
+        .select("id, status, total_amount")
+        .in("status", ["draft", "pending_approval"]);
+
+      // Candidates
+      const { data: candidates } = await supabaseAdmin
+        .from("candidates")
+        .select("id, status")
+        .in("status", ["pending", "shortlisted", "interview"]);
+
+      const candidateStatus: Record<string, number> = {};
+      for (const c of candidates || []) { candidateStatus[c.status] = (candidateStatus[c.status] || 0) + 1; }
+
+      // Recent meetings
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: meetings } = await supabaseAdmin
+        .from("meetings")
+        .select("id, title, status")
+        .gte("created_at", weekAgo);
+
+      // Open issues
+      const { data: issues } = await supabaseAdmin
+        .from("issues")
+        .select("id, severity")
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      const issueSeverity: Record<string, number> = {};
+      for (const i of issues || []) { issueSeverity[i.severity] = (issueSeverity[i.severity] || 0) + 1; }
+
+      // Overdue tasks
+      const now = new Date().toISOString();
+      const { data: overdueTasks } = await supabaseAdmin
+        .from("workstream_tasks")
+        .select("id, title, due_date")
+        .eq("completed", false)
+        .lt("due_date", now)
+        .not("due_date", "is", null)
+        .limit(20);
+
+      return {
+        workstream: {
+          total_active_cards: (cards || []).length,
+          by_status: cardStatus,
+          overdue_tasks: (overdueTasks || []).length,
+          overdue_task_list: (overdueTasks || []).slice(0, 5).map((t: any) => ({ title: t.title, due: t.due_date })),
+        },
+        purchase_orders: {
+          pending_count: (pos || []).length,
+          pending_total: (pos || []).reduce((sum: number, p: any) => sum + Number(p.total_amount || 0), 0).toFixed(2),
+        },
+        recruitment: {
+          active_candidates: (candidates || []).length,
+          by_status: candidateStatus,
+        },
+        meetings: {
+          recent_count: (meetings || []).length,
+        },
+        issues: {
+          total_recent: (issues || []).length,
+          by_severity: issueSeverity,
+        },
+      };
+    }
+
+    default:
+      throw new Error(`Unknown analytics tool: ${toolName}`);
+  }
+}
+
+
   toolName: string,
   args: any,
   supabaseAdmin: any,
