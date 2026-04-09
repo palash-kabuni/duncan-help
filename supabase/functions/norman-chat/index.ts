@@ -2705,6 +2705,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
     tools.push(...XERO_TOOLS);
     // Gmail tools always available (connection checked at execution time)
     tools.push(...GMAIL_TOOLS);
+    // Analytics tools always available
+    tools.push(...ANALYTICS_TOOLS);
     if (tools.length > 0) {
       requestBody.tools = tools;
     }
@@ -2895,6 +2897,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
               result = await executeXeroTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "", userId || "");
           } else if (gmailToolNames.includes(tc.function.name)) {
               result = await executeGmailTool(tc.function.name, args, supabaseUrl, authHeader || "");
+          } else if (analyticsToolNames.includes(tc.function.name)) {
+              result = await executeAnalyticsTool(tc.function.name, args, supabaseAdmin);
           } else {
           }
           
