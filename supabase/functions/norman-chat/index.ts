@@ -1174,7 +1174,7 @@ const WORKSTREAM_TOOLS = [
     type: "function",
     function: {
       name: "create_workstream_card",
-      description: "Create a new workstream card. Returns the created card ID for chaining with add_tasks_to_card. Use list_team_members first to get user IDs for assignees.",
+      description: "Create a new workstream card. The card is automatically assigned ONLY to the creator (current user). To assign to others, use update_workstream_card after creation. Returns the created card ID for chaining with add_tasks_to_card.",
       parameters: {
         type: "object",
         properties: {
@@ -1184,9 +1184,25 @@ const WORKSTREAM_TOOLS = [
           project_tag: { type: "string", enum: ["Lightning Strike Event", "Website", "K10 App", "School Integrations"], description: "Project tag" },
           priority: { type: "string", enum: ["low", "medium", "high", "urgent"], description: "Priority (default: medium)" },
           due_date: { type: "string", description: "Due date in YYYY-MM-DD format" },
-          assignee_user_ids: { type: "array", items: { type: "string" }, description: "Array of user_id UUIDs to assign to this card" },
         },
         required: ["title"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "check_team_availability",
+      description: "Check Google Calendar availability for one or more team members to find free time slots for scheduling tasks. Use this when assigning work to find when people are free. Requires the team member's user_id (get from list_team_members). Returns busy periods and suggested free slots.",
+      parameters: {
+        type: "object",
+        properties: {
+          user_ids: { type: "array", items: { type: "string" }, description: "Array of user_id UUIDs to check calendars for" },
+          date: { type: "string", description: "Date to check in YYYY-MM-DD format (defaults to today)" },
+          days: { type: "number", description: "Number of days to look ahead (default: 3, max: 7)" },
+          task_duration_minutes: { type: "number", description: "How long the task needs in minutes (default: 60). Duncan uses this to find suitable free slots." },
+        },
+        required: ["user_ids"],
       },
     },
   },
