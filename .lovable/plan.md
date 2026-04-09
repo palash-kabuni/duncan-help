@@ -1,60 +1,56 @@
 
 
-## Expand Daily Briefing to Scan All Systems
+## Plan: Agentic Workstream Creation via Duncan Chat
 
-### Current Coverage (4 sources)
-- Meetings + action items (last 48h)
-- Azure DevOps work items assigned to user
-- Xero outstanding invoices
-- Basecamp to-dos
+### What This Enables
+Users can describe a workflow or project to Duncan in natural language (e.g., *"Create the workflow for the Lightning Strike Event with cards for venue booking, marketing, and logistics"*), and Duncan will autonomously create the workstream cards, set statuses, assign people, add tasks, and organize everything under the correct project tag.
 
-### Missing Sources to Add
+### Architecture
 
-1. **Google Calendar** — Today's upcoming events so the user knows their schedule
-2. **Purchase Orders** — POs the user submitted (pending/approved) and POs awaiting their approval
-3. **Issues/Feedback** — Any issues submitted by or relevant to the user
-4. **Candidates/Recruitment** — Recent candidate updates for jobs the user created
-5. **NDA Submissions** — Any NDAs the user submitted and their status
-6. **Basecamp Messages** — Recent messages mentioning the user (not just to-dos)
-7. **Wiki Updates** — Recently updated wiki pages relevant to the user's department
-8. **Xero Contacts with Overdue Balances** — Flag any contacts with overdue amounts
+Duncan already has a multi-round tool-calling loop (up to 5 rounds) in `norman-chat`. We add new **write tools** for workstreams alongside the existing read-only analytics tools.
 
-### Implementation
+### New Tools to Add
 
-**File: `supabase/functions/daily-briefing/index.ts`**
+| Tool | Purpose |
+|------|---------|
+| `create_workstream_card` | Create a card with title, description, status, project_tag, due_date, assignees (by name) |
+| `add_tasks_to_card` | Add multiple tasks/checklist items to a card in one call |
+| `update_workstream_card` | Update status, description, assignees, or due_date of an existing card |
+| `list_team_members` | Look up available team members (names → user IDs) for assignment |
 
-Add 5 new parallel queries to the existing `Promise.all`:
-- `google_calendar_tokens` → if user has a token, call `google-calendar-api` to fetch today's events
-- `purchase_orders` where `requester_id = user.id` or pending approval in user's department (last 7 days)
-- `issues` where `user_id = user.id` (recent, last 7 days)
-- `candidates` joined with `job_roles` where `created_by = user.id` and recently updated
-- `nda_submissions` where `submitter_id = user.id` and status != 'completed'
+### System Prompt Update
 
-Also expand Basecamp fetching to include recent messages (via message boards) that mention the user's name.
+Add instructions telling Duncan:
+- When a user describes a workflow, project plan, or set of tasks, proactively break it down into workstream cards and tasks
+- Use `list_team_members` first to resolve names to IDs before assigning
+- Default project_tag from the fixed list: `Lightning Strike Event`, `Website`, `K10 App`, `School Integrations`
+- Default status to `amber` (Yellow) for new cards unless specified
+- Confirm the plan with the user before creating, or create directly if the user says "create" / "set up"
 
-Add all new data sections to the briefing JSON response:
-```
-calendar: { todays_events: [...] }
-purchase_orders: { my_pending: [...], awaiting_my_approval: [...] }
-issues: { my_recent: [...] }
-recruitment: { active_candidates: [...] }
-ndas: { pending: [...] }
-basecamp: { my_todos: [...], messages_mentioning_me: [...] }
-```
+### Implementation Steps
 
-**File: `supabase/functions/norman-chat/index.ts`**
+1. **Add `WORKSTREAM_TOOLS` array** in `norman-chat/index.ts` — tool definitions for `create_workstream_card`, `add_tasks_to_card`, `update_workstream_card`, and `list_team_members`
 
-Update the briefing mode system prompt to include new sections:
-- 📅 Today's Calendar
-- 📋 Purchase Orders needing attention
-- 🐛 Issues & Feedback
-- 👥 Recruitment updates
-- 📝 NDA status
-- 💬 Basecamp messages mentioning the user
+2. **Add `executeWorkstreamTool` function** — handler that uses `supabaseAdmin` to:
+   - Insert into `workstream_cards`, `workstream_card_assignees`, `workstream_tasks`, `workstream_activity`
+   - Resolve user names to IDs via profiles table lookup
+   - Return created card IDs so Duncan can chain task creation
+
+3. **Register tools** in the tools assembly block (~line 2709) and the execution router (~line 2856)
+
+4. **Update system prompt** (~line 28) with agentic workstream creation instructions
 
 ### Technical Details
-- All new queries run in parallel via `Promise.all` — no performance impact on existing queries
-- Google Calendar fetch reuses the existing `google-calendar-api` edge function proxy
-- User matching uses `user.id` for DB records and `displayName` for text-based matching (Basecamp messages, meeting action items)
-- Graceful fallback: if any source returns no data or errors, it's reported as "No updates" rather than failing the whole briefing
+
+- **File changed**: `supabase/functions/norman-chat/index.ts` only
+- **No DB migrations needed** — all tables already exist
+- **No RLS concerns** — edge function uses `supabaseAdmin` (service role)
+- **Name resolution**: fuzzy match on `profiles.display_name` (case-insensitive ILIKE) so users can say "assign to Palash" without knowing IDs
+- **Batch creation**: `add_tasks_to_card` accepts an array of tasks for efficiency within the tool-calling loop
+
+### Example Interaction
+
+**User**: *"Set up the workflow for the Lightning Strike Event. We need cards for Venue & Logistics (assign to Ellaine), Marketing & Comms (assign to Alex), and Budget & Sponsorship (assign to Nimesh). Each should have 3-4 relevant tasks."*
+
+**Duncan**: Creates 3 cards under "Lightning Strike Event" project tag, assigns the right people, adds tasks to each, and confirms with a summary.
 
