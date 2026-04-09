@@ -1,20 +1,16 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Settings, User, Bug, Palette, Bell, Shield } from "lucide-react";
+import { X, Settings, User, Bug, Palette } from "lucide-react";
 import SettingsGeneral from "./settings/SettingsGeneral";
 import SettingsProfile from "./settings/SettingsProfile";
 import SettingsBugReport from "./settings/SettingsBugReport";
 import SettingsAppearance from "./settings/SettingsAppearance";
-import SettingsNotifications from "./settings/SettingsNotifications";
-import SettingsPrivacy from "./settings/SettingsPrivacy";
 import { cn } from "@/lib/utils";
 
 const sections = [
   { id: "general", label: "General", icon: Settings },
   { id: "profile", label: "Profile", icon: User },
   { id: "appearance", label: "Appearance", icon: Palette },
-  { id: "notifications", label: "Notifications", icon: Bell },
-  { id: "privacy", label: "Privacy & Security", icon: Shield },
   { id: "bug", label: "Bug Report", icon: Bug },
 ] as const;
 
@@ -38,10 +34,6 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
         return <SettingsProfile />;
       case "appearance":
         return <SettingsAppearance />;
-      case "notifications":
-        return <SettingsNotifications />;
-      case "privacy":
-        return <SettingsPrivacy />;
       case "bug":
         return <SettingsBugReport />;
     }
@@ -64,7 +56,6 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           transition={{ duration: 0.2, ease: "easeOut" }}
           className="relative z-10 w-full max-w-3xl mx-4 h-[min(85vh,640px)] rounded-2xl border border-border bg-card shadow-2xl flex flex-col overflow-hidden"
         >
-          {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
             <h2 className="text-base font-semibold text-foreground">Settings</h2>
             <button
@@ -76,7 +67,6 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           </div>
 
           <div className="flex flex-1 min-h-0">
-            {/* Sidebar nav */}
             <nav className="hidden sm:flex w-48 shrink-0 flex-col border-r border-border py-3 px-2 overflow-y-auto">
               {sections.map((s) => {
                 const Icon = s.icon;
@@ -98,7 +88,6 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               })}
             </nav>
 
-            {/* Mobile section tabs */}
             <div className="sm:hidden flex border-b border-border overflow-x-auto shrink-0 px-2 gap-1 py-2 w-full">
               {sections.map((s) => {
                 const Icon = s.icon;
@@ -120,7 +109,6 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               })}
             </div>
 
-            {/* Content */}
             <div className="flex-1 overflow-y-auto p-5 sm:p-6">
               <AnimatePresence mode="wait">
                 <motion.div

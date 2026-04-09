@@ -1,21 +1,18 @@
-import { useState } from "react";
 import { motion } from "framer-motion";
-import { Settings as SettingsIcon, User, Bell, Shield, LogOut, UserCheck } from "lucide-react";
+import { Settings as SettingsIcon, User, UserCheck } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { useIsAdmin } from "@/hooks/useUserRoles";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { LogOut } from "lucide-react";
 import AccountApprovals from "@/components/settings/AccountApprovals";
 
 const Settings = () => {
   const { user, signOut } = useAuth();
   const { profile } = useProfile();
   const { isAdmin } = useIsAdmin();
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [activityAlerts, setActivityAlerts] = useState(true);
 
   return (
     <AppLayout>
@@ -74,55 +71,6 @@ const Settings = () => {
               <div>
                 <Label className="text-xs text-muted-foreground">Role</Label>
                 <p className="text-sm text-foreground mt-1">{profile?.role_title ?? "—"}</p>
-              </div>
-            </div>
-          </motion.section>
-
-          {/* Notifications */}
-          <motion.section
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15 }}
-            className="rounded-xl border border-border bg-card p-6 mb-6"
-          >
-            <div className="flex items-center gap-2 mb-4">
-              <Bell className="h-4 w-4 text-primary" />
-              <h3 className="text-sm font-semibold text-foreground">Notifications</h3>
-            </div>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-foreground">Email Notifications</p>
-                  <p className="text-xs text-muted-foreground">Receive updates via email</p>
-                </div>
-                <Switch checked={emailNotifications} onCheckedChange={setEmailNotifications} />
-              </div>
-              <Separator className="bg-border" />
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-foreground">Activity Alerts</p>
-                  <p className="text-xs text-muted-foreground">Get notified about important actions</p>
-                </div>
-                <Switch checked={activityAlerts} onCheckedChange={setActivityAlerts} />
-              </div>
-            </div>
-          </motion.section>
-
-          {/* Security */}
-          <motion.section
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="rounded-xl border border-border bg-card p-6 mb-6"
-          >
-            <div className="flex items-center gap-2 mb-4">
-              <Shield className="h-4 w-4 text-primary" />
-              <h3 className="text-sm font-semibold text-foreground">Security</h3>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <Label className="text-xs text-muted-foreground">Authentication</Label>
-                <p className="text-sm text-foreground mt-1">Email & Password</p>
               </div>
               <Separator className="bg-border" />
               <button
