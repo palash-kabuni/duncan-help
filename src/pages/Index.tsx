@@ -284,6 +284,7 @@ const Index = () => {
           clearMessages();
           chatOps.startNewChat();
         }}
+        chatOps={chatOps}
       />
       <main className="lg:ml-64 flex-1 flex flex-col h-[100dvh] w-full">
         <div className="pointer-events-none fixed top-0 lg:left-64 left-0 right-0 h-72 gradient-radial z-0" />
