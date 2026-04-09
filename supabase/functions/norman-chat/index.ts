@@ -1153,7 +1153,7 @@ async function executeAnalyticsTool(
   }
 }
 
-
+async function executeXeroTool(
   toolName: string,
   args: any,
   supabaseAdmin: any,
