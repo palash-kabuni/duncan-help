@@ -1402,6 +1402,156 @@ async function executeWorkstreamTool(
       return { success: true, card_id, updated_fields: Object.keys(updateData) };
     }
 
+    case "check_team_availability": {
+      const { user_ids, date, days: daysAhead, task_duration_minutes } = args;
+      const startDate = date ? new Date(date + "T00:00:00Z") : new Date();
+      startDate.setUTCHours(0, 0, 0, 0);
+      const numDays = Math.min(daysAhead || 3, 7);
+      const endDate = new Date(startDate.getTime() + numDays * 24 * 60 * 60 * 1000);
+      const taskDuration = task_duration_minutes || 60;
+
+      const clientId = Deno.env.get("GOOGLE_CALENDAR_CLIENT_ID");
+      const clientSecret = Deno.env.get("GOOGLE_CALENDAR_CLIENT_SECRET");
+
+      if (!clientId || !clientSecret) {
+        return { error: "Google Calendar credentials not configured. Cannot check availability." };
+      }
+
+      const results: any[] = [];
+
+      for (const uid of user_ids) {
+        // Get profile name
+        const { data: profile } = await supabaseAdmin
+          .from("profiles")
+          .select("display_name")
+          .eq("user_id", uid)
+          .single();
+
+        const memberName = profile?.display_name || uid;
+
+        // Get their calendar token
+        const { data: tokenData } = await supabaseAdmin
+          .from("google_calendar_tokens")
+          .select("*")
+          .eq("user_id", uid)
+          .single();
+
+        if (!tokenData) {
+          results.push({ user_id: uid, name: memberName, calendar_connected: false, note: "Calendar not connected — cannot check availability" });
+          continue;
+        }
+
+        // Refresh token if expired
+        let accessToken = tokenData.access_token;
+        if (new Date(tokenData.token_expiry) <= new Date()) {
+          const refreshResp = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              client_id: clientId,
+              client_secret: clientSecret,
+              refresh_token: tokenData.refresh_token,
+              grant_type: "refresh_token",
+            }),
+          });
+          if (!refreshResp.ok) {
+            results.push({ user_id: uid, name: memberName, calendar_connected: true, error: "Token refresh failed" });
+            continue;
+          }
+          const newTokens = await refreshResp.json();
+          accessToken = newTokens.access_token;
+          await supabaseAdmin.from("google_calendar_tokens").update({
+            access_token: accessToken,
+            token_expiry: new Date(Date.now() + newTokens.expires_in * 1000).toISOString(),
+          }).eq("user_id", uid);
+        }
+
+        // Fetch events
+        const eventsUrl = new URL(`${GOOGLE_CALENDAR_API}/calendars/primary/events`);
+        eventsUrl.searchParams.set("timeMin", startDate.toISOString());
+        eventsUrl.searchParams.set("timeMax", endDate.toISOString());
+        eventsUrl.searchParams.set("singleEvents", "true");
+        eventsUrl.searchParams.set("orderBy", "startTime");
+        eventsUrl.searchParams.set("maxResults", "100");
+
+        const eventsResp = await fetch(eventsUrl.toString(), {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+
+        if (!eventsResp.ok) {
+          results.push({ user_id: uid, name: memberName, calendar_connected: true, error: "Failed to fetch calendar events" });
+          continue;
+        }
+
+        const eventsData = await eventsResp.json();
+        const events = (eventsData.items || [])
+          .filter((e: any) => e.start?.dateTime && e.end?.dateTime)
+          .map((e: any) => ({
+            title: e.summary || "Busy",
+            start: e.start.dateTime,
+            end: e.end.dateTime,
+          }));
+
+        // Find free slots (working hours 9am-6pm)
+        const freeSlots: any[] = [];
+        for (let d = 0; d < numDays; d++) {
+          const dayStart = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
+          const workStart = new Date(dayStart);
+          workStart.setUTCHours(9, 0, 0, 0);
+          const workEnd = new Date(dayStart);
+          workEnd.setUTCHours(18, 0, 0, 0);
+          
+          // Skip weekends
+          const dayOfWeek = workStart.getDay();
+          if (dayOfWeek === 0 || dayOfWeek === 6) continue;
+
+          // Get busy periods for this day
+          const dayEvents = events.filter((e: any) => {
+            const eStart = new Date(e.start);
+            const eEnd = new Date(e.end);
+            return eStart < workEnd && eEnd > workStart;
+          }).sort((a: any, b: any) => new Date(a.start).getTime() - new Date(b.start).getTime());
+
+          // Find gaps
+          let cursor = workStart.getTime();
+          for (const evt of dayEvents) {
+            const evtStart = Math.max(new Date(evt.start).getTime(), workStart.getTime());
+            const evtEnd = Math.min(new Date(evt.end).getTime(), workEnd.getTime());
+            if (evtStart > cursor && (evtStart - cursor) >= taskDuration * 60 * 1000) {
+              freeSlots.push({
+                date: workStart.toISOString().split("T")[0],
+                start: new Date(cursor).toISOString(),
+                end: new Date(evtStart).toISOString(),
+                duration_minutes: Math.round((evtStart - cursor) / 60000),
+              });
+            }
+            cursor = Math.max(cursor, evtEnd);
+          }
+          // Gap after last event
+          if (cursor < workEnd.getTime() && (workEnd.getTime() - cursor) >= taskDuration * 60 * 1000) {
+            freeSlots.push({
+              date: workStart.toISOString().split("T")[0],
+              start: new Date(cursor).toISOString(),
+              end: workEnd.toISOString(),
+              duration_minutes: Math.round((workEnd.getTime() - cursor) / 60000),
+            });
+          }
+        }
+
+        results.push({
+          user_id: uid,
+          name: memberName,
+          calendar_connected: true,
+          busy_events_count: events.length,
+          busy_events: events.slice(0, 15), // Cap to avoid token overflow
+          free_slots: freeSlots,
+          suggested_slot: freeSlots.length > 0 ? freeSlots[0] : null,
+        });
+      }
+
+      return { availability: results, checked_from: startDate.toISOString(), checked_to: endDate.toISOString(), task_duration_minutes: taskDuration };
+    }
+
     default:
       throw new Error(`Unknown workstream tool: ${toolName}`);
   }
