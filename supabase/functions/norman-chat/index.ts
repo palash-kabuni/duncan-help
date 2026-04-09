@@ -1335,10 +1335,25 @@ async function executeWorkstreamTool(
 
     case "add_tasks_to_card": {
       const { card_id, tasks } = args;
+
+      // Dedup: fetch existing task titles for this card
+      const { data: existingTasks } = await supabaseAdmin
+        .from("workstream_tasks")
+        .select("title")
+        .eq("card_id", card_id);
+      const existingTitles = new Set((existingTasks || []).map((t: any) => t.title.toLowerCase()));
+
       const createdTasks: any[] = [];
+      const skippedTasks: string[] = [];
 
       for (let i = 0; i < tasks.length; i++) {
         const t = tasks[i];
+
+        if (existingTitles.has(t.title.toLowerCase())) {
+          skippedTasks.push(t.title);
+          continue;
+        }
+
         const { data: task, error } = await supabaseAdmin
           .from("workstream_tasks")
           .insert({
@@ -1357,7 +1372,6 @@ async function executeWorkstreamTool(
           continue;
         }
 
-        // Add task assignees
         if (t.assignee_user_ids?.length > 0) {
           const taskAssigneeRows = t.assignee_user_ids.map((uid: string) => ({
             task_id: task.id,
@@ -1367,17 +1381,19 @@ async function executeWorkstreamTool(
         }
 
         createdTasks.push({ id: task.id, title: task.title });
+        existingTitles.add(t.title.toLowerCase());
       }
 
-      // Log activity
-      await supabaseAdmin.from("workstream_activity").insert({
-        card_id,
-        user_id: userId,
-        action: "tasks_added",
-        details: { task_count: createdTasks.length, created_by_duncan: true },
-      });
+      if (createdTasks.length > 0) {
+        await supabaseAdmin.from("workstream_activity").insert({
+          card_id,
+          user_id: userId,
+          action: "tasks_added",
+          details: { task_count: createdTasks.length, created_by_duncan: true },
+        });
+      }
 
-      return { success: true, card_id, tasks_created: createdTasks.length, tasks: createdTasks };
+      return { success: true, card_id, tasks_created: createdTasks.length, tasks_skipped: skippedTasks.length, tasks: createdTasks, skipped: skippedTasks };
     }
 
     case "update_workstream_card": {
