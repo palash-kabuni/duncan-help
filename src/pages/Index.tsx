@@ -108,7 +108,7 @@ const MessageBubble = ({
 
 /* ── Main Page ── */
 const Index = () => {
-  const { messages, isLoading, send, sendBriefing, clearMessages, setMessages } = useNormanChat();
+  const { messages, isLoading, extractionProgress, send, sendBriefing, clearMessages, setMessages } = useNormanChat();
   const navigate = useNavigate();
   const briefingTriggered = useRef(sessionStorage.getItem("duncan_briefing_done") === "true");
   const chatOps = useGeneralChats();
@@ -373,6 +373,7 @@ const Index = () => {
         <ChatInput
           onSubmit={handleChatSubmit}
           isLoading={isLoading}
+          extractionProgress={extractionProgress}
           onVoiceToggle={() => setVoiceMode((v) => !v)}
           isVoiceActive={voiceMode}
         />

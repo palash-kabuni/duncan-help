@@ -10,9 +10,44 @@ export interface ChatAttachment {
   type: string;
   base64: string;
   previewUrl?: string;
+  /** Populated after server-side extraction for non-image files */
+  extractedText?: string;
 }
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/norman-chat`;
+const EXTRACT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/extract-chat-file`;
+
+/** Extract text from non-image attachments via the server-side function */
+async function extractFileText(
+  att: ChatAttachment,
+  token: string
+): Promise<string> {
+  const resp = await fetch(EXTRACT_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      file_name: att.name,
+      file_type: att.type,
+      base64: att.base64,
+    }),
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    console.warn(`File extraction failed for ${att.name}:`, err);
+    return `[Could not extract text from ${att.name}: ${err.error || "unknown error"}]`;
+  }
+
+  const data = await resp.json();
+  let result = data.text || "";
+  if (data.truncated) {
+    result += "\n\n[Note: File was truncated due to size. First ~50,000 characters shown.]";
+  }
+  return result;
+}
 
 function buildUserContent(input: string, attachments: ChatAttachment[]) {
   if (attachments.length === 0) return input;
@@ -21,6 +56,7 @@ function buildUserContent(input: string, attachments: ChatAttachment[]) {
 
   for (const att of attachments) {
     if (att.type.startsWith("image/")) {
+      // Images go as vision content directly
       parts.push({
         type: "image_url",
         image_url: {
@@ -28,20 +64,18 @@ function buildUserContent(input: string, attachments: ChatAttachment[]) {
           detail: "auto",
         },
       });
+    } else if (att.extractedText) {
+      // Server-extracted text — clean, readable content
+      parts.push({
+        type: "text",
+        text: `\n\n--- Attached file: ${att.name} ---\n${att.extractedText}\n--- End of file ---`,
+      });
     } else {
-      // For non-image files, include as text context
-      try {
-        const decoded = atob(att.base64);
-        parts.push({
-          type: "text",
-          text: `\n\n--- Attached file: ${att.name} ---\n${decoded}\n--- End of file ---`,
-        });
-      } catch {
-        parts.push({
-          type: "text",
-          text: `\n\n[Attached file: ${att.name} (binary, unable to display)]`,
-        });
-      }
+      // Fallback: should not happen after extraction, but safety net
+      parts.push({
+        type: "text",
+        text: `\n\n[Attached file: ${att.name} (could not be processed)]`,
+      });
     }
   }
 
@@ -51,6 +85,7 @@ function buildUserContent(input: string, attachments: ChatAttachment[]) {
 export function useNormanChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [extractionProgress, setExtractionProgress] = useState<string | null>(null);
   const { profile } = useProfile();
 
   const send = useCallback(
@@ -78,7 +113,19 @@ export function useNormanChat() {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-        // Build the messages array for the API - use content array for attachments
+        // --- Extract text from non-image attachments server-side ---
+        const nonImageAtts = attachments.filter((a) => !a.type.startsWith("image/"));
+        if (nonImageAtts.length > 0) {
+          setExtractionProgress(`Extracting text from ${nonImageAtts.length} file(s)…`);
+          await Promise.all(
+            nonImageAtts.map(async (att) => {
+              att.extractedText = await extractFileText(att, token);
+            })
+          );
+          setExtractionProgress(null);
+        }
+
+        // Build the messages array for the API
         const userContent = buildUserContent(input, attachments);
         const apiMessages = [
           ...messages.map((m) => ({ role: m.role, content: m.content })),
@@ -174,6 +221,7 @@ export function useNormanChat() {
         );
       } finally {
         setIsLoading(false);
+        setExtractionProgress(null);
       }
     },
     [messages]
@@ -266,5 +314,5 @@ export function useNormanChat() {
 
   const clearMessages = useCallback(() => setMessages([]), []);
 
-  return { messages, isLoading, send, sendBriefing, clearMessages, setMessages };
+  return { messages, isLoading, extractionProgress, send, sendBriefing, clearMessages, setMessages };
 }
