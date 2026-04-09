@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { LayoutDashboard, Plug, Settings, LogOut, X, ChevronDown, CheckCircle2, Mail, FileText, MessageSquare, Calendar, FolderOpen, GitBranch, Receipt, Zap, Menu, Layers } from "lucide-react";
 import ChatHistory from "@/components/ChatHistory";
-import type { useGeneralChats } from "@/hooks/useGeneralChats";
+import { useGeneralChats } from "@/hooks/useGeneralChats";
+import type { useGeneralChats as UseGeneralChatsType } from "@/hooks/useGeneralChats";
 import duncanAvatar from "@/assets/duncan-avatar.jpeg";
 import SettingsPanel from "@/components/SettingsPanel";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -40,14 +41,16 @@ const Sidebar = ({
   onMobileClose,
   onSelectChat,
   onNewChat,
-  chatOps,
+  chatOps: externalChatOps,
 }: {
   mobileOpen?: boolean;
   onMobileClose?: () => void;
   onSelectChat?: (chatId: string) => void;
   onNewChat?: () => void;
-  chatOps: ReturnType<typeof useGeneralChats>;
+  chatOps?: ReturnType<typeof useGeneralChats>;
 }) => {
+  const internalChatOps = useGeneralChats();
+  const chatOps = externalChatOps || internalChatOps;
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [showModal, setShowModal] = useState(false);
