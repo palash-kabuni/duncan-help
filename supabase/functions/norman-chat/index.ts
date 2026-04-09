@@ -29,7 +29,7 @@ Your capabilities:
 - **Gmail Access**: You have access to the user's personal Gmail inbox. You can list recent emails, search emails by query (sender, subject, date, keywords), read full email content, and send emails on behalf of the user. Use these tools when the user asks about their emails, wants to find a specific email, read an email, or send a new email. When sending emails, collect to, subject, and body; optionally cc and bcc. Always confirm before sending. Present email lists clearly with sender, subject, date, and unread status.
 - **File Analysis**: Users can attach files (images, documents, spreadsheets) directly in the chat. When files are attached, analyze their content thoroughly — describe images, extract text from documents, summarize data from spreadsheets, and answer questions about the content. Always acknowledge what files were received and provide detailed analysis.
 - **App Analytics**: You have access to internal app analytics — workstream cards, tasks, recruitment pipeline, purchase orders, meetings, issues, and team activity. Use the analytics tools when users ask about team performance, workload distribution, project health, pipeline status, overdue items, or any operational metrics. Present data with clear tables, counts, and summaries. Use the RYG (Red/Yellow/Green) framework for status reporting.
-- **Workstream Management (Agentic)**: You can CREATE, UPDATE, and manage workstream cards and tasks directly. When a user describes a workflow, project plan, or set of tasks, proactively break it down into workstream cards with tasks. IMPORTANT: When creating cards, they are ALWAYS auto-assigned to the creator only. Do NOT try to assign cards to others during creation. If the user wants to assign cards to other team members, use update_workstream_card AFTER creation. Use list_team_members to resolve names to user IDs. When assigning tasks to people, use check_team_availability first to look at their calendars and find suitable time slots. Suggest specific times based on their availability. Available project tags: 'Lightning Strike Event', 'Website', 'K10 App', 'School Integrations'. Default status is 'amber' (Yellow) for new cards. When the user says "create", "set up", or "build the workflow", execute directly. Otherwise, present the plan first and ask for confirmation before creating.
+- **Workstream Management (Agentic)**: You can CREATE, UPDATE, and manage workstream cards and tasks directly. When a user describes a workflow, project plan, or set of tasks, proactively break it down into workstream cards with tasks. IMPORTANT: When creating cards, they are ALWAYS auto-assigned to the creator only. Do NOT try to assign cards to others during creation. If the user wants to assign cards to other team members, use update_workstream_card AFTER creation. Use list_team_members to resolve names to user IDs. When assigning tasks to people, use check_team_availability first to look at their calendars and find suitable time slots. Suggest specific times based on their availability. Available project tags: 'Lightning Strike Event', 'Website', 'K10 App', 'School Integrations'. Default status is 'amber' (Yellow) for new cards. When the user says "create", "set up", or "build the workflow", execute directly. Otherwise, present the plan first and ask for confirmation before creating. DEDUPLICATION: The create_workstream_card tool automatically prevents duplicates — if a card with the same title and project_tag already exists for the user, it returns the existing card instead of creating a new one. NEVER call create_workstream_card more than once for the same card title in a single conversation. After creating cards, do NOT repeat the creation calls — proceed directly to adding tasks.
 - **Google Forms**: You can fill and submit pre-configured Google Forms on behalf of the user. You can also parse a Google Form URL to automatically extract its fields and save it as a new pre-configured form. When a user asks to fill a form, first list available forms, then ask each required field ONE AT A TIME as a conversational question. Wait for the user to answer each question before asking the next. After collecting all answers, confirm the details and submit. When a user provides a Google Form URL, use parse_google_form to extract the fields, show the parsed result to the user for confirmation, then save it with save_parsed_google_form.
 
 Your personality:
@@ -1279,6 +1279,24 @@ async function executeWorkstreamTool(
     }
 
     case "create_workstream_card": {
+      // Deduplication: check if a card with the same title + project_tag already exists for this creator
+      const dedupQuery = supabaseAdmin
+        .from("workstream_cards")
+        .select("id, title, status, project_tag")
+        .eq("title", args.title)
+        .eq("created_by", userId)
+        .is("archived_at", null);
+
+      if (args.project_tag) {
+        dedupQuery.eq("project_tag", args.project_tag);
+      }
+
+      const { data: existing } = await dedupQuery.limit(1);
+
+      if (existing && existing.length > 0) {
+        return { success: true, card_id: existing[0].id, title: existing[0].title, status: existing[0].status, project_tag: existing[0].project_tag, assigned_to: "creator (you)", already_existed: true, message: "Card already exists — skipped duplicate creation." };
+      }
+
       const cardData: any = {
         title: args.title,
         description: args.description || "",
@@ -1317,10 +1335,25 @@ async function executeWorkstreamTool(
 
     case "add_tasks_to_card": {
       const { card_id, tasks } = args;
+
+      // Dedup: fetch existing task titles for this card
+      const { data: existingTasks } = await supabaseAdmin
+        .from("workstream_tasks")
+        .select("title")
+        .eq("card_id", card_id);
+      const existingTitles = new Set((existingTasks || []).map((t: any) => t.title.toLowerCase()));
+
       const createdTasks: any[] = [];
+      const skippedTasks: string[] = [];
 
       for (let i = 0; i < tasks.length; i++) {
         const t = tasks[i];
+
+        if (existingTitles.has(t.title.toLowerCase())) {
+          skippedTasks.push(t.title);
+          continue;
+        }
+
         const { data: task, error } = await supabaseAdmin
           .from("workstream_tasks")
           .insert({
@@ -1339,7 +1372,6 @@ async function executeWorkstreamTool(
           continue;
         }
 
-        // Add task assignees
         if (t.assignee_user_ids?.length > 0) {
           const taskAssigneeRows = t.assignee_user_ids.map((uid: string) => ({
             task_id: task.id,
@@ -1349,17 +1381,19 @@ async function executeWorkstreamTool(
         }
 
         createdTasks.push({ id: task.id, title: task.title });
+        existingTitles.add(t.title.toLowerCase());
       }
 
-      // Log activity
-      await supabaseAdmin.from("workstream_activity").insert({
-        card_id,
-        user_id: userId,
-        action: "tasks_added",
-        details: { task_count: createdTasks.length, created_by_duncan: true },
-      });
+      if (createdTasks.length > 0) {
+        await supabaseAdmin.from("workstream_activity").insert({
+          card_id,
+          user_id: userId,
+          action: "tasks_added",
+          details: { task_count: createdTasks.length, created_by_duncan: true },
+        });
+      }
 
-      return { success: true, card_id, tasks_created: createdTasks.length, tasks: createdTasks };
+      return { success: true, card_id, tasks_created: createdTasks.length, tasks_skipped: skippedTasks.length, tasks: createdTasks, skipped: skippedTasks };
     }
 
     case "update_workstream_card": {
