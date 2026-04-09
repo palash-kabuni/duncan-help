@@ -1298,24 +1298,21 @@ async function executeWorkstreamTool(
 
       if (error) throw new Error(`Failed to create card: ${error.message}`);
 
-      // Add assignees
-      if (args.assignee_user_ids?.length > 0) {
-        const assigneeRows = args.assignee_user_ids.map((uid: string) => ({
-          card_id: card.id,
-          user_id: uid,
-        }));
-        await supabaseAdmin.from("workstream_card_assignees").insert(assigneeRows);
-      }
+      // Auto-assign only the creator
+      await supabaseAdmin.from("workstream_card_assignees").insert({
+        card_id: card.id,
+        user_id: userId,
+      });
 
       // Log activity
       await supabaseAdmin.from("workstream_activity").insert({
         card_id: card.id,
         user_id: userId,
         action: "created",
-        details: { title: card.title, created_by_duncan: true },
+        details: { title: card.title, created_by_duncan: true, auto_assigned_to_creator: true },
       });
 
-      return { success: true, card_id: card.id, title: card.title, status: card.status, project_tag: card.project_tag };
+      return { success: true, card_id: card.id, title: card.title, status: card.status, project_tag: card.project_tag, assigned_to: "creator (you)" };
     }
 
     case "add_tasks_to_card": {
