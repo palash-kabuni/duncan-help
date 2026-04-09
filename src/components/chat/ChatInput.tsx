@@ -5,6 +5,7 @@ import type { ChatAttachment } from "@/hooks/useNormanChat";
 interface ChatInputProps {
   onSubmit: (input: string, attachments: ChatAttachment[]) => void;
   isLoading: boolean;
+  extractionProgress?: string | null;
   onVoiceToggle?: () => void;
   isVoiceActive?: boolean;
 }
@@ -31,7 +32,7 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-export default function ChatInput({ onSubmit, isLoading, onVoiceToggle, isVoiceActive }: ChatInputProps) {
+export default function ChatInput({ onSubmit, isLoading, extractionProgress, onVoiceToggle, isVoiceActive }: ChatInputProps) {
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -107,6 +108,14 @@ export default function ChatInput({ onSubmit, isLoading, onVoiceToggle, isVoiceA
   return (
     <div className="relative z-10 border-t border-border px-8 py-4">
       <div className="mx-auto max-w-3xl">
+        {/* Extraction progress indicator */}
+        {extractionProgress && (
+          <div className="flex items-center gap-2 mb-3 text-xs text-primary animate-pulse">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <span>{extractionProgress}</span>
+          </div>
+        )}
+
         {/* Attachment previews */}
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-3">

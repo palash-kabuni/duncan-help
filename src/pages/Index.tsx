@@ -373,6 +373,7 @@ const Index = () => {
         <ChatInput
           onSubmit={handleChatSubmit}
           isLoading={isLoading}
+          extractionProgress={extractionProgress}
           onVoiceToggle={() => setVoiceMode((v) => !v)}
           isVoiceActive={voiceMode}
         />
