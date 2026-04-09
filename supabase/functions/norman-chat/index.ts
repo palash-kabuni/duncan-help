@@ -1279,6 +1279,24 @@ async function executeWorkstreamTool(
     }
 
     case "create_workstream_card": {
+      // Deduplication: check if a card with the same title + project_tag already exists for this creator
+      const dedupQuery = supabaseAdmin
+        .from("workstream_cards")
+        .select("id, title, status, project_tag")
+        .eq("title", args.title)
+        .eq("created_by", userId)
+        .is("archived_at", null);
+
+      if (args.project_tag) {
+        dedupQuery.eq("project_tag", args.project_tag);
+      }
+
+      const { data: existing } = await dedupQuery.limit(1);
+
+      if (existing && existing.length > 0) {
+        return { success: true, card_id: existing[0].id, title: existing[0].title, status: existing[0].status, project_tag: existing[0].project_tag, assigned_to: "creator (you)", already_existed: true, message: "Card already exists — skipped duplicate creation." };
+      }
+
       const cardData: any = {
         title: args.title,
         description: args.description || "",
