@@ -211,12 +211,16 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
                   </MetaField>
 
                   <MetaField icon={<Tag className="h-3.5 w-3.5" />} label="Project" value={card.project_tag || "None"}>
-                    <Input
-                      value={card.project_tag || ""}
-                      onChange={e => updateCard.mutate({ id: card.id, project_tag: e.target.value || null })}
-                      className="h-7 text-xs"
-                      placeholder="Tag"
-                    />
+                    <Select value={card.project_tag || "none"} onValueChange={v => updateCard.mutate({ id: card.id, project_tag: v === "none" ? null : v })}>
+                      <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        <SelectItem value="Lightning Strike Event">Lightning Strike Event</SelectItem>
+                        <SelectItem value="Website">Website</SelectItem>
+                        <SelectItem value="K10 App">K10 App</SelectItem>
+                        <SelectItem value="School Integrations">School Integrations</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </MetaField>
                 </div>
 
