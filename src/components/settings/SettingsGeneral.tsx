@@ -3,7 +3,8 @@ import { useProfile } from "@/hooks/useProfile";
 import { useIsAdmin } from "@/hooks/useUserRoles";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { LogOut } from "lucide-react";
+import { LogOut, Megaphone } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import AccountApprovals from "./AccountApprovals";
 
 export default function SettingsGeneral() {
