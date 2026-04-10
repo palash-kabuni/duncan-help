@@ -1104,6 +1104,89 @@ export type Database = {
           },
         ]
       }
+      release_email_logs: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          id: string
+          recipient_email: string
+          release_id: string
+          sent_at: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          recipient_email: string
+          release_id: string
+          sent_at?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          recipient_email?: string
+          release_id?: string
+          sent_at?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "release_email_logs_release_id_fkey"
+            columns: ["release_id"]
+            isOneToOne: false
+            referencedRelation: "releases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      releases: {
+        Row: {
+          changes: Json
+          created_at: string
+          created_by: string
+          id: string
+          published_at: string | null
+          published_by: string | null
+          status: string
+          summary: string
+          title: string
+          updated_at: string
+          version: string
+        }
+        Insert: {
+          changes?: Json
+          created_at?: string
+          created_by: string
+          id?: string
+          published_at?: string | null
+          published_by?: string | null
+          status?: string
+          summary?: string
+          title: string
+          updated_at?: string
+          version: string
+        }
+        Update: {
+          changes?: Json
+          created_at?: string
+          created_by?: string
+          id?: string
+          published_at?: string | null
+          published_by?: string | null
+          status?: string
+          summary?: string
+          title?: string
+          updated_at?: string
+          version?: string
+        }
+        Relationships: []
+      }
       slack_notification_logs: {
         Row: {
           created_at: string
