@@ -7,7 +7,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const GATEWAY_URL = "https://connector-gateway.lovable.dev/resend";
+const SLACK_GATEWAY_URL = "https://connector-gateway.lovable.dev/slack/api";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -18,8 +18,8 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-    if (!RESEND_API_KEY) throw new Error("RESEND_API_KEY is not configured — please connect Resend first");
+    const SLACK_API_KEY = Deno.env.get("SLACK_API_KEY");
+    if (!SLACK_API_KEY) throw new Error("SLACK_API_KEY is not configured — please connect Slack first");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -34,7 +34,7 @@ serve(async (req) => {
 
     const { data: roles } = await supabase.from("user_roles").select("role").eq("user_id", user.id);
     const isAdmin = roles?.some((r: any) => r.role === "admin");
-    if (!isAdmin) throw new Error("Only admins can send release emails");
+    if (!isAdmin) throw new Error("Only admins can send release notifications");
 
     const { releaseId } = await req.json();
     if (!releaseId) throw new Error("releaseId is required");
@@ -47,71 +47,75 @@ serve(async (req) => {
       .single();
     if (releaseError || !release) throw new Error("Release not found");
 
-    // Fetch all approved users
-    const { data: profiles, error: profilesError } = await supabase
-      .from("profiles")
-      .select("user_id, display_name")
-      .eq("approval_status", "approved");
-    if (profilesError) throw profilesError;
+    // Fetch all mapped users with Slack IDs
+    const { data: mappings, error: mappingsError } = await supabase
+      .from("user_notification_mappings")
+      .select("duncan_user_id, slack_user_identifier, basecamp_name")
+      .eq("is_active", true);
+    if (mappingsError) throw mappingsError;
 
-    // Get emails from auth (via service role)
-    const allUsers: { id: string; email: string; name: string }[] = [];
-    for (const profile of profiles ?? []) {
-      const { data: { user: authUser } } = await supabase.auth.admin.getUserById(profile.user_id);
-      if (authUser?.email) {
-        allUsers.push({ id: profile.user_id, email: authUser.email, name: profile.display_name || authUser.email });
-      }
-    }
+    const slackHeaders = {
+      Authorization: `Bearer ${LOVABLE_API_KEY}`,
+      "X-Connection-Api-Key": SLACK_API_KEY,
+      "Content-Type": "application/json",
+    };
 
     const appUrl = Deno.env.get("APP_URL") || "https://duncan-help.lovable.app";
     const changes = (release.changes as any[]) || [];
+    const messageText = buildSlackMessage(release, changes, appUrl);
 
     const results = { sent: 0, failed: 0, errors: [] as string[] };
 
-    for (const u of allUsers) {
+    for (const mapping of mappings ?? []) {
       try {
-        const html = buildEmailHtml(release, changes, u.name, appUrl);
-
-        const response = await fetch(`${GATEWAY_URL}/emails`, {
+        // Open DM channel
+        const openRes = await fetch(`${SLACK_GATEWAY_URL}/conversations.open`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
-            "X-Connection-Api-Key": RESEND_API_KEY,
-          },
+          headers: slackHeaders,
+          body: JSON.stringify({ users: mapping.slack_user_identifier }),
+        });
+        const openData = await openRes.json();
+        if (!openData.ok) {
+          throw new Error(`conversations.open failed: ${openData.error}`);
+        }
+
+        // Send message
+        const msgRes = await fetch(`${SLACK_GATEWAY_URL}/chat.postMessage`, {
+          method: "POST",
+          headers: slackHeaders,
           body: JSON.stringify({
-            from: "Duncan <onboarding@resend.dev>",
-            to: [u.email],
-            subject: `Duncan ${release.version} — ${release.title}`,
-            html,
+            channel: openData.channel.id,
+            text: messageText,
+            blocks: buildSlackBlocks(release, changes, appUrl),
+            username: "Duncan",
+            icon_emoji: ":mega:",
           }),
         });
-
-        const resData = await response.json();
+        const msgData = await msgRes.json();
 
         // Log the send
         await supabase.from("release_email_logs").insert({
           release_id: releaseId,
-          user_id: u.id,
-          recipient_email: u.email,
-          status: response.ok ? "sent" : "failed",
-          error_message: response.ok ? null : JSON.stringify(resData),
-          sent_at: response.ok ? new Date().toISOString() : null,
+          user_id: mapping.duncan_user_id,
+          recipient_email: `slack:${mapping.slack_user_identifier}`,
+          status: msgData.ok ? "sent" : "failed",
+          error_message: msgData.ok ? null : JSON.stringify(msgData),
+          sent_at: msgData.ok ? new Date().toISOString() : null,
         });
 
-        if (response.ok) results.sent++;
+        if (msgData.ok) results.sent++;
         else {
           results.failed++;
-          results.errors.push(`${u.email}: ${JSON.stringify(resData)}`);
+          results.errors.push(`${mapping.basecamp_name}: ${JSON.stringify(msgData)}`);
         }
       } catch (err) {
         results.failed++;
         const msg = err instanceof Error ? err.message : String(err);
-        results.errors.push(`${u.email}: ${msg}`);
+        results.errors.push(`${mapping.basecamp_name}: ${msg}`);
         await supabase.from("release_email_logs").insert({
           release_id: releaseId,
-          user_id: u.id,
-          recipient_email: u.email,
+          user_id: mapping.duncan_user_id,
+          recipient_email: `slack:${mapping.slack_user_identifier}`,
           status: "failed",
           error_message: msg,
         });
@@ -123,7 +127,7 @@ serve(async (req) => {
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Unknown error";
-    console.error("send-release-emails error:", msg);
+    console.error("send-release-notifications error:", msg);
     return new Response(JSON.stringify({ error: msg }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -131,61 +135,45 @@ serve(async (req) => {
   }
 });
 
-function buildEmailHtml(
-  release: any,
-  changes: { type: string; description: string }[],
-  userName: string,
-  appUrl: string,
-): string {
+function buildSlackMessage(release: any, changes: { type: string; description: string }[], appUrl: string): string {
+  const lines = [`🚀 *Duncan ${release.version} — ${release.title}*`, "", release.summary, ""];
+  const features = changes.filter((c) => c.type === "feature");
   const improvements = changes.filter((c) => c.type === "improvement");
   const fixes = changes.filter((c) => c.type === "fix");
-  const features = changes.filter((c) => c.type === "feature");
-  const other = changes.filter((c) => !["improvement", "fix", "feature"].includes(c.type));
 
-  const section = (title: string, emoji: string, items: typeof changes) =>
-    items.length
-      ? `<tr><td style="padding:16px 0 8px"><h3 style="margin:0;font-size:14px;font-weight:600;color:#1a1f2c">${emoji} ${title}</h3></td></tr>
-         ${items.map((i) => `<tr><td style="padding:4px 0 4px 16px;font-size:13px;color:#555;line-height:1.5">• ${escapeHtml(i.description)}</td></tr>`).join("")}`
-      : "";
+  if (features.length) { lines.push("*New Features*"); features.forEach((c) => lines.push(`• ${c.description}`)); lines.push(""); }
+  if (improvements.length) { lines.push("*Improvements*"); improvements.forEach((c) => lines.push(`• ${c.description}`)); lines.push(""); }
+  if (fixes.length) { lines.push("*Bug Fixes*"); fixes.forEach((c) => lines.push(`• ${c.description}`)); lines.push(""); }
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f4f5f7;font-family:'Inter',Arial,sans-serif">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:40px 0">
-<tr><td align="center">
-<table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06)">
-  <tr><td style="background:linear-gradient(135deg,#1a9e8f,#16a085);padding:32px 40px">
-    <h1 style="margin:0 0 4px;font-size:22px;font-weight:700;color:#ffffff">Duncan ${escapeHtml(release.version)}</h1>
-    <p style="margin:0;font-size:14px;color:rgba(255,255,255,0.85)">${escapeHtml(release.title)}</p>
-  </td></tr>
-  <tr><td style="padding:32px 40px">
-    <p style="margin:0 0 4px;font-size:13px;color:#999">Hi ${escapeHtml(userName)},</p>
-    <p style="margin:0 0 24px;font-size:14px;color:#555;line-height:1.6">${escapeHtml(release.summary)}</p>
-    <table width="100%" cellpadding="0" cellspacing="0">
-      ${section("New Features", "🚀", features)}
-      ${section("Improvements", "✨", improvements)}
-      ${section("Bug Fixes", "🐛", fixes)}
-      ${section("Other Changes", "📋", other)}
-    </table>
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:32px">
-      <tr><td align="center">
-        <a href="${appUrl}/whats-new" style="display:inline-block;background:#1a9e8f;color:#ffffff;font-size:14px;font-weight:600;padding:12px 32px;border-radius:8px;text-decoration:none">View What's New</a>
-      </td></tr>
-    </table>
-  </td></tr>
-  <tr><td style="padding:20px 40px;border-top:1px solid #eee">
-    <p style="margin:0;font-size:11px;color:#aaa;text-align:center">Duncan by Kabuni • ${new Date().getFullYear()}</p>
-  </td></tr>
-</table>
-</td></tr></table>
-</body></html>`;
+  lines.push(`<${appUrl}/whats-new|View What's New>`);
+  return lines.join("\n");
 }
 
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+function buildSlackBlocks(release: any, changes: { type: string; description: string }[], appUrl: string): any[] {
+  const blocks: any[] = [
+    { type: "header", text: { type: "plain_text", text: `🚀 Duncan ${release.version} — ${release.title}`, emoji: true } },
+    { type: "section", text: { type: "mrkdwn", text: release.summary } },
+  ];
+
+  const features = changes.filter((c) => c.type === "feature");
+  const improvements = changes.filter((c) => c.type === "improvement");
+  const fixes = changes.filter((c) => c.type === "fix");
+
+  if (features.length) {
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*🚀 New Features*\n${features.map((c) => `• ${c.description}`).join("\n")}` } });
+  }
+  if (improvements.length) {
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*✨ Improvements*\n${improvements.map((c) => `• ${c.description}`).join("\n")}` } });
+  }
+  if (fixes.length) {
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: `*🐛 Bug Fixes*\n${fixes.map((c) => `• ${c.description}`).join("\n")}` } });
+  }
+
+  blocks.push({ type: "divider" });
+  blocks.push({
+    type: "actions",
+    elements: [{ type: "button", text: { type: "plain_text", text: "View What's New", emoji: true }, url: `${appUrl}/whats-new` }],
+  });
+
+  return blocks;
 }
