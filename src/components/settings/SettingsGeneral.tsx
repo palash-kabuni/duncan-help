@@ -52,6 +52,14 @@ export default function SettingsGeneral() {
       {isAdmin && (
         <>
           <Separator className="bg-border" />
+          <button
+            onClick={() => navigate("/releases")}
+            className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-4 py-2.5 text-sm font-medium text-primary hover:bg-primary/10 transition-colors w-full"
+          >
+            <Megaphone className="h-4 w-4" />
+            Release Manager
+          </button>
+          <Separator className="bg-border" />
           <div>
             <h3 className="text-sm font-semibold text-foreground mb-3">Account Approvals</h3>
             <AccountApprovals />
