@@ -23,6 +23,8 @@ import Projects from "./pages/Projects";
 import ProjectWorkspace from "./pages/ProjectWorkspace";
 import Workstreams from "./pages/Workstreams";
 import Gmail from "./pages/Gmail";
+import ReleaseManager from "./pages/ReleaseManager";
+import WhatsNew from "./pages/WhatsNew";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
