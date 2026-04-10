@@ -11,6 +11,9 @@ export default function SettingsGeneral() {
   const { user, signOut } = useAuth();
   const { profile } = useProfile();
   const { isAdmin } = useIsAdmin();
+  const navigate = useNavigate();
+  const { profile } = useProfile();
+  const { isAdmin } = useIsAdmin();
 
   return (
     <div className="space-y-6">
