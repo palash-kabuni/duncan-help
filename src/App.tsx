@@ -23,6 +23,8 @@ import Projects from "./pages/Projects";
 import ProjectWorkspace from "./pages/ProjectWorkspace";
 import Workstreams from "./pages/Workstreams";
 import Gmail from "./pages/Gmail";
+import ReleaseManager from "./pages/ReleaseManager";
+import WhatsNew from "./pages/WhatsNew";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -51,6 +53,8 @@ const AppContent = () => {
           <Route path="/projects/:projectId" element={<ProtectedRoute><ProjectWorkspace /></ProtectedRoute>} />
           <Route path="/workstreams" element={<ProtectedRoute><Workstreams /></ProtectedRoute>} />
           <Route path="/gmail" element={<ProtectedRoute><Gmail /></ProtectedRoute>} />
+          <Route path="/releases" element={<ProtectedRoute><ReleaseManager /></ProtectedRoute>} />
+          <Route path="/whats-new" element={<ProtectedRoute><WhatsNew /></ProtectedRoute>} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

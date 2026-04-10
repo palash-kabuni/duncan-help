@@ -1,0 +1,104 @@
+import AppLayout from "@/components/AppLayout";
+import { useReleases, Release } from "@/hooks/useReleases";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, Rocket, Sparkles, Bug, FileText } from "lucide-react";
+import { format } from "date-fns";
+
+const changeTypeConfig: Record<string, { icon: React.ReactNode; label: string; className: string }> = {
+  feature: { icon: <Rocket className="h-3.5 w-3.5" />, label: "Feature", className: "bg-primary/10 text-primary" },
+  improvement: { icon: <Sparkles className="h-3.5 w-3.5" />, label: "Improvement", className: "bg-amber-500/10 text-amber-600" },
+  fix: { icon: <Bug className="h-3.5 w-3.5" />, label: "Fix", className: "bg-destructive/10 text-destructive" },
+  other: { icon: <FileText className="h-3.5 w-3.5" />, label: "Other", className: "bg-muted text-muted-foreground" },
+};
+
+export default function WhatsNew() {
+  const { data: releases = [], isLoading } = useReleases("published");
+
+  return (
+    <AppLayout>
+      <div className="max-w-3xl mx-auto py-8 px-4">
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-foreground">What's New</h1>
+          <p className="text-sm text-muted-foreground mt-1">See what's changed in each Duncan release</p>
+        </div>
+
+        {isLoading ? (
+          <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+        ) : releases.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-16">No releases published yet.</p>
+        ) : (
+          <div className="relative">
+            {/* Timeline line */}
+            <div className="absolute left-[19px] top-4 bottom-4 w-px bg-border" />
+
+            <div className="space-y-8">
+              {releases.map((release, index) => (
+                <ReleaseCard key={release.id} release={release} isLatest={index === 0} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </AppLayout>
+  );
+}
+
+function ReleaseCard({ release, isLatest }: { release: Release; isLatest: boolean }) {
+  const features = release.changes.filter((c) => c.type === "feature");
+  const improvements = release.changes.filter((c) => c.type === "improvement");
+  const fixes = release.changes.filter((c) => c.type === "fix");
+  const other = release.changes.filter((c) => !["feature", "improvement", "fix"].includes(c.type));
+
+  return (
+    <div className="relative flex gap-4">
+      {/* Timeline dot */}
+      <div className={`relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 ${isLatest ? "border-primary bg-primary/10" : "border-border bg-background"}`}>
+        <Rocket className={`h-4 w-4 ${isLatest ? "text-primary" : "text-muted-foreground"}`} />
+      </div>
+
+      <div className="flex-1 pb-2">
+        <div className="flex items-center gap-2 flex-wrap mb-2">
+          <Badge variant="outline" className="font-mono text-xs">{release.version}</Badge>
+          {isLatest && <Badge className="bg-primary/10 text-primary border-0 text-xs">Latest</Badge>}
+          {release.published_at && (
+            <span className="text-xs text-muted-foreground">{format(new Date(release.published_at), "dd MMM yyyy")}</span>
+          )}
+        </div>
+
+        <h3 className="text-lg font-semibold text-foreground mb-2">{release.title}</h3>
+        <p className="text-sm text-muted-foreground leading-relaxed mb-4">{release.summary}</p>
+
+        <div className="space-y-4">
+          <ChangeSection title="New Features" type="feature" items={features} />
+          <ChangeSection title="Improvements" type="improvement" items={improvements} />
+          <ChangeSection title="Bug Fixes" type="fix" items={fixes} />
+          <ChangeSection title="Other" type="other" items={other} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChangeSection({ title, type, items }: { title: string; type: string; items: { type: string; description: string }[] }) {
+  if (items.length === 0) return null;
+  const config = changeTypeConfig[type] || changeTypeConfig.other;
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${config.className}`}>
+          {config.icon}
+          {title}
+        </span>
+      </div>
+      <ul className="space-y-1.5 ml-1">
+        {items.map((item, i) => (
+          <li key={i} className="text-sm text-muted-foreground flex gap-2 items-start">
+            <span className="text-muted-foreground/40 mt-0.5">•</span>
+            <span>{item.description}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
