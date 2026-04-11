@@ -301,11 +301,16 @@ const Index = () => {
               {weather && <span className="hidden sm:inline ml-2 text-sm font-normal text-muted-foreground">{weather.temp}°C · {weather.description}</span>}
             </h2>
           </div>
-          {hasMessages && (
-            <button onClick={handleClearChat} className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2 sm:px-3 py-1.5 sm:py-2 text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0">
-              <Trash2 className="h-3 w-3" /> <span className="hidden sm:inline">New Chat</span>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={() => navigate("/whats-new")} className="flex items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/10 px-2 sm:px-3 py-1.5 sm:py-2 text-xs font-medium text-primary hover:bg-primary/20 transition-colors">
+              <Sparkles className="h-3 w-3" /> <span className="hidden sm:inline">What's New</span>
             </button>
-          )}
+            {hasMessages && (
+              <button onClick={handleClearChat} className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2 sm:px-3 py-1.5 sm:py-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                <Trash2 className="h-3 w-3" /> <span className="hidden sm:inline">New Chat</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Quick nav buttons */}
