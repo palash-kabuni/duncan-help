@@ -1,0 +1,1 @@
+DELETE FROM gmail_tokens WHERE id = 'cf8f774a-7b5d-43eb-93b0-57411ce5c202';
