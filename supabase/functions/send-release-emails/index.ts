@@ -66,62 +66,8 @@ serve(async (req) => {
 
     const results = { sent: 0, failed: 0, errors: [] as string[] };
 
-    // ─── SLACK NOTIFICATIONS (existing) ───
-    for (const mapping of mappings ?? []) {
-      try {
-        // Open DM channel
-        const openRes = await fetch(`${SLACK_GATEWAY_URL}/conversations.open`, {
-          method: "POST",
-          headers: slackHeaders,
-          body: JSON.stringify({ users: mapping.slack_user_identifier }),
-        });
-        const openData = await openRes.json();
-        if (!openData.ok) {
-          throw new Error(`conversations.open failed: ${openData.error}`);
-        }
-
-        // Send message
-        const msgRes = await fetch(`${SLACK_GATEWAY_URL}/chat.postMessage`, {
-          method: "POST",
-          headers: slackHeaders,
-          body: JSON.stringify({
-            channel: openData.channel.id,
-            text: messageText,
-            blocks: buildSlackBlocks(release, changes, appUrl),
-            username: "Duncan",
-            icon_emoji: ":mega:",
-          }),
-        });
-        const msgData = await msgRes.json();
-
-        // Log the send
-        await supabase.from("release_email_logs").insert({
-          release_id: releaseId,
-          user_id: mapping.duncan_user_id,
-          recipient_email: `slack:${mapping.slack_user_identifier}`,
-          status: msgData.ok ? "sent" : "failed",
-          error_message: msgData.ok ? null : JSON.stringify(msgData),
-          sent_at: msgData.ok ? new Date().toISOString() : null,
-        });
-
-        if (msgData.ok) results.sent++;
-        else {
-          results.failed++;
-          results.errors.push(`${mapping.basecamp_name}: ${JSON.stringify(msgData)}`);
-        }
-      } catch (err) {
-        results.failed++;
-        const msg = err instanceof Error ? err.message : String(err);
-        results.errors.push(`${mapping.basecamp_name}: ${msg}`);
-        await supabase.from("release_email_logs").insert({
-          release_id: releaseId,
-          user_id: mapping.duncan_user_id,
-          recipient_email: `slack:${mapping.slack_user_identifier}`,
-          status: "failed",
-          error_message: msg,
-        });
-      }
-    }
+    // ─── SLACK NOTIFICATIONS (disabled) ───
+    // Slack notifications have been disabled per team decision.
 
     // ─── GMAIL NOTIFICATIONS (new) ───
     const gmailResults = { sent: 0, failed: 0, errors: [] as string[] };
@@ -145,7 +91,7 @@ serve(async (req) => {
         );
 
         const htmlBody = buildEmailHtml(release, changes, appUrl);
-        const subject = `🚀 Duncan ${release.version} — ${release.title}`;
+        const subject = "Duncan Version Upgrade";
 
         for (const recipient of recipients) {
           try {
