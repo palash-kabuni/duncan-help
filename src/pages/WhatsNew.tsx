@@ -1,8 +1,13 @@
+import { useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import { useReleases, Release } from "@/hooks/useReleases";
+import { useIsAdmin } from "@/hooks/useUserRoles";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Rocket, Sparkles, Bug, FileText } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Loader2, Rocket, Sparkles, Bug, FileText, Mail } from "lucide-react";
 import { format } from "date-fns";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const changeTypeConfig: Record<string, { icon: React.ReactNode; label: string; className: string }> = {
   feature: { icon: <Rocket className="h-3.5 w-3.5" />, label: "Feature", className: "bg-primary/10 text-primary" },
@@ -13,6 +18,7 @@ const changeTypeConfig: Record<string, { icon: React.ReactNode; label: string; c
 
 export default function WhatsNew() {
   const { data: releases = [], isLoading } = useReleases("published");
+  const { isAdmin } = useIsAdmin();
 
   return (
     <AppLayout>
@@ -28,12 +34,10 @@ export default function WhatsNew() {
           <p className="text-sm text-muted-foreground text-center py-16">No releases published yet.</p>
         ) : (
           <div className="relative">
-            {/* Timeline line */}
             <div className="absolute left-[19px] top-4 bottom-4 w-px bg-border" />
-
             <div className="space-y-8">
               {releases.map((release, index) => (
-                <ReleaseCard key={release.id} release={release} isLatest={index === 0} />
+                <ReleaseCard key={release.id} release={release} isLatest={index === 0} isAdmin={isAdmin} />
               ))}
             </div>
           </div>
@@ -43,15 +47,31 @@ export default function WhatsNew() {
   );
 }
 
-function ReleaseCard({ release, isLatest }: { release: Release; isLatest: boolean }) {
+function ReleaseCard({ release, isLatest, isAdmin }: { release: Release; isLatest: boolean; isAdmin: boolean }) {
+  const [sending, setSending] = useState(false);
   const features = release.changes.filter((c) => c.type === "feature");
   const improvements = release.changes.filter((c) => c.type === "improvement");
   const fixes = release.changes.filter((c) => c.type === "fix");
   const other = release.changes.filter((c) => !["feature", "improvement", "fix"].includes(c.type));
 
+  const handleSendNotification = async () => {
+    setSending(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("send-release-emails", {
+        body: { releaseId: release.id },
+      });
+      if (error) throw error;
+      const gmail = data?.gmail;
+      toast.success(`Notification sent to ${gmail?.sent ?? 0} users`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to send notifications");
+    } finally {
+      setSending(false);
+    }
+  };
+
   return (
     <div className="relative flex gap-4">
-      {/* Timeline dot */}
       <div className={`relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 ${isLatest ? "border-primary bg-primary/10" : "border-border bg-background"}`}>
         <Rocket className={`h-4 w-4 ${isLatest ? "text-primary" : "text-muted-foreground"}`} />
       </div>
@@ -62,6 +82,18 @@ function ReleaseCard({ release, isLatest }: { release: Release; isLatest: boolea
           {isLatest && <Badge className="bg-primary/10 text-primary border-0 text-xs">Latest</Badge>}
           {release.published_at && (
             <span className="text-xs text-muted-foreground">{format(new Date(release.published_at), "dd MMM yyyy")}</span>
+          )}
+          {isAdmin && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground ml-auto"
+              onClick={handleSendNotification}
+              disabled={sending}
+            >
+              {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
+              Send Notification
+            </Button>
           )}
         </div>
 
