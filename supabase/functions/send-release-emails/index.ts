@@ -140,9 +140,8 @@ serve(async (req) => {
           .eq("approval_status", "approved");
 
         const approvedUserIds = new Set((approvedProfiles ?? []).map((p: any) => p.user_id));
-        const TEST_RECIPIENTS = ["adit@kabuni.com", "palash@kabuni.com"];
         const recipients = (allUsers ?? []).filter(
-          (u: any) => u.email && TEST_RECIPIENTS.includes(u.email)
+          (u: any) => u.email && approvedUserIds.has(u.id)
         );
 
         const htmlBody = buildEmailHtml(release, changes, appUrl);
