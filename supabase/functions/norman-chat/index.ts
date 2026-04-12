@@ -27,6 +27,7 @@ Your capabilities:
 - **Meeting Intelligence**: You can fetch and analyze meeting recordings from Plaud AI. Use fetch_plaud_meetings to pull new recordings from email, list_meetings to browse stored meetings, get_meeting to view a specific meeting's transcript and analysis, and analyze_meetings to run AI analysis on meetings. When users ask about meetings, what was discussed, action items, or meeting insights, use these tools. You can search across all meeting transcripts to answer questions like "What did we decide about X?".
 - **Xero Finance**: You have access to the company's Xero accounting system. You can list and search invoices (both payable and receivable), get invoice details, approve payment for invoices, **submit new invoices** (both bills/ACCPAY and sales invoices/ACCREC), and **record expenses** (Spend Money transactions). When users ask about invoices, bills, payments, expenses, or financial data from Xero, use these tools. For payment approval, invoices under £300 can be auto-approved; larger amounts require explicit confirmation. Always show invoice details (number, contact, amount, due date, status) before approving payment. When creating invoices, collect all details conversationally: contact name, invoice type (bill or sales invoice), line items (description, quantity, unit price, account code), due date, and reference. Search contacts first to find the correct Xero contact. Always confirm all details before submitting. When recording expenses: first list bank accounts to find the correct payment source, search for the contact, collect line items (description, amount, account code like '429' for General Expenses, '400' for Advertising, '404' for Cleaning, '461' for Printing, '310' for Insurance), then confirm and submit.
 - **Gmail Access**: You have access to the user's personal Gmail inbox. You can list recent emails, search emails by query (sender, subject, date, keywords), read full email content, and send emails on behalf of the user. Use these tools when the user asks about their emails, wants to find a specific email, read an email, or send a new email. When sending emails, collect to, subject, and body; optionally cc and bcc. Always confirm before sending. Present email lists clearly with sender, subject, date, and unread status.
+- **Google Drive Access**: You have access to the user's Google Drive. You can search for folders and files by name, list contents of any folder, and read file content (Google Docs as text, Sheets as CSV, Slides as text). Use these tools when the user asks about Drive files, weekly reports, or any documents stored in Google Drive. To navigate folder structures, first search for the folder by name, then list its contents, then read individual files. For executive summaries of weekly reports: 1) Search for the "Weekly Reports" folder, 2) List its subfolders, 3) Find the matching week folder, 4) List all files in it, 5) Read each file, 6) Synthesize into a summary.
 - **File Analysis**: Users can attach files (images, documents, spreadsheets) directly in the chat. When files are attached, analyze their content thoroughly — describe images, extract text from documents, summarize data from spreadsheets, and answer questions about the content. Always acknowledge what files were received and provide detailed analysis.
 - **App Analytics**: You have access to internal app analytics — workstream cards, tasks, recruitment pipeline, purchase orders, meetings, issues, and team activity. Use the analytics tools when users ask about team performance, workload distribution, project health, pipeline status, overdue items, or any operational metrics. Present data with clear tables, counts, and summaries. Use the RYG (Red/Yellow/Green) framework for status reporting.
 - **Workstream Management (Agentic)**: You can CREATE, UPDATE, and manage workstream cards and tasks directly. When a user describes a workflow, project plan, or set of tasks, proactively break it down into workstream cards with tasks. IMPORTANT: When creating cards, they are ALWAYS auto-assigned to the creator only. Do NOT try to assign cards to others during creation. If the user wants to assign cards to other team members, use update_workstream_card AFTER creation. Use list_team_members to resolve names to user IDs. When assigning tasks to people, use check_team_availability first to look at their calendars and find suitable time slots. Suggest specific times based on their availability. Available project tags: 'Lightning Strike Event', 'Website', 'K10 App', 'School Integrations'. Default status is 'amber' (Yellow) for new cards. When the user says "create", "set up", or "build the workflow", execute directly. Otherwise, present the plan first and ask for confirmation before creating. DEDUPLICATION: The create_workstream_card tool automatically prevents duplicates — if a card with the same title and project_tag already exists for the user, it returns the existing card instead of creating a new one. NEVER call create_workstream_card more than once for the same card title in a single conversation. After creating cards, do NOT repeat the creation calls — proceed directly to adding tasks.
@@ -851,6 +852,55 @@ const GMAIL_TOOLS = [
           confirmed: { type: "boolean", description: "Whether the user has explicitly confirmed sending. Must be true to proceed." },
         },
         required: ["to", "subject", "body", "confirmed"],
+      },
+    },
+  },
+];
+
+const GOOGLE_DRIVE_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "drive_list_files",
+      description: "List files and folders inside a Google Drive folder. Use when the user asks to browse or list files in Drive. Pass folderId to list a specific folder's contents, or omit for root.",
+      parameters: {
+        type: "object",
+        properties: {
+          folderId: { type: "string", description: "The Google Drive folder ID to list. Omit for root." },
+          query: { type: "string", description: "Optional search query to filter by file name." },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "drive_search",
+      description: "Search Google Drive for files or folders by exact name and/or MIME type. Use to find specific folders like 'Weekly Reports' or files by name. For folders, use mimeType 'application/vnd.google-apps.folder'.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Exact name of the file or folder to find." },
+          mimeType: { type: "string", description: "MIME type filter (e.g., 'application/vnd.google-apps.folder' for folders)." },
+          parentId: { type: "string", description: "Optional parent folder ID to scope the search." },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "drive_get_content",
+      description: "Read the text content of a file from Google Drive. For Google Docs, exports as plain text. For Google Sheets, exports as CSV. For other text files, downloads content. Use after finding a file with drive_list_files or drive_search.",
+      parameters: {
+        type: "object",
+        properties: {
+          fileId: { type: "string", description: "The Google Drive file ID." },
+          mimeType: { type: "string", description: "The MIME type of the file (from the listing result)." },
+        },
+        required: ["fileId", "mimeType"],
       },
     },
   },
@@ -1974,6 +2024,79 @@ async function executeGmailTool(
 
     default:
       throw new Error(`Unknown Gmail tool: ${toolName}`);
+  }
+}
+
+async function executeDriveTool(
+  toolName: string,
+  args: any,
+  supabaseUrl: string,
+  authHeader: string
+): Promise<any> {
+  async function callDriveApi(action: string, body: Record<string, any> = {}) {
+    const res = await fetch(`${supabaseUrl}/functions/v1/google-drive-api`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: authHeader,
+      },
+      body: JSON.stringify({ action, ...body }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Drive API ${action} failed`);
+    if (data.error) throw new Error(data.error);
+    return data;
+  }
+
+  switch (toolName) {
+    case "drive_list_files": {
+      const data = await callDriveApi("list", {
+        folderId: args.folderId,
+        query: args.query,
+      });
+      return {
+        files: (data.files || []).map((f: any) => ({
+          id: f.id,
+          name: f.name,
+          mimeType: f.mimeType,
+          modifiedTime: f.modifiedTime,
+          isFolder: f.mimeType === "application/vnd.google-apps.folder",
+        })),
+        hint: "Use file 'id' with drive_get_content to read a file, or with drive_list_files as folderId to enter a folder.",
+      };
+    }
+
+    case "drive_search": {
+      const data = await callDriveApi("search", {
+        name: args.name,
+        mimeType: args.mimeType,
+        parentId: args.parentId,
+      });
+      return {
+        files: (data.files || []).map((f: any) => ({
+          id: f.id,
+          name: f.name,
+          mimeType: f.mimeType,
+          modifiedTime: f.modifiedTime,
+          isFolder: f.mimeType === "application/vnd.google-apps.folder",
+        })),
+      };
+    }
+
+    case "drive_get_content": {
+      const data = await callDriveApi("get_content", {
+        fileId: args.fileId,
+        mimeType: args.mimeType,
+      });
+      return {
+        content: data.content,
+        truncated: data.truncated || false,
+        encoding: data.encoding || "text",
+      };
+    }
+
+    default:
+      throw new Error(`Unknown Drive tool: ${toolName}`);
   }
 }
 
@@ -3143,6 +3266,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
     tools.push(...XERO_TOOLS);
     // Gmail tools always available (connection checked at execution time)
     tools.push(...GMAIL_TOOLS);
+    // Google Drive tools always available (connection checked at execution time)
+    tools.push(...GOOGLE_DRIVE_TOOLS);
     // Analytics tools always available
     tools.push(...ANALYTICS_TOOLS);
     // Workstream management tools always available
@@ -3293,6 +3418,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
       const azureDevOpsToolNames = ["list_azure_devops_projects", "query_azure_work_items", "get_azure_work_item", "search_synced_work_items"];
       const xeroToolNames = ["list_xero_invoices", "get_xero_invoice", "approve_xero_invoice_payment", "search_xero_contacts", "create_xero_invoice", "list_xero_bank_accounts", "create_xero_expense"];
       const gmailToolNames = ["list_gmail_emails", "search_gmail", "read_gmail_email", "send_gmail_email"];
+      const driveToolNames = ["drive_list_files", "drive_search", "drive_get_content"];
       const analyticsToolNames = ["get_workstream_analytics", "get_recruitment_analytics", "get_team_activity_analytics", "get_operational_summary"];
       const workstreamMgmtToolNames = ["list_team_members", "create_workstream_card", "add_tasks_to_card", "update_workstream_card", "check_team_availability"];
       const toolResults: any[] = [];
@@ -3337,9 +3463,11 @@ Format as a natural, readable summary with clear sections. If a section has no d
               result = await executeAzureDevOpsTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
           } else if (xeroToolNames.includes(tc.function.name)) {
               result = await executeXeroTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "", userId || "");
-          } else if (gmailToolNames.includes(tc.function.name)) {
+           } else if (gmailToolNames.includes(tc.function.name)) {
               result = await executeGmailTool(tc.function.name, args, supabaseUrl, authHeader || "");
-          } else if (analyticsToolNames.includes(tc.function.name)) {
+           } else if (driveToolNames.includes(tc.function.name)) {
+              result = await executeDriveTool(tc.function.name, args, supabaseUrl, authHeader || "");
+           } else if (analyticsToolNames.includes(tc.function.name)) {
               result = await executeAnalyticsTool(tc.function.name, args, supabaseAdmin);
           } else if (workstreamMgmtToolNames.includes(tc.function.name)) {
               result = await executeWorkstreamTool(tc.function.name, args, supabaseAdmin, userId || "");
