@@ -702,6 +702,14 @@ const IntegrationDetail = ({
         if (data?.url) window.location.href = data.url;
         else throw new Error("No auth URL returned");
         setXeroLoading(false);
+      } else if (isGoogleDrive) {
+        setGoogleDriveLoading(true);
+        const { supabase } = await import("@/integrations/supabase/client");
+        const { data, error } = await supabase.functions.invoke("google-drive-auth");
+        if (error) throw error;
+        if (data?.url) window.location.href = data.url;
+        else throw new Error("No auth URL returned");
+        setGoogleDriveLoading(false);
       }
     } catch (err: any) {
       setBasecampLoading(false);
