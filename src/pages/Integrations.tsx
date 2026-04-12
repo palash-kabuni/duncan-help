@@ -274,6 +274,18 @@ const Integrations = () => {
     }
   };
 
+  const checkGoogleDriveConnection = async () => {
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setIsGoogleDriveConnected(false); return; }
+      const { data } = await supabase.from("google_drive_tokens").select("id").eq("connected_by", user.id).limit(1);
+      setIsGoogleDriveConnected(data && data.length > 0);
+    } catch {
+      setIsGoogleDriveConnected(false);
+    }
+  };
+
   // Handle OAuth callback
   useEffect(() => {
     const success = searchParams.get("success");
