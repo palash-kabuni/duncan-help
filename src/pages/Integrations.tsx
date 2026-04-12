@@ -574,6 +574,8 @@ const IntegrationDetail = ({
     status = isAzureDevOpsConnected ? "connected" : "disconnected";
   } else if (isXero) {
     status = isXeroConnected ? "connected" : "disconnected";
+  } else if (isGoogleDrive) {
+    status = isGoogleDriveConnected ? "connected" : "disconnected";
   } else {
     status = getStatus(integration, userIntegrations, companyIntegrations);
   }
