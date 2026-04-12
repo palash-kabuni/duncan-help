@@ -716,11 +716,12 @@ const IntegrationDetail = ({
       setGmailLoading(false);
       setAzureDevOpsLoading(false);
       setXeroLoading(false);
+      setGoogleDriveLoading(false);
       toast.error(err.message || "Failed to start OAuth flow");
     }
   };
 
-  const oauthLoading = isGoogleCalendar ? calendarLoading : isBasecamp ? basecampLoading : isGmail ? gmailLoading : isAzureDevOps ? azureDevOpsLoading : xeroLoading;
+  const oauthLoading = isGoogleCalendar ? calendarLoading : isBasecamp ? basecampLoading : isGmail ? gmailLoading : isAzureDevOps ? azureDevOpsLoading : isXero ? xeroLoading : googleDriveLoading;
   const isPending = isOAuthFlow ? oauthLoading : (isCompany ? companyMutation.isPending : (connectMutation.isPending || disconnectMutation.isPending));
   const canEdit = !isCompany || isAdmin;
 
