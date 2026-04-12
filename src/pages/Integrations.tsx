@@ -842,6 +842,8 @@ const IntegrationDetail = ({
                         ? "Click below to authorize Duncan to access your Basecamp projects, to-dos, and messages."
                         : isGmail
                         ? "Click below to sign in with Google and grant Duncan read-only access to your Gmail for CV ingestion."
+                        : isGoogleDrive
+                        ? "Click below to sign in with Google and grant Duncan read-only access to your Google Drive files."
                         : "Click below to sign in with Google and grant Duncan access to your calendar."}
                     </p>
                   </div>
