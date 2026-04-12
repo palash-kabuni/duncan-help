@@ -662,6 +662,7 @@ const IntegrationDetail = ({
       toast.error(err.message || "Failed to disconnect");
     } finally {
       setGmailLoading(false);
+      setGoogleDriveLoading(false);
     }
   };
 
