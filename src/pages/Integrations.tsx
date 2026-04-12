@@ -428,7 +428,7 @@ const Integrations = () => {
             /* Integration Grid */
             <div className="grid grid-cols-2 gap-4">
               {filtered.map((integration, i) => {
-                const status = getStatus(integration, userIntegrations, companyIntegrations);
+                const status = getRealtimeStatus(integration);
                 const s = statusConfig[status];
                 const integrationData = getIntegrationData(integration, userIntegrations, companyIntegrations);
                 const isCompany = integration.type === "company";
