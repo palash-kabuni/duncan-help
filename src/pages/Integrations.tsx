@@ -160,6 +160,20 @@ const integrations: Integration[] = [
       "An admin connects via OAuth to authorize access",
     ],
   },
+  {
+    id: "google-drive",
+    name: "Google Drive",
+    description: "Read and search files from Google Drive. Duncan can navigate folders, read documents, and synthesize reports.",
+    icon: HardDrive,
+    category: "Productivity",
+    services: ["File Browsing", "Folder Navigation", "Document Reading", "Report Synthesis"],
+    type: "user",
+    setupSteps: [
+      "Click Connect Google Drive below",
+      "Sign in with your Google account and grant read-only access",
+      "You'll be redirected back to Duncan — that's it!",
+    ],
+  },
 ];
 
 const statusConfig = {
