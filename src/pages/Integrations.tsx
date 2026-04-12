@@ -534,6 +534,7 @@ const IntegrationDetail = ({
   isGmailConnected,
   isAzureDevOpsConnected,
   isXeroConnected,
+  isGoogleDriveConnected,
   onClose,
 }: {
   integration: Integration;
@@ -546,6 +547,7 @@ const IntegrationDetail = ({
   isGmailConnected: boolean | null;
   isAzureDevOpsConnected: boolean | null;
   isXeroConnected: boolean | null;
+  isGoogleDriveConnected: boolean | null;
   onClose: () => void;
 }) => {
   const isGoogleCalendar = integration.id === "google-calendar";
@@ -554,8 +556,9 @@ const IntegrationDetail = ({
   const isGmail = integration.id === "gmail";
   const isAzureDevOps = integration.id === "azure-devops";
   const isXero = integration.id === "xero";
+  const isGoogleDrive = integration.id === "google-drive";
   const isGoogleOAuth = isGoogleCalendar;
-  const isOAuthFlow = isGoogleOAuth || isBasecamp || isGmail || isAzureDevOps || isXero;
+  const isOAuthFlow = isGoogleOAuth || isBasecamp || isGmail || isAzureDevOps || isXero || isGoogleDrive;
   
   // Determine status based on integration type
   let status: IntegrationStatus;
