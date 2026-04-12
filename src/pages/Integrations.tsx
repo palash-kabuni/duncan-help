@@ -4,7 +4,7 @@ import {
   Mail, FileText, MessageSquare, Calendar, FolderOpen,
   CheckCircle2, AlertCircle, ArrowRight, X, Plug, Shield,
   Clock, Database, Zap, Loader2, Lock, ExternalLink,
-  GitBranch, Receipt
+  GitBranch, Receipt, HardDrive
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import AppLayout from "@/components/AppLayout";
