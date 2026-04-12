@@ -357,6 +357,7 @@ const Integrations = () => {
     checkGmailConnection();
     checkAzureDevOpsConnection();
     checkXeroConnection();
+    checkGoogleDriveConnection();
   }, [checkCalendarConnection]);
 
   const isLoading = userLoading || companyLoading;
