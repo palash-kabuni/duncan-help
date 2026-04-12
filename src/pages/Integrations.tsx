@@ -365,7 +365,25 @@ const Integrations = () => {
   const categories = ["all", ...Array.from(new Set(integrations.map((i) => i.category)))];
   const filtered = filter === "all" ? integrations : integrations.filter((i) => i.category === filter);
 
-  const connectedCount = integrations.filter((i) => getStatus(i, userIntegrations, companyIntegrations) === "connected").length;
+  const getRealtimeStatus = (integration: Integration): IntegrationStatus => {
+    const oauthMap: Record<string, boolean | null> = {
+      "gmail": isGmailConnected,
+      "google-calendar": isCalendarConnected,
+      "azure-blob": isAzureBlobConnected,
+      "basecamp": isBasecampConnected,
+      "azure-devops": isAzureDevOpsConnected,
+      "xero": isXeroConnected,
+      "google-drive": isGoogleDriveConnected,
+    };
+    if (integration.id in oauthMap) {
+      const val = oauthMap[integration.id];
+      if (val === null) return "disconnected"; // still loading
+      return val ? "connected" : "disconnected";
+    }
+    return getStatus(integration, userIntegrations, companyIntegrations);
+  };
+
+  const connectedCount = integrations.filter((i) => getRealtimeStatus(i) === "connected").length;
   const userDocs = userIntegrations.reduce((sum, u) => sum + (u.documents_ingested ?? 0), 0);
   const companyDocs = companyIntegrations.reduce((sum, c) => sum + (c.documents_ingested ?? 0), 0);
   const totalDocs = userDocs + companyDocs;
