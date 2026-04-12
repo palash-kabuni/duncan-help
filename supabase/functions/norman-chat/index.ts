@@ -2026,6 +2026,79 @@ async function executeGmailTool(
   }
 }
 
+async function executeDriveTool(
+  toolName: string,
+  args: any,
+  supabaseUrl: string,
+  authHeader: string
+): Promise<any> {
+  async function callDriveApi(action: string, body: Record<string, any> = {}) {
+    const res = await fetch(`${supabaseUrl}/functions/v1/google-drive-api`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: authHeader,
+      },
+      body: JSON.stringify({ action, ...body }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Drive API ${action} failed`);
+    if (data.error) throw new Error(data.error);
+    return data;
+  }
+
+  switch (toolName) {
+    case "drive_list_files": {
+      const data = await callDriveApi("list", {
+        folderId: args.folderId,
+        query: args.query,
+      });
+      return {
+        files: (data.files || []).map((f: any) => ({
+          id: f.id,
+          name: f.name,
+          mimeType: f.mimeType,
+          modifiedTime: f.modifiedTime,
+          isFolder: f.mimeType === "application/vnd.google-apps.folder",
+        })),
+        hint: "Use file 'id' with drive_get_content to read a file, or with drive_list_files as folderId to enter a folder.",
+      };
+    }
+
+    case "drive_search": {
+      const data = await callDriveApi("search", {
+        name: args.name,
+        mimeType: args.mimeType,
+        parentId: args.parentId,
+      });
+      return {
+        files: (data.files || []).map((f: any) => ({
+          id: f.id,
+          name: f.name,
+          mimeType: f.mimeType,
+          modifiedTime: f.modifiedTime,
+          isFolder: f.mimeType === "application/vnd.google-apps.folder",
+        })),
+      };
+    }
+
+    case "drive_get_content": {
+      const data = await callDriveApi("get_content", {
+        fileId: args.fileId,
+        mimeType: args.mimeType,
+      });
+      return {
+        content: data.content,
+        truncated: data.truncated || false,
+        encoding: data.encoding || "text",
+      };
+    }
+
+    default:
+      throw new Error(`Unknown Drive tool: ${toolName}`);
+  }
+}
+
 async function executeAzureDevOpsTool(
   toolName: string,
   args: any,
