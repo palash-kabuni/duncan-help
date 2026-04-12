@@ -509,9 +509,11 @@ const Integrations = () => {
               isGmailConnected={isGmailConnected}
               isAzureDevOpsConnected={isAzureDevOpsConnected}
               isXeroConnected={isXeroConnected}
+              isGoogleDriveConnected={isGoogleDriveConnected}
               onClose={() => {
                 setSelectedIntegration(null);
                 checkGmailConnection();
+                checkGoogleDriveConnection();
               }}
             />
           )}
