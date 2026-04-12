@@ -3462,9 +3462,11 @@ Format as a natural, readable summary with clear sections. If a section has no d
               result = await executeAzureDevOpsTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
           } else if (xeroToolNames.includes(tc.function.name)) {
               result = await executeXeroTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "", userId || "");
-          } else if (gmailToolNames.includes(tc.function.name)) {
+           } else if (gmailToolNames.includes(tc.function.name)) {
               result = await executeGmailTool(tc.function.name, args, supabaseUrl, authHeader || "");
-          } else if (analyticsToolNames.includes(tc.function.name)) {
+           } else if (driveToolNames.includes(tc.function.name)) {
+              result = await executeDriveTool(tc.function.name, args, supabaseUrl, authHeader || "");
+           } else if (analyticsToolNames.includes(tc.function.name)) {
               result = await executeAnalyticsTool(tc.function.name, args, supabaseAdmin);
           } else if (workstreamMgmtToolNames.includes(tc.function.name)) {
               result = await executeWorkstreamTool(tc.function.name, args, supabaseAdmin, userId || "");
