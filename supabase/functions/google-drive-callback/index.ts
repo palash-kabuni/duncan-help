@@ -71,13 +71,13 @@ Deno.serve(async (req) => {
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Delete existing tokens for this user
-    await supabaseAdmin.from("google_drive_tokens").delete().eq("connected_by", userId);
+    // Delete ALL existing tokens (singleton table) then insert fresh
+    await supabaseAdmin.from("google_drive_tokens").delete().neq("id", "00000000-0000-0000-0000-000000000000");
 
     const { error: insertError } = await supabaseAdmin.from("google_drive_tokens").insert({
       connected_by: userId,
       access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
+      refresh_token: tokens.refresh_token || "",
       token_expiry: expiry.toISOString(),
     });
 
