@@ -598,6 +598,7 @@ const IntegrationDetail = ({
   const [gmailLoading, setGmailLoading] = useState(false);
   const [azureDevOpsLoading, setAzureDevOpsLoading] = useState(false);
   const [xeroLoading, setXeroLoading] = useState(false);
+  const [googleDriveLoading, setGoogleDriveLoading] = useState(false);
 
   const handleConnect = async () => {
     if (!apiKey.trim()) {
