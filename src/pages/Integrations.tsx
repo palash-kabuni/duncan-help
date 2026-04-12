@@ -311,6 +311,14 @@ const Integrations = () => {
       toast.success("Xero connected successfully!");
       checkXeroConnection();
       setSearchParams({});
+    } else if (searchParams.get("drive_connected") === "true") {
+      toast.success("Google Drive connected successfully!");
+      checkGoogleDriveConnection();
+      setSearchParams({});
+    } else if (searchParams.get("drive_error")) {
+      const driveError = searchParams.get("drive_error");
+      toast.error(`Google Drive connection failed: ${driveError}`);
+      setSearchParams({});
     } else if (searchParams.get("gmail_connected") === "true") {
       toast.success("Gmail connected successfully!");
       checkGmailConnection();
