@@ -639,6 +639,18 @@ const IntegrationDetail = ({
         return;
       }
 
+      if (isGoogleDrive) {
+        setGoogleDriveLoading(true);
+        const { supabase } = await import("@/integrations/supabase/client");
+        const { error } = await supabase.functions.invoke("google-drive-api", {
+          body: { action: "disconnect" },
+        });
+        if (error) throw error;
+        toast.success("Google Drive disconnected");
+        onClose();
+        return;
+      }
+
       if (isCompany) {
         await companyMutation.mutateAsync({ integrationId: integration.id, action: "disconnect" });
       } else {
