@@ -3265,6 +3265,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
     tools.push(...XERO_TOOLS);
     // Gmail tools always available (connection checked at execution time)
     tools.push(...GMAIL_TOOLS);
+    // Google Drive tools always available (connection checked at execution time)
+    tools.push(...GOOGLE_DRIVE_TOOLS);
     // Analytics tools always available
     tools.push(...ANALYTICS_TOOLS);
     // Workstream management tools always available
@@ -3415,6 +3417,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
       const azureDevOpsToolNames = ["list_azure_devops_projects", "query_azure_work_items", "get_azure_work_item", "search_synced_work_items"];
       const xeroToolNames = ["list_xero_invoices", "get_xero_invoice", "approve_xero_invoice_payment", "search_xero_contacts", "create_xero_invoice", "list_xero_bank_accounts", "create_xero_expense"];
       const gmailToolNames = ["list_gmail_emails", "search_gmail", "read_gmail_email", "send_gmail_email"];
+      const driveToolNames = ["drive_list_files", "drive_search", "drive_get_content"];
       const analyticsToolNames = ["get_workstream_analytics", "get_recruitment_analytics", "get_team_activity_analytics", "get_operational_summary"];
       const workstreamMgmtToolNames = ["list_team_members", "create_workstream_card", "add_tasks_to_card", "update_workstream_card", "check_team_availability"];
       const toolResults: any[] = [];
