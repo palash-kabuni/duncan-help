@@ -158,3 +158,12 @@ verify_jwt = false
 
 [functions.check-overdue-tasks]
 verify_jwt = false
+
+[functions.google-drive-auth]
+verify_jwt = false
+
+[functions.google-drive-callback]
+verify_jwt = false
+
+[functions.google-drive-api]
+verify_jwt = false
