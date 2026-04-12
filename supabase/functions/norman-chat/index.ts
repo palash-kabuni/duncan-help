@@ -856,6 +856,55 @@ const GMAIL_TOOLS = [
   },
 ];
 
+const GOOGLE_DRIVE_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "drive_list_files",
+      description: "List files and folders inside a Google Drive folder. Use when the user asks to browse or list files in Drive. Pass folderId to list a specific folder's contents, or omit for root.",
+      parameters: {
+        type: "object",
+        properties: {
+          folderId: { type: "string", description: "The Google Drive folder ID to list. Omit for root." },
+          query: { type: "string", description: "Optional search query to filter by file name." },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "drive_search",
+      description: "Search Google Drive for files or folders by exact name and/or MIME type. Use to find specific folders like 'Weekly Reports' or files by name. For folders, use mimeType 'application/vnd.google-apps.folder'.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Exact name of the file or folder to find." },
+          mimeType: { type: "string", description: "MIME type filter (e.g., 'application/vnd.google-apps.folder' for folders)." },
+          parentId: { type: "string", description: "Optional parent folder ID to scope the search." },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "drive_get_content",
+      description: "Read the text content of a file from Google Drive. For Google Docs, exports as plain text. For Google Sheets, exports as CSV. For other text files, downloads content. Use after finding a file with drive_list_files or drive_search.",
+      parameters: {
+        type: "object",
+        properties: {
+          fileId: { type: "string", description: "The Google Drive file ID." },
+          mimeType: { type: "string", description: "The MIME type of the file (from the listing result)." },
+        },
+        required: ["fileId", "mimeType"],
+      },
+    },
+  },
+];
+
 const ANALYTICS_TOOLS = [
   {
     type: "function",
