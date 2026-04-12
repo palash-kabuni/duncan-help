@@ -29,11 +29,23 @@ async function getValidToken(
   supabaseAdmin: any,
   userId: string
 ): Promise<string | null> {
-  const { data: tokenRow, error } = await supabaseAdmin
+  // First try user's own token, then fall back to any available token (shared resource)
+  let { data: tokenRow, error } = await supabaseAdmin
     .from("google_drive_tokens")
     .select("*")
     .eq("connected_by", userId)
     .maybeSingle();
+
+  if (!tokenRow) {
+    const result = await supabaseAdmin
+      .from("google_drive_tokens")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    tokenRow = result.data;
+    error = result.error;
+  }
 
   if (error || !tokenRow) return null;
 
