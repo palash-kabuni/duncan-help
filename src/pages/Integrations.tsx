@@ -858,7 +858,7 @@ const IntegrationDetail = ({
                     ) : (
                       <>
                         <ExternalLink className="h-4 w-4" />
-                        {isAzureDevOps ? "Connect Azure DevOps" : isXero ? "Connect Xero" : isBasecamp ? "Connect with Basecamp" : isGmail ? "Connect Gmail" : "Sign in with Google"}
+                        {isAzureDevOps ? "Connect Azure DevOps" : isXero ? "Connect Xero" : isBasecamp ? "Connect with Basecamp" : isGmail ? "Connect Gmail" : isGoogleDrive ? "Connect Google Drive" : "Sign in with Google"}
                       </>
                     )}
                   </button>
