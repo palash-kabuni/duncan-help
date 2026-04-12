@@ -4,7 +4,7 @@ import {
   Mail, FileText, MessageSquare, Calendar, FolderOpen,
   CheckCircle2, AlertCircle, ArrowRight, X, Plug, Shield,
   Clock, Database, Zap, Loader2, Lock, ExternalLink,
-  GitBranch, Receipt
+  GitBranch, Receipt, HardDrive
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import AppLayout from "@/components/AppLayout";
@@ -160,6 +160,20 @@ const integrations: Integration[] = [
       "An admin connects via OAuth to authorize access",
     ],
   },
+  {
+    id: "google-drive",
+    name: "Google Drive",
+    description: "Read and search files from Google Drive. Duncan can navigate folders, read documents, and synthesize reports.",
+    icon: HardDrive,
+    category: "Productivity",
+    services: ["File Browsing", "Folder Navigation", "Document Reading", "Report Synthesis"],
+    type: "user",
+    setupSteps: [
+      "Click Connect Google Drive below",
+      "Sign in with your Google account and grant read-only access",
+      "You'll be redirected back to Duncan — that's it!",
+    ],
+  },
 ];
 
 const statusConfig = {
@@ -207,6 +221,7 @@ const Integrations = () => {
   const [isGmailConnected, setIsGmailConnected] = useState<boolean | null>(null);
   const [isAzureDevOpsConnected, setIsAzureDevOpsConnected] = useState<boolean | null>(null);
   const [isXeroConnected, setIsXeroConnected] = useState<boolean | null>(null);
+  const [isGoogleDriveConnected, setIsGoogleDriveConnected] = useState<boolean | null>(null);
   const checkAzureBlobConnection = async () => {
     try {
       const { supabase } = await import("@/integrations/supabase/client");
@@ -259,6 +274,18 @@ const Integrations = () => {
     }
   };
 
+  const checkGoogleDriveConnection = async () => {
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setIsGoogleDriveConnected(false); return; }
+      const { data } = await supabase.from("google_drive_tokens").select("id").eq("connected_by", user.id).limit(1);
+      setIsGoogleDriveConnected(data && data.length > 0);
+    } catch {
+      setIsGoogleDriveConnected(false);
+    }
+  };
+
   // Handle OAuth callback
   useEffect(() => {
     const success = searchParams.get("success");
@@ -283,6 +310,14 @@ const Integrations = () => {
     } else if (success === "xero") {
       toast.success("Xero connected successfully!");
       checkXeroConnection();
+      setSearchParams({});
+    } else if (searchParams.get("drive_connected") === "true") {
+      toast.success("Google Drive connected successfully!");
+      checkGoogleDriveConnection();
+      setSearchParams({});
+    } else if (searchParams.get("drive_error")) {
+      const driveError = searchParams.get("drive_error");
+      toast.error(`Google Drive connection failed: ${driveError}`);
       setSearchParams({});
     } else if (searchParams.get("gmail_connected") === "true") {
       toast.success("Gmail connected successfully!");
@@ -322,6 +357,7 @@ const Integrations = () => {
     checkGmailConnection();
     checkAzureDevOpsConnection();
     checkXeroConnection();
+    checkGoogleDriveConnection();
   }, [checkCalendarConnection]);
 
   const isLoading = userLoading || companyLoading;
@@ -329,7 +365,25 @@ const Integrations = () => {
   const categories = ["all", ...Array.from(new Set(integrations.map((i) => i.category)))];
   const filtered = filter === "all" ? integrations : integrations.filter((i) => i.category === filter);
 
-  const connectedCount = integrations.filter((i) => getStatus(i, userIntegrations, companyIntegrations) === "connected").length;
+  const getRealtimeStatus = (integration: Integration): IntegrationStatus => {
+    const oauthMap: Record<string, boolean | null> = {
+      "gmail": isGmailConnected,
+      "google-calendar": isCalendarConnected,
+      "azure-blob": isAzureBlobConnected,
+      "basecamp": isBasecampConnected,
+      "azure-devops": isAzureDevOpsConnected,
+      "xero": isXeroConnected,
+      "google-drive": isGoogleDriveConnected,
+    };
+    if (integration.id in oauthMap) {
+      const val = oauthMap[integration.id];
+      if (val === null) return "disconnected"; // still loading
+      return val ? "connected" : "disconnected";
+    }
+    return getStatus(integration, userIntegrations, companyIntegrations);
+  };
+
+  const connectedCount = integrations.filter((i) => getRealtimeStatus(i) === "connected").length;
   const userDocs = userIntegrations.reduce((sum, u) => sum + (u.documents_ingested ?? 0), 0);
   const companyDocs = companyIntegrations.reduce((sum, c) => sum + (c.documents_ingested ?? 0), 0);
   const totalDocs = userDocs + companyDocs;
@@ -374,7 +428,7 @@ const Integrations = () => {
             /* Integration Grid */
             <div className="grid grid-cols-2 gap-4">
               {filtered.map((integration, i) => {
-                const status = getStatus(integration, userIntegrations, companyIntegrations);
+                const status = getRealtimeStatus(integration);
                 const s = statusConfig[status];
                 const integrationData = getIntegrationData(integration, userIntegrations, companyIntegrations);
                 const isCompany = integration.type === "company";
@@ -455,9 +509,11 @@ const Integrations = () => {
               isGmailConnected={isGmailConnected}
               isAzureDevOpsConnected={isAzureDevOpsConnected}
               isXeroConnected={isXeroConnected}
+              isGoogleDriveConnected={isGoogleDriveConnected}
               onClose={() => {
                 setSelectedIntegration(null);
                 checkGmailConnection();
+                checkGoogleDriveConnection();
               }}
             />
           )}
@@ -478,6 +534,7 @@ const IntegrationDetail = ({
   isGmailConnected,
   isAzureDevOpsConnected,
   isXeroConnected,
+  isGoogleDriveConnected,
   onClose,
 }: {
   integration: Integration;
@@ -490,6 +547,7 @@ const IntegrationDetail = ({
   isGmailConnected: boolean | null;
   isAzureDevOpsConnected: boolean | null;
   isXeroConnected: boolean | null;
+  isGoogleDriveConnected: boolean | null;
   onClose: () => void;
 }) => {
   const isGoogleCalendar = integration.id === "google-calendar";
@@ -498,8 +556,9 @@ const IntegrationDetail = ({
   const isGmail = integration.id === "gmail";
   const isAzureDevOps = integration.id === "azure-devops";
   const isXero = integration.id === "xero";
+  const isGoogleDrive = integration.id === "google-drive";
   const isGoogleOAuth = isGoogleCalendar;
-  const isOAuthFlow = isGoogleOAuth || isBasecamp || isGmail || isAzureDevOps || isXero;
+  const isOAuthFlow = isGoogleOAuth || isBasecamp || isGmail || isAzureDevOps || isXero || isGoogleDrive;
   
   // Determine status based on integration type
   let status: IntegrationStatus;
@@ -515,6 +574,8 @@ const IntegrationDetail = ({
     status = isAzureDevOpsConnected ? "connected" : "disconnected";
   } else if (isXero) {
     status = isXeroConnected ? "connected" : "disconnected";
+  } else if (isGoogleDrive) {
+    status = isGoogleDriveConnected ? "connected" : "disconnected";
   } else {
     status = getStatus(integration, userIntegrations, companyIntegrations);
   }
@@ -537,6 +598,7 @@ const IntegrationDetail = ({
   const [gmailLoading, setGmailLoading] = useState(false);
   const [azureDevOpsLoading, setAzureDevOpsLoading] = useState(false);
   const [xeroLoading, setXeroLoading] = useState(false);
+  const [googleDriveLoading, setGoogleDriveLoading] = useState(false);
 
   const handleConnect = async () => {
     if (!apiKey.trim()) {
@@ -577,6 +639,18 @@ const IntegrationDetail = ({
         return;
       }
 
+      if (isGoogleDrive) {
+        setGoogleDriveLoading(true);
+        const { supabase } = await import("@/integrations/supabase/client");
+        const { error } = await supabase.functions.invoke("google-drive-api", {
+          body: { action: "disconnect" },
+        });
+        if (error) throw error;
+        toast.success("Google Drive disconnected");
+        onClose();
+        return;
+      }
+
       if (isCompany) {
         await companyMutation.mutateAsync({ integrationId: integration.id, action: "disconnect" });
       } else {
@@ -588,6 +662,7 @@ const IntegrationDetail = ({
       toast.error(err.message || "Failed to disconnect");
     } finally {
       setGmailLoading(false);
+      setGoogleDriveLoading(false);
     }
   };
 
@@ -627,17 +702,26 @@ const IntegrationDetail = ({
         if (data?.url) window.location.href = data.url;
         else throw new Error("No auth URL returned");
         setXeroLoading(false);
+      } else if (isGoogleDrive) {
+        setGoogleDriveLoading(true);
+        const { supabase } = await import("@/integrations/supabase/client");
+        const { data, error } = await supabase.functions.invoke("google-drive-auth");
+        if (error) throw error;
+        if (data?.url) window.location.href = data.url;
+        else throw new Error("No auth URL returned");
+        setGoogleDriveLoading(false);
       }
     } catch (err: any) {
       setBasecampLoading(false);
       setGmailLoading(false);
       setAzureDevOpsLoading(false);
       setXeroLoading(false);
+      setGoogleDriveLoading(false);
       toast.error(err.message || "Failed to start OAuth flow");
     }
   };
 
-  const oauthLoading = isGoogleCalendar ? calendarLoading : isBasecamp ? basecampLoading : isGmail ? gmailLoading : isAzureDevOps ? azureDevOpsLoading : xeroLoading;
+  const oauthLoading = isGoogleCalendar ? calendarLoading : isBasecamp ? basecampLoading : isGmail ? gmailLoading : isAzureDevOps ? azureDevOpsLoading : isXero ? xeroLoading : googleDriveLoading;
   const isPending = isOAuthFlow ? oauthLoading : (isCompany ? companyMutation.isPending : (connectMutation.isPending || disconnectMutation.isPending));
   const canEdit = !isCompany || isAdmin;
 
@@ -758,6 +842,8 @@ const IntegrationDetail = ({
                         ? "Click below to authorize Duncan to access your Basecamp projects, to-dos, and messages."
                         : isGmail
                         ? "Click below to sign in with Google and grant Duncan read-only access to your Gmail for CV ingestion."
+                        : isGoogleDrive
+                        ? "Click below to sign in with Google and grant Duncan read-only access to your Google Drive files."
                         : "Click below to sign in with Google and grant Duncan access to your calendar."}
                     </p>
                   </div>
@@ -774,7 +860,7 @@ const IntegrationDetail = ({
                     ) : (
                       <>
                         <ExternalLink className="h-4 w-4" />
-                        {isAzureDevOps ? "Connect Azure DevOps" : isXero ? "Connect Xero" : isBasecamp ? "Connect with Basecamp" : isGmail ? "Connect Gmail" : "Sign in with Google"}
+                        {isAzureDevOps ? "Connect Azure DevOps" : isXero ? "Connect Xero" : isBasecamp ? "Connect with Basecamp" : isGmail ? "Connect Gmail" : isGoogleDrive ? "Connect Google Drive" : "Sign in with Google"}
                       </>
                     )}
                   </button>
