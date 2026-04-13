@@ -14,10 +14,11 @@ async function getGmailAccessToken(supabaseAdmin: any): Promise<string | null> {
   const clientSecret = Deno.env.get("GMAIL_CLIENT_SECRET");
   if (!clientId || !clientSecret) return null;
 
+  // Always use Duncan's email for Plaud meeting sync
   const { data: tokenData, error } = await supabaseAdmin
     .from("gmail_tokens")
     .select("*")
-    .limit(1)
+    .eq("email_address", "duncan@kabuni.com")
     .maybeSingle();
 
   if (error || !tokenData) return null;
