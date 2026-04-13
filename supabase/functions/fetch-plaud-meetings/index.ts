@@ -321,11 +321,14 @@ serve(async (req) => {
     });
     console.log(`${uniqueCandidates.length} unique candidate emails to check for DD-MM pattern`);
 
-    // Check each candidate for DD-MM subject pattern
-    const DD_MM_PATTERN = /^\d{2}-\d{2}/;
-    // Also match DD-MM inside forwarded subjects like: Fwd: Nimesh Patel has invited you to view "02-19 Meeting..."
-    const DD_MM_QUOTED_PATTERN = /["']\d{2}-\d{2}/;
+    // Check each candidate for meeting-related patterns
+    // DD-MM anywhere in subject, or Plaud-related keywords
+    const DD_MM_PATTERN = /\d{2}-\d{2}/;
+    const PLAUD_PATTERN = /plaud|invited you to view|meeting|recording/i;
     let dateMessages: any[] = [];
+
+    // Log first 5 candidate subjects for debugging
+    let debugCount = 0;
 
     for (const candidate of uniqueCandidates) {
       try {
@@ -339,16 +342,21 @@ serve(async (req) => {
           (h: any) => h.name.toLowerCase() === "subject"
         );
         const subjectVal = subjectHeader?.value || "";
-        const trimmed = subjectVal.trim();
-        if (DD_MM_PATTERN.test(trimmed) || DD_MM_QUOTED_PATTERN.test(trimmed)) {
+
+        if (debugCount < 10) {
+          console.log(`Candidate subject [${debugCount}]: "${subjectVal}"`);
+          debugCount++;
+        }
+
+        if (DD_MM_PATTERN.test(subjectVal) || PLAUD_PATTERN.test(subjectVal)) {
           dateMessages.push(candidate);
-          console.log(`DD-MM match: "${subjectVal}"`);
+          console.log(`Pattern match: "${subjectVal}"`);
         }
       } catch (e) {
         console.error(`Failed to check subject for ${candidate.id}:`, e);
       }
     }
-    console.log(`Found ${dateMessages.length} emails matching DD-MM pattern`);
+    console.log(`Found ${dateMessages.length} emails matching meeting patterns`);
 
     // Merge and deduplicate all results
     const seenIds = new Set<string>();
