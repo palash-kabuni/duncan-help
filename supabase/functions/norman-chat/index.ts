@@ -28,6 +28,7 @@ Your capabilities:
 - **Xero Finance**: You have access to the company's Xero accounting system. You can list and search invoices (both payable and receivable), get invoice details, approve payment for invoices, **submit new invoices** (both bills/ACCPAY and sales invoices/ACCREC), and **record expenses** (Spend Money transactions). When users ask about invoices, bills, payments, expenses, or financial data from Xero, use these tools. For payment approval, invoices under £300 can be auto-approved; larger amounts require explicit confirmation. Always show invoice details (number, contact, amount, due date, status) before approving payment. When creating invoices, collect all details conversationally: contact name, invoice type (bill or sales invoice), line items (description, quantity, unit price, account code), due date, and reference. Search contacts first to find the correct Xero contact. Always confirm all details before submitting. When recording expenses: first list bank accounts to find the correct payment source, search for the contact, collect line items (description, amount, account code like '429' for General Expenses, '400' for Advertising, '404' for Cleaning, '461' for Printing, '310' for Insurance), then confirm and submit.
 - **Gmail Access**: You have access to the user's personal Gmail inbox. You can list recent emails, search emails by query (sender, subject, date, keywords), read full email content, and send emails on behalf of the user. Use these tools when the user asks about their emails, wants to find a specific email, read an email, or send a new email. When sending emails, collect to, subject, and body; optionally cc and bcc. Always confirm before sending. Present email lists clearly with sender, subject, date, and unread status.
 - **Google Drive Access**: You have access to the user's Google Drive. You can search for folders and files by name, list contents of any folder, and read file content (Google Docs as text, Sheets as CSV, Slides as text). Use these tools when the user asks about Drive files, weekly reports, or any documents stored in Google Drive. To navigate folder structures, first search for the folder by name, then list its contents, then read individual files. **IMPORTANT — Weekly Reports**: The master Weekly Reports folder has a KNOWN folder ID: "1R5JxrnLsSGPu4iRMqn02oCOHmGbRSW7G". When the user asks for an executive summary or weekly report, ALWAYS go directly to this folder (use drive_list_files with this folderId) instead of searching. Inside it, subfolders are named by date range (e.g. "6th - 10th April"). Match the requested week to the subfolder name, list all files in it, read each file, and synthesize into a concise executive summary.
+- **Executive Summary Documents**: When the user asks you to generate/create a document or downloadable version of an executive summary, use generate_exec_summary_document AFTER you have fetched and synthesized all the report content. Pass the full synthesized summary as markdown in the 'content' field. The tool generates a professional styled HTML document, uploads it to storage, and returns a download link. Always share the download_url with the user using markdown link syntax: [Download Executive Summary](download_url_here). If the user asks for "a document" or "generate a report" about the weekly summary, first fetch the data from Drive, synthesize it, then call this tool to produce the downloadable document.
 - **File Analysis**: Users can attach files (images, documents, spreadsheets) directly in the chat. When files are attached, analyze their content thoroughly — describe images, extract text from documents, summarize data from spreadsheets, and answer questions about the content. Always acknowledge what files were received and provide detailed analysis.
 - **App Analytics**: You have access to internal app analytics — workstream cards, tasks, recruitment pipeline, purchase orders, meetings, issues, and team activity. Use the analytics tools when users ask about team performance, workload distribution, project health, pipeline status, overdue items, or any operational metrics. Present data with clear tables, counts, and summaries. Use the RYG (Red/Yellow/Green) framework for status reporting.
 - **Workstream Management (Agentic)**: You can CREATE, UPDATE, and manage workstream cards and tasks directly. When a user describes a workflow, project plan, or set of tasks, proactively break it down into workstream cards with tasks. IMPORTANT: When creating cards, they are ALWAYS auto-assigned to the creator only. Do NOT try to assign cards to others during creation. If the user wants to assign cards to other team members, use update_workstream_card AFTER creation. Use list_team_members to resolve names to user IDs. When assigning tasks to people, use check_team_availability first to look at their calendars and find suitable time slots. Suggest specific times based on their availability. Available project tags: 'Lightning Strike Event', 'Website', 'K10 App', 'School Integrations'. Default status is 'amber' (Yellow) for new cards. When the user says "create", "set up", or "build the workflow", execute directly. Otherwise, present the plan first and ask for confirmation before creating. DEDUPLICATION: The create_workstream_card tool automatically prevents duplicates — if a card with the same title and project_tag already exists for the user, it returns the existing card instead of creating a new one. NEVER call create_workstream_card more than once for the same card title in a single conversation. After creating cards, do NOT repeat the creation calls — proceed directly to adding tasks.
@@ -901,6 +902,25 @@ const GOOGLE_DRIVE_TOOLS = [
           mimeType: { type: "string", description: "The MIME type of the file (from the listing result)." },
         },
         required: ["fileId", "mimeType"],
+      },
+    },
+  },
+];
+
+const EXEC_SUMMARY_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "generate_exec_summary_document",
+      description: "Generate a downloadable executive summary document (styled HTML that can be printed as PDF). Use this AFTER you have already fetched and synthesized the weekly report content from Google Drive. Pass the full synthesized summary as the 'content' parameter. The document will be uploaded to storage and a download link returned.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Document title, e.g. 'Executive Summary — Week of 6th-10th April 2025'" },
+          week_range: { type: "string", description: "The week range, e.g. '6th - 10th April 2025'" },
+          content: { type: "string", description: "The full executive summary content in markdown format. Include all sections, KPIs, RYG statuses, and action items." },
+        },
+        required: ["title", "content"],
       },
     },
   },
@@ -2100,6 +2120,34 @@ async function executeDriveTool(
   }
 }
 
+async function executeExecSummaryTool(
+  toolName: string,
+  args: any,
+  supabaseUrl: string,
+  authHeader: string
+): Promise<any> {
+  if (toolName !== "generate_exec_summary_document") {
+    throw new Error(`Unknown exec summary tool: ${toolName}`);
+  }
+
+  const res = await fetch(`${supabaseUrl}/functions/v1/generate-exec-summary`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: authHeader,
+    },
+    body: JSON.stringify({
+      title: args.title,
+      week_range: args.week_range,
+      content: args.content,
+    }),
+  });
+
+  const result = await res.json();
+  if (!res.ok) throw new Error(result.error || "Failed to generate executive summary document");
+  return result;
+}
+
 async function executeAzureDevOpsTool(
   toolName: string,
   args: any,
@@ -3272,6 +3320,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
     tools.push(...ANALYTICS_TOOLS);
     // Workstream management tools always available
     tools.push(...WORKSTREAM_TOOLS);
+    // Executive summary document generation
+    tools.push(...EXEC_SUMMARY_TOOLS);
     if (tools.length > 0) {
       requestBody.tools = tools;
     }
@@ -3421,6 +3471,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
       const driveToolNames = ["drive_list_files", "drive_search", "drive_get_content"];
       const analyticsToolNames = ["get_workstream_analytics", "get_recruitment_analytics", "get_team_activity_analytics", "get_operational_summary"];
       const workstreamMgmtToolNames = ["list_team_members", "create_workstream_card", "add_tasks_to_card", "update_workstream_card", "check_team_availability"];
+      const execSummaryToolNames = ["generate_exec_summary_document"];
       const toolResults: any[] = [];
 
       for (const tc of toolCalls) {
@@ -3471,6 +3522,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
               result = await executeAnalyticsTool(tc.function.name, args, supabaseAdmin);
           } else if (workstreamMgmtToolNames.includes(tc.function.name)) {
               result = await executeWorkstreamTool(tc.function.name, args, supabaseAdmin, userId || "");
+          } else if (execSummaryToolNames.includes(tc.function.name)) {
+              result = await executeExecSummaryTool(tc.function.name, args, supabaseUrl, authHeader || "");
           } else {
           }
           
