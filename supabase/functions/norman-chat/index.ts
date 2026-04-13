@@ -2070,7 +2070,12 @@ async function executeDriveTool(
 
   switch (toolName) {
     case "drive_list_files": {
-      const folderId = args.folderId && args.folderId !== "." && args.folderId !== "/" ? args.folderId : undefined;
+      const WEEKLY_REPORTS_FOLDER = "1R5JxrnLsSGPu4iRMqn02oCOHmGbRSW7G";
+      let folderId = args.folderId;
+      // Sanitize invalid/placeholder values — default to Weekly Reports folder
+      if (!folderId || folderId === "." || folderId === "/" || folderId === "root" || folderId.length < 5) {
+        folderId = WEEKLY_REPORTS_FOLDER;
+      }
       const data = await callDriveApi("list", {
         folderId,
         query: args.query,
