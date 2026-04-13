@@ -906,6 +906,25 @@ const GOOGLE_DRIVE_TOOLS = [
   },
 ];
 
+const EXEC_SUMMARY_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "generate_exec_summary_document",
+      description: "Generate a downloadable executive summary document (styled HTML that can be printed as PDF). Use this AFTER you have already fetched and synthesized the weekly report content from Google Drive. Pass the full synthesized summary as the 'content' parameter. The document will be uploaded to storage and a download link returned.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Document title, e.g. 'Executive Summary — Week of 6th-10th April 2025'" },
+          week_range: { type: "string", description: "The week range, e.g. '6th - 10th April 2025'" },
+          content: { type: "string", description: "The full executive summary content in markdown format. Include all sections, KPIs, RYG statuses, and action items." },
+        },
+        required: ["title", "content"],
+      },
+    },
+  },
+];
+
 const ANALYTICS_TOOLS = [
   {
     type: "function",
