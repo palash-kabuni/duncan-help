@@ -541,8 +541,12 @@ serve(async (req) => {
         meetingDate = new Date().toISOString();
       }
 
+      // Determine source: Gemini meeting notes vs Plaud
+      const isGeminiNotes = subject.toLowerCase().startsWith("notes -") || subject.toLowerCase().startsWith("notes -");
+      const source = isGeminiNotes ? "google_meet" : "plaud";
+
       // Generate a title from the subject
-      const title = subject || "Plaud Meeting Recording";
+      const title = subject || (isGeminiNotes ? "Google Meet Notes" : "Plaud Meeting Recording");
 
       // Insert meeting record
       const { data: meeting, error: insertError } = await supabaseAdmin
@@ -555,7 +559,7 @@ serve(async (req) => {
           gmail_message_id: msg.id,
           email_subject: subject,
           sender_email: senderEmail,
-          source: "plaud",
+          source,
           status: transcriptText ? "transcribed" : (audioStoragePath ? "audio_only" : "pending"),
           fetched_by: requestingUserId,
         })
