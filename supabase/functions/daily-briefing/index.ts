@@ -75,7 +75,6 @@ serve(async (req) => {
     const [
       meetingsResult,
       workItemsResult,
-      invoicesResult,
       basecampData,
       calendarResult,
       purchaseOrdersResult,
@@ -100,15 +99,7 @@ serve(async (req) => {
         .order("changed_date", { ascending: false })
         .limit(15),
 
-      // 3. Outstanding Xero invoices (always show current state)
-      supabaseAdmin
-        .from("xero_invoices")
-        .select("invoice_number, contact_name, total, amount_due, due_date, status, type, currency_code")
-        .in("status", ["AUTHORISED", "SUBMITTED"])
-        .order("due_date", { ascending: true })
-        .limit(10),
-
-      // 4. Basecamp todos + messages
+      // 3. Basecamp todos + messages
       fetchBasecampData(supabaseUrl, supabaseAdmin, authHeader, displayName),
 
       // 5. Google Calendar - today's events
