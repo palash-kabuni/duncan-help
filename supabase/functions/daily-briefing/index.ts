@@ -71,6 +71,8 @@ serve(async (req) => {
       : widerDefault;
     const widerSinceISO = widerSince.toISOString();
 
+    const today = now.toISOString().split("T")[0];
+
     // Run ALL queries in parallel
     const [
       meetingsResult,
@@ -81,6 +83,8 @@ serve(async (req) => {
       issuesResult,
       candidatesResult,
       wikiResult,
+      myTokenUsage,
+      leaderboardResult,
     ] = await Promise.all([
       // 1. Meetings since last briefing
       supabaseAdmin
@@ -128,6 +132,17 @@ serve(async (req) => {
         .gte("updated_at", widerSinceISO)
         .order("updated_at", { ascending: false })
         .limit(10),
+
+      // 10. My token usage today
+      supabaseAdmin
+        .from("token_usage")
+        .select("total_tokens, request_count, prompt_tokens, completion_tokens")
+        .eq("user_id", user.id)
+        .eq("usage_date", today)
+        .maybeSingle(),
+
+      // 11. Top 3 leaderboard (all-time or last 30 days)
+      fetchTokenLeaderboard(supabaseAdmin),
 
     ]);
 
