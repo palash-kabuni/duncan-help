@@ -166,7 +166,7 @@ For key_topics, list the main subjects discussed.`;
               },
             }],
             tool_choice: { type: "function", function: { name: "analyze_meeting" } },
-          }),
+            max_tokens: 8192,
         });
 
         if (!aiResponse.ok) {
