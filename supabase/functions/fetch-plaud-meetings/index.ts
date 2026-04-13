@@ -265,8 +265,10 @@ serve(async (req) => {
     // Search 2: Emails from known meeting-note senders (Nimesh, Patrick) — filter by DD-MM or Plaud pattern in code
     const nimeshQuery = `from:nimesh newer_than:60d`;
     const patrickQuery = `from:patrick newer_than:60d`;
+    // Search 3: Google Meet meeting notes from Gemini — subject starts with "notes -"
+    const geminiNotesQuery = `subject:"notes -" (from:gemini OR from:google OR from:workspace) newer_than:60d`;
 
-    console.log("Gmail search queries - Plaud:", plaudQuery, "| Nimesh:", nimeshQuery, "| Patrick:", patrickQuery);
+    console.log("Gmail search queries - Plaud:", plaudQuery, "| Nimesh:", nimeshQuery, "| Patrick:", patrickQuery, "| Gemini:", geminiNotesQuery);
 
     const plaudSearchUrl = new URL(`${GMAIL_API}/messages`);
     plaudSearchUrl.searchParams.set("q", plaudQuery);
@@ -280,11 +282,16 @@ serve(async (req) => {
     patrickSearchUrl.searchParams.set("q", patrickQuery);
     patrickSearchUrl.searchParams.set("maxResults", "50");
 
-    // Fetch all three searches in parallel
-    const [plaudSearchRes, nimeshSearchRes, patrickSearchRes] = await Promise.all([
+    const geminiSearchUrl = new URL(`${GMAIL_API}/messages`);
+    geminiSearchUrl.searchParams.set("q", geminiNotesQuery);
+    geminiSearchUrl.searchParams.set("maxResults", "50");
+
+    // Fetch all four searches in parallel
+    const [plaudSearchRes, nimeshSearchRes, patrickSearchRes, geminiSearchRes] = await Promise.all([
       fetch(plaudSearchUrl.toString(), { headers }),
       fetch(nimeshSearchUrl.toString(), { headers }),
       fetch(patrickSearchUrl.toString(), { headers }),
+      fetch(geminiSearchUrl.toString(), { headers }),
     ]);
 
     if (!plaudSearchRes.ok) {
@@ -295,9 +302,23 @@ serve(async (req) => {
     const plaudMessages = plaudSearchData.messages || [];
     console.log(`Found ${plaudMessages.length} Plaud-related emails`);
 
+    // Process Gemini meeting notes — these go directly to the main message list (no pattern filtering needed)
+    const geminiMessages: any[] = [];
+    if (geminiSearchRes.ok) {
+      const geminiData = await geminiSearchRes.json();
+      const msgs = geminiData.messages || [];
+      console.log(`Found ${msgs.length} Gemini meeting notes emails`);
+      geminiMessages.push(...msgs);
+    } else {
+      console.error("Gemini notes search failed:", await geminiSearchRes.text());
+    }
+
     // Collect candidate messages from Nimesh and Patrick searches, then filter by meeting patterns
     const allCandidateMsgs: any[] = [];
-    const plaudIds = new Set(plaudMessages.map((m: any) => m.id));
+    const directIds = new Set([
+      ...plaudMessages.map((m: any) => m.id),
+      ...geminiMessages.map((m: any) => m.id),
+    ]);
 
     for (const [label, res] of [["Nimesh", nimeshSearchRes], ["Patrick", patrickSearchRes]] as const) {
       if (res.ok) {
@@ -305,7 +326,7 @@ serve(async (req) => {
         const msgs = data.messages || [];
         console.log(`Found ${msgs.length} emails from ${label} search`);
         for (const m of msgs) {
-          if (!plaudIds.has(m.id)) {
+          if (!directIds.has(m.id)) {
             allCandidateMsgs.push(m);
           }
         }
