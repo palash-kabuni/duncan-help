@@ -194,7 +194,7 @@ serve(async (req) => {
     // Handle GET requests for direct file download
     if (req.method === "GET") {
       const url = new URL(req.url);
-      const blobPath = url.searchParams.get("blob_path");
+      const blobPath = url.searchParams.get("blob_path") || url.searchParams.get("path");
       if (!blobPath) {
         return new Response(JSON.stringify({ error: "blob_path query parameter is required" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
