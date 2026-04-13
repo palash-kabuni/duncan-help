@@ -14,10 +14,11 @@ async function getGmailAccessToken(supabaseAdmin: any): Promise<string | null> {
   const clientSecret = Deno.env.get("GMAIL_CLIENT_SECRET");
   if (!clientId || !clientSecret) return null;
 
+  // Always use Duncan's email for Plaud meeting sync
   const { data: tokenData, error } = await supabaseAdmin
     .from("gmail_tokens")
     .select("*")
-    .limit(1)
+    .eq("email_address", "duncan@kabuni.com")
     .maybeSingle();
 
   if (error || !tokenData) return null;
@@ -260,13 +261,12 @@ serve(async (req) => {
     const headers = { Authorization: `Bearer ${gmailToken}` };
 
     // Search 1: Plaud AI emails - sharing invites, plaud sender
-    const plaudQuery = `subject:"invited you to view" OR subject:plaud OR from:plaud OR from:noreply@plaud.ai`;
-    // Search 2: Emails from known meeting-note senders (Nimesh Patel, Palash) — filter by DD-MM subject pattern in code
-    const nimeshQuery = `from:nimesh patel newer_than:60d`;
-    // Search 3: Broader DD-MM pattern check on forwarded meeting emails
-    const forwardedQuery = `from:palash subject:fwd newer_than:60d`;
+    const plaudQuery = `(subject:"invited you to view" OR subject:plaud OR from:plaud OR from:noreply@plaud.ai) newer_than:60d`;
+    // Search 2: Emails from known meeting-note senders (Nimesh, Patrick) — filter by DD-MM or Plaud pattern in code
+    const nimeshQuery = `from:nimesh newer_than:60d`;
+    const patrickQuery = `from:patrick newer_than:60d`;
 
-    console.log("Gmail search queries - Plaud:", plaudQuery, "| Nimesh:", nimeshQuery, "| Forwarded:", forwardedQuery);
+    console.log("Gmail search queries - Plaud:", plaudQuery, "| Nimesh:", nimeshQuery, "| Patrick:", patrickQuery);
 
     const plaudSearchUrl = new URL(`${GMAIL_API}/messages`);
     plaudSearchUrl.searchParams.set("q", plaudQuery);
@@ -276,15 +276,15 @@ serve(async (req) => {
     nimeshSearchUrl.searchParams.set("q", nimeshQuery);
     nimeshSearchUrl.searchParams.set("maxResults", "50");
 
-    const fwdSearchUrl = new URL(`${GMAIL_API}/messages`);
-    fwdSearchUrl.searchParams.set("q", forwardedQuery);
-    fwdSearchUrl.searchParams.set("maxResults", "50");
+    const patrickSearchUrl = new URL(`${GMAIL_API}/messages`);
+    patrickSearchUrl.searchParams.set("q", patrickQuery);
+    patrickSearchUrl.searchParams.set("maxResults", "50");
 
     // Fetch all three searches in parallel
-    const [plaudSearchRes, nimeshSearchRes, fwdSearchRes] = await Promise.all([
+    const [plaudSearchRes, nimeshSearchRes, patrickSearchRes] = await Promise.all([
       fetch(plaudSearchUrl.toString(), { headers }),
       fetch(nimeshSearchUrl.toString(), { headers }),
-      fetch(fwdSearchUrl.toString(), { headers }),
+      fetch(patrickSearchUrl.toString(), { headers }),
     ]);
 
     if (!plaudSearchRes.ok) {
@@ -295,11 +295,11 @@ serve(async (req) => {
     const plaudMessages = plaudSearchData.messages || [];
     console.log(`Found ${plaudMessages.length} Plaud-related emails`);
 
-    // Collect candidate messages from Nimesh and forwarded searches, then filter by DD-MM pattern
+    // Collect candidate messages from Nimesh and Patrick searches, then filter by meeting patterns
     const allCandidateMsgs: any[] = [];
     const plaudIds = new Set(plaudMessages.map((m: any) => m.id));
 
-    for (const [label, res] of [["Nimesh", nimeshSearchRes], ["Forwarded", fwdSearchRes]] as const) {
+    for (const [label, res] of [["Nimesh", nimeshSearchRes], ["Patrick", patrickSearchRes]] as const) {
       if (res.ok) {
         const data = await res.json();
         const msgs = data.messages || [];
@@ -321,11 +321,14 @@ serve(async (req) => {
     });
     console.log(`${uniqueCandidates.length} unique candidate emails to check for DD-MM pattern`);
 
-    // Check each candidate for DD-MM subject pattern
-    const DD_MM_PATTERN = /^\d{2}-\d{2}/;
-    // Also match DD-MM inside forwarded subjects like: Fwd: Nimesh Patel has invited you to view "02-19 Meeting..."
-    const DD_MM_QUOTED_PATTERN = /["']\d{2}-\d{2}/;
+    // Check each candidate for meeting-related patterns
+    // DD-MM anywhere in subject, or Plaud-related keywords
+    const DD_MM_PATTERN = /\d{2}-\d{2}/;
+    const PLAUD_PATTERN = /plaud|invited you to view|meeting|recording/i;
     let dateMessages: any[] = [];
+
+    // Log first 5 candidate subjects for debugging
+    let debugCount = 0;
 
     for (const candidate of uniqueCandidates) {
       try {
@@ -339,16 +342,21 @@ serve(async (req) => {
           (h: any) => h.name.toLowerCase() === "subject"
         );
         const subjectVal = subjectHeader?.value || "";
-        const trimmed = subjectVal.trim();
-        if (DD_MM_PATTERN.test(trimmed) || DD_MM_QUOTED_PATTERN.test(trimmed)) {
+
+        if (debugCount < 10) {
+          console.log(`Candidate subject [${debugCount}]: "${subjectVal}"`);
+          debugCount++;
+        }
+
+        if (DD_MM_PATTERN.test(subjectVal) || PLAUD_PATTERN.test(subjectVal)) {
           dateMessages.push(candidate);
-          console.log(`DD-MM match: "${subjectVal}"`);
+          console.log(`Pattern match: "${subjectVal}"`);
         }
       } catch (e) {
         console.error(`Failed to check subject for ${candidate.id}:`, e);
       }
     }
-    console.log(`Found ${dateMessages.length} emails matching DD-MM pattern`);
+    console.log(`Found ${dateMessages.length} emails matching meeting patterns`);
 
     // Merge and deduplicate all results
     const seenIds = new Set<string>();
