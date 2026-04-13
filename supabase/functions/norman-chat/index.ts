@@ -2119,7 +2119,35 @@ async function executeDriveTool(
   }
 }
 
-async function executeAzureDevOpsTool(
+async function executeExecSummaryTool(
+  toolName: string,
+  args: any,
+  supabaseUrl: string,
+  authHeader: string
+): Promise<any> {
+  if (toolName !== "generate_exec_summary_document") {
+    throw new Error(`Unknown exec summary tool: ${toolName}`);
+  }
+
+  const res = await fetch(`${supabaseUrl}/functions/v1/generate-exec-summary`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: authHeader,
+    },
+    body: JSON.stringify({
+      title: args.title,
+      week_range: args.week_range,
+      content: args.content,
+    }),
+  });
+
+  const result = await res.json();
+  if (!res.ok) throw new Error(result.error || "Failed to generate executive summary document");
+  return result;
+}
+
+
   toolName: string,
   args: any,
   supabaseAdmin: any,
