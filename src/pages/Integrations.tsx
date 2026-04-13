@@ -205,7 +205,7 @@ const Integrations = () => {
   const [isBasecampConnected, setIsBasecampConnected] = useState<boolean | null>(null);
   const [isGmailConnected, setIsGmailConnected] = useState<boolean | null>(null);
   const [isAzureDevOpsConnected, setIsAzureDevOpsConnected] = useState<boolean | null>(null);
-  const [isXeroConnected, setIsXeroConnected] = useState<boolean | null>(null);
+  const [isGoogleDriveConnected, setIsGoogleDriveConnected] = useState<boolean | null>(null);
   const [isGoogleDriveConnected, setIsGoogleDriveConnected] = useState<boolean | null>(null);
   const checkAzureBlobConnection = async () => {
     try {
@@ -249,15 +249,6 @@ const Integrations = () => {
     }
   };
 
-  const checkXeroConnection = async () => {
-    try {
-      const { supabase } = await import("@/integrations/supabase/client");
-      const { data } = await supabase.from("company_integrations").select("status").eq("integration_id", "xero").maybeSingle();
-      setIsXeroConnected(data?.status === "connected");
-    } catch {
-      setIsXeroConnected(false);
-    }
-  };
 
   const checkGoogleDriveConnection = async () => {
     try {
@@ -291,10 +282,6 @@ const Integrations = () => {
     } else if (success === "azure_devops") {
       toast.success("Azure DevOps connected successfully!");
       checkAzureDevOpsConnection();
-      setSearchParams({});
-    } else if (success === "xero") {
-      toast.success("Xero connected successfully!");
-      checkXeroConnection();
       setSearchParams({});
     } else if (searchParams.get("drive_connected") === "true") {
       toast.success("Google Drive connected successfully!");
@@ -341,7 +328,7 @@ const Integrations = () => {
     checkBasecampConnection();
     checkGmailConnection();
     checkAzureDevOpsConnection();
-    checkXeroConnection();
+    checkGoogleDriveConnection();
     checkGoogleDriveConnection();
   }, [checkCalendarConnection]);
 
@@ -357,7 +344,7 @@ const Integrations = () => {
       "azure-blob": isAzureBlobConnected,
       "basecamp": isBasecampConnected,
       "azure-devops": isAzureDevOpsConnected,
-      "xero": isXeroConnected,
+      "google-drive": isGoogleDriveConnected,
       "google-drive": isGoogleDriveConnected,
     };
     if (integration.id in oauthMap) {
@@ -493,7 +480,7 @@ const Integrations = () => {
               isBasecampConnected={isBasecampConnected}
               isGmailConnected={isGmailConnected}
               isAzureDevOpsConnected={isAzureDevOpsConnected}
-              isXeroConnected={isXeroConnected}
+              isGoogleDriveConnected={isGoogleDriveConnected}
               isGoogleDriveConnected={isGoogleDriveConnected}
               onClose={() => {
                 setSelectedIntegration(null);
@@ -518,7 +505,7 @@ const IntegrationDetail = ({
   isBasecampConnected,
   isGmailConnected,
   isAzureDevOpsConnected,
-  isXeroConnected,
+  isGoogleDriveConnected,
   isGoogleDriveConnected,
   onClose,
 }: {
@@ -540,10 +527,9 @@ const IntegrationDetail = ({
   const isBasecamp = integration.id === "basecamp";
   const isGmail = integration.id === "gmail";
   const isAzureDevOps = integration.id === "azure-devops";
-  const isXero = integration.id === "xero";
   const isGoogleDrive = integration.id === "google-drive";
   const isGoogleOAuth = isGoogleCalendar;
-  const isOAuthFlow = isGoogleOAuth || isBasecamp || isGmail || isAzureDevOps || isXero || isGoogleDrive;
+  const isOAuthFlow = isGoogleOAuth || isBasecamp || isGmail || isAzureDevOps || isGoogleDrive;
   
   // Determine status based on integration type
   let status: IntegrationStatus;
@@ -557,8 +543,7 @@ const IntegrationDetail = ({
     status = isGmailConnected ? "connected" : "disconnected";
   } else if (isAzureDevOps) {
     status = isAzureDevOpsConnected ? "connected" : "disconnected";
-  } else if (isXero) {
-    status = isXeroConnected ? "connected" : "disconnected";
+  } else if (isGoogleDrive) {
   } else if (isGoogleDrive) {
     status = isGoogleDriveConnected ? "connected" : "disconnected";
   } else {
@@ -582,7 +567,7 @@ const IntegrationDetail = ({
   const [basecampLoading, setBasecampLoading] = useState(false);
   const [gmailLoading, setGmailLoading] = useState(false);
   const [azureDevOpsLoading, setAzureDevOpsLoading] = useState(false);
-  const [xeroLoading, setXeroLoading] = useState(false);
+  const [googleDriveLoading, setGoogleDriveLoading] = useState(false);
   const [googleDriveLoading, setGoogleDriveLoading] = useState(false);
 
   const handleConnect = async () => {
@@ -679,14 +664,6 @@ const IntegrationDetail = ({
         if (data?.url) window.location.href = data.url;
         else throw new Error("No auth URL returned");
         setAzureDevOpsLoading(false);
-      } else if (isXero) {
-        setXeroLoading(true);
-        const { supabase } = await import("@/integrations/supabase/client");
-        const { data, error } = await supabase.functions.invoke("xero-auth");
-        if (error) throw error;
-        if (data?.url) window.location.href = data.url;
-        else throw new Error("No auth URL returned");
-        setXeroLoading(false);
       } else if (isGoogleDrive) {
         setGoogleDriveLoading(true);
         const { supabase } = await import("@/integrations/supabase/client");
@@ -700,13 +677,13 @@ const IntegrationDetail = ({
       setBasecampLoading(false);
       setGmailLoading(false);
       setAzureDevOpsLoading(false);
-      setXeroLoading(false);
+      setGoogleDriveLoading(false);
       setGoogleDriveLoading(false);
       toast.error(err.message || "Failed to start OAuth flow");
     }
   };
 
-  const oauthLoading = isGoogleCalendar ? calendarLoading : isBasecamp ? basecampLoading : isGmail ? gmailLoading : isAzureDevOps ? azureDevOpsLoading : isXero ? xeroLoading : googleDriveLoading;
+  const oauthLoading = isGoogleCalendar ? calendarLoading : isBasecamp ? basecampLoading : isGmail ? gmailLoading : isAzureDevOps ? azureDevOpsLoading : googleDriveLoading;
   const isPending = isOAuthFlow ? oauthLoading : (isCompany ? companyMutation.isPending : (connectMutation.isPending || disconnectMutation.isPending));
   const canEdit = !isCompany || isAdmin;
 
