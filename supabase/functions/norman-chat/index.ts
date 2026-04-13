@@ -2070,8 +2070,9 @@ async function executeDriveTool(
 
   switch (toolName) {
     case "drive_list_files": {
+      const folderId = args.folderId && args.folderId !== "." && args.folderId !== "/" ? args.folderId : undefined;
       const data = await callDriveApi("list", {
-        folderId: args.folderId,
+        folderId,
         query: args.query,
       });
       return {
