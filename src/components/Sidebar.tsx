@@ -13,9 +13,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 
 const integrationMeta: Record<string, { label: string; icon: React.ElementType }> = {
-  "google-workspace": { label: "Google Workspace", icon: Mail },
-  
-  
   "slack": { label: "Slack", icon: MessageSquare },
   "linear": { label: "Linear", icon: Zap },
   "google-calendar": { label: "Google Calendar", icon: Calendar },

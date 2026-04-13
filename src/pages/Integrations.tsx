@@ -57,21 +57,6 @@ const integrations: Integration[] = [
     ],
   },
   {
-    id: "google-workspace",
-    name: "Google Workspace",
-    description: "Connect Gmail, Calendar, and Docs for workspace intelligence.",
-    icon: Mail,
-    category: "Productivity",
-    services: ["Gmail", "Google Calendar", "Google Docs"],
-    type: "user",
-    setupSteps: [
-      "Create a Google Cloud project and enable the required APIs (Gmail, Drive, Calendar, Docs)",
-      "Configure OAuth consent screen with your domain",
-      "Create OAuth 2.0 credentials (Client ID & Secret)",
-      "Add the credentials to Duncan's settings",
-    ],
-  },
-  {
     id: "slack",
     name: "Slack",
     description: "Monitor channels, automate responses, and sync conversations into Duncan's knowledge base.",
