@@ -3291,6 +3291,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
     tools.push(...ANALYTICS_TOOLS);
     // Workstream management tools always available
     tools.push(...WORKSTREAM_TOOLS);
+    // Executive summary document generation
+    tools.push(...EXEC_SUMMARY_TOOLS);
     if (tools.length > 0) {
       requestBody.tools = tools;
     }
