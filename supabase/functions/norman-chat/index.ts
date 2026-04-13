@@ -3614,6 +3614,49 @@ Format as a natural, readable summary with clear sections. If a section has no d
       }
     }
 
+    // Log estimated token usage (approx 1 token per 4 chars)
+    if (userId) {
+      try {
+        const estimatedPromptTokens = Math.ceil(JSON.stringify(messages).length / 4);
+        const estimatedCompletionTokens = Math.ceil(fullContent.length / 4);
+        const estimatedTotal = estimatedPromptTokens + estimatedCompletionTokens;
+        const today = new Date().toISOString().split("T")[0];
+
+        // Upsert: increment daily totals
+        const { data: existing } = await supabaseAdmin
+          .from("token_usage")
+          .select("id, prompt_tokens, completion_tokens, total_tokens, request_count")
+          .eq("user_id", userId)
+          .eq("usage_date", today)
+          .maybeSingle();
+
+        if (existing) {
+          await supabaseAdmin
+            .from("token_usage")
+            .update({
+              prompt_tokens: existing.prompt_tokens + estimatedPromptTokens,
+              completion_tokens: existing.completion_tokens + estimatedCompletionTokens,
+              total_tokens: existing.total_tokens + estimatedTotal,
+              request_count: existing.request_count + 1,
+            })
+            .eq("id", existing.id);
+        } else {
+          await supabaseAdmin
+            .from("token_usage")
+            .insert({
+              user_id: userId,
+              usage_date: today,
+              prompt_tokens: estimatedPromptTokens,
+              completion_tokens: estimatedCompletionTokens,
+              total_tokens: estimatedTotal,
+              request_count: 1,
+            });
+        }
+      } catch (tokenErr) {
+        console.error("Token usage logging error:", tokenErr);
+      }
+    }
+
     // Stream the final content as SSE to the client
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
