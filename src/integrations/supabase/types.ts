@@ -1267,6 +1267,42 @@ export type Database = {
         }
         Relationships: []
       }
+      token_usage: {
+        Row: {
+          completion_tokens: number
+          created_at: string
+          id: string
+          prompt_tokens: number
+          request_count: number
+          total_tokens: number
+          updated_at: string
+          usage_date: string
+          user_id: string
+        }
+        Insert: {
+          completion_tokens?: number
+          created_at?: string
+          id?: string
+          prompt_tokens?: number
+          request_count?: number
+          total_tokens?: number
+          updated_at?: string
+          usage_date?: string
+          user_id: string
+        }
+        Update: {
+          completion_tokens?: number
+          created_at?: string
+          id?: string
+          prompt_tokens?: number
+          request_count?: number
+          total_tokens?: number
+          updated_at?: string
+          usage_date?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       unmapped_users_log: {
         Row: {
           basecamp_name: string

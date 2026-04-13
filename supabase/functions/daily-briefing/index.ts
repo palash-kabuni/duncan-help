@@ -71,6 +71,8 @@ serve(async (req) => {
       : widerDefault;
     const widerSinceISO = widerSince.toISOString();
 
+    const today = now.toISOString().split("T")[0];
+
     // Run ALL queries in parallel
     const [
       meetingsResult,
@@ -81,6 +83,8 @@ serve(async (req) => {
       issuesResult,
       candidatesResult,
       wikiResult,
+      myTokenUsage,
+      leaderboardResult,
     ] = await Promise.all([
       // 1. Meetings since last briefing
       supabaseAdmin
@@ -128,6 +132,17 @@ serve(async (req) => {
         .gte("updated_at", widerSinceISO)
         .order("updated_at", { ascending: false })
         .limit(10),
+
+      // 10. My token usage today
+      supabaseAdmin
+        .from("token_usage")
+        .select("total_tokens, request_count, prompt_tokens, completion_tokens")
+        .eq("user_id", user.id)
+        .eq("usage_date", today)
+        .maybeSingle(),
+
+      // 11. Top 3 leaderboard (all-time or last 30 days)
+      fetchTokenLeaderboard(supabaseAdmin),
 
     ]);
 
@@ -212,6 +227,15 @@ serve(async (req) => {
           updated: w.updated_at,
           tags: w.tags,
         })) || [],
+      },
+      token_usage: {
+        my_today: myTokenUsage.data ? {
+          total_tokens: myTokenUsage.data.total_tokens,
+          prompt_tokens: myTokenUsage.data.prompt_tokens,
+          completion_tokens: myTokenUsage.data.completion_tokens,
+          request_count: myTokenUsage.data.request_count,
+        } : { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0, request_count: 0 },
+        leaderboard: leaderboardResult || [],
       },
       generated_at: now.toISOString(),
     };
@@ -518,6 +542,59 @@ async function fetchProjectMessages(
         created_at: m.created_at,
       }));
   } catch {
+    return [];
+  }
+}
+
+// ── Helper: Fetch top 3 Duncan users by token usage (last 30 days) ──
+async function fetchTokenLeaderboard(supabaseAdmin: any) {
+  try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
+    const { data: usageData } = await supabaseAdmin
+      .from("token_usage")
+      .select("user_id, total_tokens, request_count")
+      .gte("usage_date", thirtyDaysAgo);
+
+    if (!usageData || usageData.length === 0) return [];
+
+    // Aggregate by user
+    const userTotals: Record<string, { total_tokens: number; request_count: number }> = {};
+    for (const row of usageData) {
+      if (!userTotals[row.user_id]) {
+        userTotals[row.user_id] = { total_tokens: 0, request_count: 0 };
+      }
+      userTotals[row.user_id].total_tokens += row.total_tokens;
+      userTotals[row.user_id].request_count += row.request_count;
+    }
+
+    // Sort by total tokens and take top 3
+    const sorted = Object.entries(userTotals)
+      .sort((a, b) => b[1].total_tokens - a[1].total_tokens)
+      .slice(0, 3);
+
+    // Fetch display names
+    const userIds = sorted.map(([uid]) => uid);
+    const { data: profiles } = await supabaseAdmin
+      .from("profiles")
+      .select("user_id, display_name")
+      .in("user_id", userIds);
+
+    const nameMap: Record<string, string> = {};
+    if (profiles) {
+      for (const p of profiles) {
+        nameMap[p.user_id] = p.display_name || "Unknown";
+      }
+    }
+
+    return sorted.map(([uid, stats], index) => ({
+      rank: index + 1,
+      name: nameMap[uid] || "Unknown",
+      total_tokens: stats.total_tokens,
+      request_count: stats.request_count,
+    }));
+  } catch (err) {
+    console.error("Leaderboard error:", err);
     return [];
   }
 }
