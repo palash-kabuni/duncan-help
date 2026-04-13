@@ -206,7 +206,6 @@ const Integrations = () => {
   const [isGmailConnected, setIsGmailConnected] = useState<boolean | null>(null);
   const [isAzureDevOpsConnected, setIsAzureDevOpsConnected] = useState<boolean | null>(null);
   const [isGoogleDriveConnected, setIsGoogleDriveConnected] = useState<boolean | null>(null);
-  const [isGoogleDriveConnected, setIsGoogleDriveConnected] = useState<boolean | null>(null);
   const checkAzureBlobConnection = async () => {
     try {
       const { supabase } = await import("@/integrations/supabase/client");
@@ -345,7 +344,6 @@ const Integrations = () => {
       "basecamp": isBasecampConnected,
       "azure-devops": isAzureDevOpsConnected,
       "google-drive": isGoogleDriveConnected,
-      "google-drive": isGoogleDriveConnected,
     };
     if (integration.id in oauthMap) {
       const val = oauthMap[integration.id];
@@ -481,7 +479,6 @@ const Integrations = () => {
               isGmailConnected={isGmailConnected}
               isAzureDevOpsConnected={isAzureDevOpsConnected}
               isGoogleDriveConnected={isGoogleDriveConnected}
-              isGoogleDriveConnected={isGoogleDriveConnected}
               onClose={() => {
                 setSelectedIntegration(null);
                 checkGmailConnection();
@@ -506,7 +503,6 @@ const IntegrationDetail = ({
   isGmailConnected,
   isAzureDevOpsConnected,
   isGoogleDriveConnected,
-  isGoogleDriveConnected,
   onClose,
 }: {
   integration: Integration;
@@ -518,7 +514,6 @@ const IntegrationDetail = ({
   isBasecampConnected: boolean | null;
   isGmailConnected: boolean | null;
   isAzureDevOpsConnected: boolean | null;
-  isXeroConnected: boolean | null;
   isGoogleDriveConnected: boolean | null;
   onClose: () => void;
 }) => {
@@ -567,7 +562,6 @@ const IntegrationDetail = ({
   const [basecampLoading, setBasecampLoading] = useState(false);
   const [gmailLoading, setGmailLoading] = useState(false);
   const [azureDevOpsLoading, setAzureDevOpsLoading] = useState(false);
-  const [googleDriveLoading, setGoogleDriveLoading] = useState(false);
   const [googleDriveLoading, setGoogleDriveLoading] = useState(false);
 
   const handleConnect = async () => {
@@ -798,8 +792,6 @@ const IntegrationDetail = ({
                     <p className="text-sm text-foreground">
                       {isAzureDevOps
                         ? "Click below to authorize Duncan to access your Azure DevOps work items and boards."
-                        : isXero
-                        ? "Click below to authorize Duncan to access your Xero invoices, contacts, and reports."
                         : isBasecamp 
                         ? "Click below to authorize Duncan to access your Basecamp projects, to-dos, and messages."
                         : isGmail
@@ -822,7 +814,7 @@ const IntegrationDetail = ({
                     ) : (
                       <>
                         <ExternalLink className="h-4 w-4" />
-                        {isAzureDevOps ? "Connect Azure DevOps" : isXero ? "Connect Xero" : isBasecamp ? "Connect with Basecamp" : isGmail ? "Connect Gmail" : isGoogleDrive ? "Connect Google Drive" : "Sign in with Google"}
+                        {isAzureDevOps ? "Connect Azure DevOps" : isBasecamp ? "Connect with Basecamp" : isGmail ? "Connect Gmail" : isGoogleDrive ? "Connect Google Drive" : "Sign in with Google"}
                       </>
                     )}
                   </button>
