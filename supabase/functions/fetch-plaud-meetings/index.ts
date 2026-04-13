@@ -386,7 +386,7 @@ serve(async (req) => {
     // Merge and deduplicate all results
     const seenIds = new Set<string>();
     const messages: any[] = [];
-    for (const msg of [...plaudMessages, ...dateMessages]) {
+    for (const msg of [...plaudMessages, ...geminiMessages, ...dateMessages]) {
       if (!seenIds.has(msg.id)) {
         seenIds.add(msg.id);
         messages.push(msg);
