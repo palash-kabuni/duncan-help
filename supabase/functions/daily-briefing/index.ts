@@ -228,6 +228,15 @@ serve(async (req) => {
           tags: w.tags,
         })) || [],
       },
+      token_usage: {
+        my_today: myTokenUsage.data ? {
+          total_tokens: myTokenUsage.data.total_tokens,
+          prompt_tokens: myTokenUsage.data.prompt_tokens,
+          completion_tokens: myTokenUsage.data.completion_tokens,
+          request_count: myTokenUsage.data.request_count,
+        } : { total_tokens: 0, prompt_tokens: 0, completion_tokens: 0, request_count: 0 },
+        leaderboard: leaderboardResult || [],
+      },
       generated_at: now.toISOString(),
     };
 
