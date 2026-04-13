@@ -261,13 +261,12 @@ serve(async (req) => {
     const headers = { Authorization: `Bearer ${gmailToken}` };
 
     // Search 1: Plaud AI emails - sharing invites, plaud sender
-    const plaudQuery = `subject:"invited you to view" OR subject:plaud OR from:plaud OR from:noreply@plaud.ai`;
-    // Search 2: Emails from known meeting-note senders (Nimesh Patel, Palash) — filter by DD-MM subject pattern in code
-    const nimeshQuery = `from:nimesh patel newer_than:60d`;
-    // Search 3: Broader DD-MM pattern check on forwarded meeting emails
-    const forwardedQuery = `from:palash subject:fwd newer_than:60d`;
+    const plaudQuery = `(subject:"invited you to view" OR subject:plaud OR from:plaud OR from:noreply@plaud.ai) newer_than:60d`;
+    // Search 2: Emails from known meeting-note senders (Nimesh, Patrick) — filter by DD-MM or Plaud pattern in code
+    const nimeshQuery = `from:nimesh newer_than:60d`;
+    const patrickQuery = `from:patrick newer_than:60d`;
 
-    console.log("Gmail search queries - Plaud:", plaudQuery, "| Nimesh:", nimeshQuery, "| Forwarded:", forwardedQuery);
+    console.log("Gmail search queries - Plaud:", plaudQuery, "| Nimesh:", nimeshQuery, "| Patrick:", patrickQuery);
 
     const plaudSearchUrl = new URL(`${GMAIL_API}/messages`);
     plaudSearchUrl.searchParams.set("q", plaudQuery);
@@ -277,9 +276,9 @@ serve(async (req) => {
     nimeshSearchUrl.searchParams.set("q", nimeshQuery);
     nimeshSearchUrl.searchParams.set("maxResults", "50");
 
-    const fwdSearchUrl = new URL(`${GMAIL_API}/messages`);
-    fwdSearchUrl.searchParams.set("q", forwardedQuery);
-    fwdSearchUrl.searchParams.set("maxResults", "50");
+    const patrickSearchUrl = new URL(`${GMAIL_API}/messages`);
+    patrickSearchUrl.searchParams.set("q", patrickQuery);
+    patrickSearchUrl.searchParams.set("maxResults", "50");
 
     // Fetch all three searches in parallel
     const [plaudSearchRes, nimeshSearchRes, fwdSearchRes] = await Promise.all([
