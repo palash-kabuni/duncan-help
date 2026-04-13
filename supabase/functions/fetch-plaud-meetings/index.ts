@@ -348,9 +348,13 @@ serve(async (req) => {
           debugCount++;
         }
 
-        if (DD_MM_PATTERN.test(subjectVal) || PLAUD_PATTERN.test(subjectVal)) {
+        // Match: DD-MM pattern, Plaud keywords, empty subject (likely transcript share),
+        // or "Fwd:" / "Notes" patterns (forwarded meeting notes)
+        const isEmpty = subjectVal.trim() === "";
+        const FWD_NOTES_PATTERN = /fwd:|notes|transcript|stand.?up/i;
+        if (DD_MM_PATTERN.test(subjectVal) || PLAUD_PATTERN.test(subjectVal) || isEmpty || FWD_NOTES_PATTERN.test(subjectVal)) {
           dateMessages.push(candidate);
-          console.log(`Pattern match: "${subjectVal}"`);
+          console.log(`Pattern match: "${subjectVal}" (empty=${isEmpty})`);
         }
       } catch (e) {
         console.error(`Failed to check subject for ${candidate.id}:`, e);
