@@ -81,9 +81,7 @@ serve(async (req) => {
       purchaseOrdersResult,
       issuesResult,
       candidatesResult,
-      ndaResult,
       wikiResult,
-      xeroContactsResult,
     ] = await Promise.all([
       // 1. Meetings since last briefing
       supabaseAdmin
@@ -131,16 +129,7 @@ serve(async (req) => {
       // 8. Candidates updated since last briefing
       fetchRecruitmentUpdates(supabaseAdmin, user.id, widerSinceISO),
 
-      // 9. NDA submissions (non-completed, always show current state)
-      supabaseAdmin
-        .from("nda_submissions")
-        .select("id, receiving_party_name, purpose, status, created_at, updated_at")
-        .eq("submitter_id", user.id)
-        .neq("status", "completed")
-        .order("updated_at", { ascending: false })
-        .limit(10),
-
-      // 10. Wiki pages updated since last briefing
+      // 9. Wiki pages updated since last briefing
       supabaseAdmin
         .from("wiki_pages")
         .select("id, title, summary, updated_at, tags")
@@ -149,13 +138,6 @@ serve(async (req) => {
         .order("updated_at", { ascending: false })
         .limit(10),
 
-      // 11. Xero contacts with overdue balances (always show current state)
-      supabaseAdmin
-        .from("xero_contacts")
-        .select("name, email, overdue_balance, outstanding_balance")
-        .gt("overdue_balance", 0)
-        .order("overdue_balance", { ascending: false })
-        .limit(10),
     ]);
 
     // Update last_briefing_at in preferences
