@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, BorderStyle, TabStopType, TabStopPosition } from "https://esm.sh/docx@9.6.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -6,112 +7,192 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-function generateStyledHTML(title: string, weekRange: string, content: string, generatedBy: string): string {
-  // Convert markdown-like content to HTML
-  let htmlContent = content
-    // Headers
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    // Bold
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    // Italic
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    // Bullet points
-    .replace(/^- (.+)$/gm, '<li>$1</li>')
-    // Numbered lists
-    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
-    // Paragraphs (double newlines)
-    .replace(/\n\n/g, '</p><p>')
-    // Single newlines within paragraphs
-    .replace(/\n/g, '<br/>');
+interface DocSection {
+  type: "heading1" | "heading2" | "heading3" | "bullet" | "numbered" | "paragraph";
+  text: string;
+  bold?: boolean;
+}
 
-  // Wrap consecutive <li> items in <ul>
-  htmlContent = htmlContent.replace(/((?:<li>.*?<\/li>\s*)+)/g, '<ul>$1</ul>');
+function parseMarkdownToSections(content: string): DocSection[] {
+  const lines = content.split("\n");
+  const sections: DocSection[] = [];
 
-  // RYG indicators
-  htmlContent = htmlContent
-    .replace(/🟢/g, '<span style="color:#22c55e;font-weight:bold;">🟢</span>')
-    .replace(/🟡/g, '<span style="color:#eab308;font-weight:bold;">🟡</span>')
-    .replace(/🔴/g, '<span style="color:#ef4444;font-weight:bold;">🔴</span>');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
 
-  const now = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    if (trimmed.startsWith("### ")) {
+      sections.push({ type: "heading3", text: trimmed.slice(4) });
+    } else if (trimmed.startsWith("## ")) {
+      sections.push({ type: "heading2", text: trimmed.slice(3) });
+    } else if (trimmed.startsWith("# ")) {
+      sections.push({ type: "heading1", text: trimmed.slice(2) });
+    } else if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+      sections.push({ type: "bullet", text: trimmed.slice(2) });
+    } else if (/^\d+\.\s/.test(trimmed)) {
+      sections.push({ type: "numbered", text: trimmed.replace(/^\d+\.\s/, "") });
+    } else {
+      sections.push({ type: "paragraph", text: trimmed });
+    }
+  }
+  return sections;
+}
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${title}</title>
-<style>
-  @page { size: A4; margin: 2cm; }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
-    color: #1a1a2e;
-    line-height: 1.6;
-    background: #ffffff;
-    padding: 40px;
-    max-width: 900px;
-    margin: 0 auto;
+function parseInlineFormatting(text: string): TextRun[] {
+  const runs: TextRun[] = [];
+  const regex = /\*\*(.+?)\*\*|\*(.+?)\*/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      runs.push(new TextRun({ text: text.slice(lastIndex, match.index), font: "Arial", size: 22 }));
+    }
+    if (match[1]) {
+      runs.push(new TextRun({ text: match[1], bold: true, font: "Arial", size: 22 }));
+    } else if (match[2]) {
+      runs.push(new TextRun({ text: match[2], italics: true, font: "Arial", size: 22 }));
+    }
+    lastIndex = regex.lastIndex;
   }
-  .header {
-    border-bottom: 3px solid #1a1a2e;
-    padding-bottom: 20px;
-    margin-bottom: 30px;
+
+  if (lastIndex < text.length) {
+    runs.push(new TextRun({ text: text.slice(lastIndex), font: "Arial", size: 22 }));
   }
-  .header h1 {
-    font-size: 28px;
-    color: #1a1a2e;
-    margin-bottom: 4px;
+
+  if (runs.length === 0) {
+    runs.push(new TextRun({ text, font: "Arial", size: 22 }));
   }
-  .header .subtitle {
-    font-size: 16px;
-    color: #64748b;
-    margin-bottom: 2px;
+
+  return runs;
+}
+
+function buildDocxDocument(title: string, weekRange: string, content: string, companyName: string): Document {
+  const sections = parseMarkdownToSections(content);
+  const now = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+
+  const children: Paragraph[] = [];
+
+  // Title
+  children.push(new Paragraph({
+    children: [new TextRun({ text: title, bold: true, font: "Arial", size: 36, color: "1A1A2E" })],
+    spacing: { after: 100 },
+  }));
+
+  // Subtitle
+  children.push(new Paragraph({
+    children: [new TextRun({ text: weekRange, font: "Arial", size: 24, color: "64748B" })],
+    spacing: { after: 60 },
+  }));
+
+  // Date line
+  children.push(new Paragraph({
+    children: [new TextRun({ text: `Generated on ${now} by Duncan AI`, font: "Arial", size: 18, color: "94A3B8" })],
+    spacing: { after: 200 },
+    border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "1A1A2E", space: 8 } },
+  }));
+
+  // Spacer
+  children.push(new Paragraph({ spacing: { after: 200 }, children: [] }));
+
+  // Content
+  let bulletIndex = 0;
+  for (const section of sections) {
+    switch (section.type) {
+      case "heading1":
+        children.push(new Paragraph({
+          heading: HeadingLevel.HEADING_1,
+          children: [new TextRun({ text: section.text, bold: true, font: "Arial", size: 28, color: "1A1A2E" })],
+          spacing: { before: 300, after: 150 },
+          border: { bottom: { style: BorderStyle.SINGLE, size: 1, color: "E2E8F0", space: 4 } },
+        }));
+        break;
+      case "heading2":
+        children.push(new Paragraph({
+          heading: HeadingLevel.HEADING_2,
+          children: [new TextRun({ text: section.text, bold: true, font: "Arial", size: 24, color: "334155" })],
+          spacing: { before: 250, after: 120 },
+        }));
+        break;
+      case "heading3":
+        children.push(new Paragraph({
+          heading: HeadingLevel.HEADING_3,
+          children: [new TextRun({ text: section.text, bold: true, font: "Arial", size: 22, color: "475569" })],
+          spacing: { before: 200, after: 100 },
+        }));
+        break;
+      case "bullet":
+        children.push(new Paragraph({
+          numbering: { reference: "bullets", level: 0 },
+          children: parseInlineFormatting(section.text),
+          spacing: { before: 40, after: 40 },
+        }));
+        break;
+      case "numbered":
+        bulletIndex++;
+        children.push(new Paragraph({
+          numbering: { reference: "numbers", level: 0 },
+          children: parseInlineFormatting(section.text),
+          spacing: { before: 40, after: 40 },
+        }));
+        break;
+      case "paragraph":
+        children.push(new Paragraph({
+          children: parseInlineFormatting(section.text),
+          spacing: { before: 80, after: 80 },
+        }));
+        break;
+    }
   }
-  .header .date {
-    font-size: 13px;
-    color: #94a3b8;
-  }
-  h1 { font-size: 22px; margin: 24px 0 12px; color: #1a1a2e; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
-  h2 { font-size: 18px; margin: 20px 0 10px; color: #334155; }
-  h3 { font-size: 15px; margin: 16px 0 8px; color: #475569; }
-  p { margin: 8px 0; font-size: 14px; }
-  ul { margin: 8px 0 8px 20px; }
-  li { margin: 4px 0; font-size: 14px; }
-  strong { color: #0f172a; }
-  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
-  th { background: #f1f5f9; padding: 8px 12px; text-align: left; border: 1px solid #e2e8f0; font-weight: 600; }
-  td { padding: 8px 12px; border: 1px solid #e2e8f0; }
-  .footer {
-    margin-top: 40px;
-    padding-top: 16px;
-    border-top: 1px solid #e2e8f0;
-    font-size: 11px;
-    color: #94a3b8;
-    text-align: center;
-  }
-  @media print {
-    body { padding: 0; }
-    .header { page-break-after: avoid; }
-  }
-</style>
-</head>
-<body>
-<div class="header">
-  <h1>${title}</h1>
-  <div class="subtitle">${weekRange}</div>
-  <div class="date">Generated on ${now} by Duncan AI</div>
-</div>
-<div class="content">
-  <p>${htmlContent}</p>
-</div>
-<div class="footer">
-  Confidential — ${generatedBy} — Generated by Duncan Intelligence System
-</div>
-</body>
-</html>`;
+
+  // Footer spacer + confidential note
+  children.push(new Paragraph({ spacing: { before: 400 }, children: [] }));
+  children.push(new Paragraph({
+    border: { top: { style: BorderStyle.SINGLE, size: 1, color: "E2E8F0", space: 8 } },
+    alignment: AlignmentType.CENTER,
+    children: [new TextRun({ text: `Confidential — ${companyName} — Generated by Duncan Intelligence System`, font: "Arial", size: 16, color: "94A3B8" })],
+  }));
+
+  return new Document({
+    numbering: {
+      config: [
+        {
+          reference: "bullets",
+          levels: [{
+            level: 0,
+            format: "bullet" as any,
+            text: "\u2022",
+            alignment: AlignmentType.LEFT,
+            style: { paragraph: { indent: { left: 720, hanging: 360 } } },
+          }],
+        },
+        {
+          reference: "numbers",
+          levels: [{
+            level: 0,
+            format: "decimal" as any,
+            text: "%1.",
+            alignment: AlignmentType.LEFT,
+            style: { paragraph: { indent: { left: 720, hanging: 360 } } },
+          }],
+        },
+      ],
+    },
+    styles: {
+      default: {
+        document: { run: { font: "Arial", size: 22 } },
+      },
+    },
+    sections: [{
+      properties: {
+        page: {
+          size: { width: 11906, height: 16838 },
+          margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+        },
+      },
+      children,
+    }],
+  });
 }
 
 Deno.serve(async (req) => {
@@ -155,19 +236,21 @@ Deno.serve(async (req) => {
     const weekRange = week_range || "Weekly Executive Summary";
     const companyName = company_name || "Kabuni";
 
-    // Generate styled HTML document
-    const htmlDoc = generateStyledHTML(title, weekRange, content, companyName);
-    const htmlBytes = new TextEncoder().encode(htmlDoc);
+    // Generate DOCX
+    const doc = buildDocxDocument(title, weekRange, content, companyName);
+    const docxBuffer = await Packer.toBuffer(doc);
 
     // Build filename
-    const safeTitle = title.replace(/[^a-zA-Z0-9\s-]/g, '').replace(/\s+/g, '_').slice(0, 60);
-    const dateStr = new Date().toISOString().split('T')[0];
-    const fileName = `${safeTitle}_${dateStr}.html`;
+    const safeTitle = title.replace(/[^a-zA-Z0-9\s-]/g, "").replace(/\s+/g, "_").slice(0, 60);
+    const dateStr = new Date().toISOString().split("T")[0];
+    const fileName = `${safeTitle}_${dateStr}.docx`;
     const blobPath = `executive-summaries/${fileName}`;
 
-    // Upload to Azure Blob Storage via the azure-blob-api function
+    // Upload to Azure Blob Storage
     const formData = new FormData();
-    const file = new File([htmlBytes], fileName, { type: "text/html" });
+    const file = new File([docxBuffer], fileName, {
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
     formData.append("file", file);
     formData.append("action", "upload");
     formData.append("path", "executive-summaries");
@@ -185,7 +268,6 @@ Deno.serve(async (req) => {
 
     const uploadData = await uploadRes.json();
 
-    // Build download URL through the proxy
     const downloadUrl = `${supabaseUrl}/functions/v1/azure-blob-api?action=download&path=${encodeURIComponent(blobPath)}`;
 
     return new Response(
@@ -195,7 +277,7 @@ Deno.serve(async (req) => {
         blob_path: blobPath,
         blob_url: uploadData.url,
         download_url: downloadUrl,
-        message: `Executive summary "${title}" has been generated and saved. The document can be opened in any browser and printed as a PDF.`,
+        message: `Executive summary "${title}" has been generated as a Word document and saved.`,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
