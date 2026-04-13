@@ -333,7 +333,7 @@ const Index = () => {
               </motion.p>
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="grid grid-cols-2 gap-2 sm:gap-3 w-full max-w-lg px-2">
                 {quickActions.map((action) => (
-                  <button key={action.label} onClick={() => action.link ? navigate(action.link) : action.prompt && handleQuickAction(action.prompt)} className="flex flex-col items-center gap-1.5 sm:gap-2 rounded-xl border border-border bg-card/60 px-3 sm:px-4 py-4 sm:py-5 text-center hover:bg-card hover:border-primary/20 transition-all duration-200 group">
+                  <button key={action.label} onClick={() => navigate(action.link)} className="flex flex-col items-center gap-1.5 sm:gap-2 rounded-xl border border-border bg-card/60 px-3 sm:px-4 py-4 sm:py-5 text-center hover:bg-card hover:border-primary/20 transition-all duration-200 group">
                     <div className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-lg bg-primary/10 border border-primary/20 group-hover:glow-primary-sm transition-all">
                       <action.icon className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
                     </div>
