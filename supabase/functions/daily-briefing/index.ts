@@ -545,3 +545,56 @@ async function fetchProjectMessages(
     return [];
   }
 }
+
+// ── Helper: Fetch top 3 Duncan users by token usage (last 30 days) ──
+async function fetchTokenLeaderboard(supabaseAdmin: any) {
+  try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+
+    const { data: usageData } = await supabaseAdmin
+      .from("token_usage")
+      .select("user_id, total_tokens, request_count")
+      .gte("usage_date", thirtyDaysAgo);
+
+    if (!usageData || usageData.length === 0) return [];
+
+    // Aggregate by user
+    const userTotals: Record<string, { total_tokens: number; request_count: number }> = {};
+    for (const row of usageData) {
+      if (!userTotals[row.user_id]) {
+        userTotals[row.user_id] = { total_tokens: 0, request_count: 0 };
+      }
+      userTotals[row.user_id].total_tokens += row.total_tokens;
+      userTotals[row.user_id].request_count += row.request_count;
+    }
+
+    // Sort by total tokens and take top 3
+    const sorted = Object.entries(userTotals)
+      .sort((a, b) => b[1].total_tokens - a[1].total_tokens)
+      .slice(0, 3);
+
+    // Fetch display names
+    const userIds = sorted.map(([uid]) => uid);
+    const { data: profiles } = await supabaseAdmin
+      .from("profiles")
+      .select("user_id, display_name")
+      .in("user_id", userIds);
+
+    const nameMap: Record<string, string> = {};
+    if (profiles) {
+      for (const p of profiles) {
+        nameMap[p.user_id] = p.display_name || "Unknown";
+      }
+    }
+
+    return sorted.map(([uid, stats], index) => ({
+      rank: index + 1,
+      name: nameMap[uid] || "Unknown",
+      total_tokens: stats.total_tokens,
+      request_count: stats.request_count,
+    }));
+  } catch (err) {
+    console.error("Leaderboard error:", err);
+    return [];
+  }
+}
