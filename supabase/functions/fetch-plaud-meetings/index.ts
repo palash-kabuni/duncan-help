@@ -281,10 +281,10 @@ serve(async (req) => {
     patrickSearchUrl.searchParams.set("maxResults", "50");
 
     // Fetch all three searches in parallel
-    const [plaudSearchRes, nimeshSearchRes, fwdSearchRes] = await Promise.all([
+    const [plaudSearchRes, nimeshSearchRes, patrickSearchRes] = await Promise.all([
       fetch(plaudSearchUrl.toString(), { headers }),
       fetch(nimeshSearchUrl.toString(), { headers }),
-      fetch(fwdSearchUrl.toString(), { headers }),
+      fetch(patrickSearchUrl.toString(), { headers }),
     ]);
 
     if (!plaudSearchRes.ok) {
@@ -295,11 +295,11 @@ serve(async (req) => {
     const plaudMessages = plaudSearchData.messages || [];
     console.log(`Found ${plaudMessages.length} Plaud-related emails`);
 
-    // Collect candidate messages from Nimesh and forwarded searches, then filter by DD-MM pattern
+    // Collect candidate messages from Nimesh and Patrick searches, then filter by meeting patterns
     const allCandidateMsgs: any[] = [];
     const plaudIds = new Set(plaudMessages.map((m: any) => m.id));
 
-    for (const [label, res] of [["Nimesh", nimeshSearchRes], ["Forwarded", fwdSearchRes]] as const) {
+    for (const [label, res] of [["Nimesh", nimeshSearchRes], ["Patrick", patrickSearchRes]] as const) {
       if (res.ok) {
         const data = await res.json();
         const msgs = data.messages || [];
