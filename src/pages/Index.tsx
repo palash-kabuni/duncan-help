@@ -19,8 +19,6 @@ import { useGeneralChats } from "@/hooks/useGeneralChats";
 const VoiceAgent = lazy(() => import("@/components/chat/VoiceAgent"));
 
 const quickActions = [
-  { icon: FileText, label: "Generate NDA", prompt: "Generate a new NDA" },
-  { icon: Receipt, label: "Fetch Invoices", prompt: "Show me all outstanding Xero invoices awaiting payment" },
   { icon: Users, label: "Recruitment Status", link: "/recruitment" },
   { icon: FolderOpen, label: "Operations", link: "/operations" },
 ];

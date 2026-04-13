@@ -202,22 +202,6 @@ serve(async (req) => {
         })) || [],
       },
       purchase_orders: purchaseOrdersResult || { my_pending: [], awaiting_my_approval: [] },
-      invoices: {
-        outstanding: invoicesResult.data?.map((inv) => ({
-          number: inv.invoice_number,
-          contact: inv.contact_name,
-          total: inv.total,
-          amount_due: inv.amount_due,
-          due_date: inv.due_date,
-          type: inv.type === "ACCPAY" ? "Bill to pay" : "Receivable",
-          currency: inv.currency_code,
-        })) || [],
-        overdue_contacts: xeroContactsResult.data?.map((c) => ({
-          name: c.name,
-          overdue: c.overdue_balance,
-          outstanding: c.outstanding_balance,
-        })) || [],
-      },
       issues: {
         my_recent: issuesResult.data?.map((i) => ({
           title: i.title,
@@ -228,14 +212,6 @@ serve(async (req) => {
       },
       recruitment: {
         active_candidates: candidatesResult || [],
-      },
-      ndas: {
-        pending: ndaResult.data?.map((n) => ({
-          receiving_party: n.receiving_party_name,
-          purpose: n.purpose,
-          status: n.status,
-          updated: n.updated_at,
-        })) || [],
       },
       basecamp: basecampData || { my_todos: [], messages_mentioning_me: [] },
       wiki: {
