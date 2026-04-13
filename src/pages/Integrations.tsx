@@ -146,21 +146,6 @@ const integrations: Integration[] = [
     ],
   },
   {
-    id: "xero",
-    name: "Xero",
-    description: "Sync invoices, bills, contacts, and financial reports. Duncan cross-references finance with operations data.",
-    icon: Receipt,
-    category: "Finance",
-    services: ["Invoices", "Bills", "Contacts", "Reports"],
-    type: "company",
-    setupSteps: [
-      "Create a Xero app at developer.xero.com",
-      "Set redirect URI to your backend callback URL",
-      "Add scopes: accounting.transactions, contacts, reports",
-      "An admin connects via OAuth to authorize access",
-    ],
-  },
-  {
     id: "google-drive",
     name: "Google Drive",
     description: "Read and search files from Google Drive. Duncan can navigate folders, read documents, and synthesize reports.",
