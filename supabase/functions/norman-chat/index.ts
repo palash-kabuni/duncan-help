@@ -3442,6 +3442,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
       const driveToolNames = ["drive_list_files", "drive_search", "drive_get_content"];
       const analyticsToolNames = ["get_workstream_analytics", "get_recruitment_analytics", "get_team_activity_analytics", "get_operational_summary"];
       const workstreamMgmtToolNames = ["list_team_members", "create_workstream_card", "add_tasks_to_card", "update_workstream_card", "check_team_availability"];
+      const execSummaryToolNames = ["generate_exec_summary_document"];
       const toolResults: any[] = [];
 
       for (const tc of toolCalls) {
@@ -3492,6 +3493,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
               result = await executeAnalyticsTool(tc.function.name, args, supabaseAdmin);
           } else if (workstreamMgmtToolNames.includes(tc.function.name)) {
               result = await executeWorkstreamTool(tc.function.name, args, supabaseAdmin, userId || "");
+          } else if (execSummaryToolNames.includes(tc.function.name)) {
+              result = await executeExecSummaryTool(tc.function.name, args, supabaseUrl, authHeader || "");
           } else {
           }
           
