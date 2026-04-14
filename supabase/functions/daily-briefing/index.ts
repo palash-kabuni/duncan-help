@@ -177,6 +177,10 @@ serve(async (req) => {
           project: w.project_name,
         })) || [],
       },
+      workstreams: {
+        assigned_cards: assignedCardsResult || [],
+        assigned_tasks: assignedTasksResult || [],
+      },
       wiki: {
         recently_updated: wikiResult.data?.map((w) => ({
           title: w.title,
