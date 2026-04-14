@@ -40,7 +40,7 @@ serve(async (req) => {
     const userEmail = user.email || "";
     const userName = user.user_metadata?.display_name || userEmail;
 
-    // Get user profile (including last_briefing_at from preferences)
+    // Get user profile
     const { data: profile } = await supabaseAdmin
       .from("profiles")
       .select("display_name, role_title, department, preferences")
@@ -50,43 +50,33 @@ serve(async (req) => {
     const displayName = profile?.display_name || userName;
     const firstName = displayName.toLowerCase().split(" ")[0];
     const now = new Date();
-
-    // Determine the "since" window — use last_briefing_at if available, otherwise default 48h
     const prefs = (profile?.preferences as Record<string, any>) || {};
     const lastBriefingAt = prefs.last_briefing_at
       ? new Date(prefs.last_briefing_at)
       : null;
 
-    // For time-sensitive data (meetings, work items), use since last briefing or 48h
-    const defaultSince = new Date(now.getTime() - 48 * 60 * 60 * 1000);
-    const sinceDatetime = lastBriefingAt && lastBriefingAt > defaultSince
+    // Use a minimum 24h window so data is always meaningful
+    const minSince = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const sinceDatetime = lastBriefingAt && lastBriefingAt < minSince
       ? lastBriefingAt
-      : defaultSince;
+      : minSince;
     const sinceISO = sinceDatetime.toISOString();
-
-    // For slower-moving data (POs, issues, candidates), use a wider window
-    const widerDefault = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const widerSince = lastBriefingAt && lastBriefingAt > widerDefault
-      ? lastBriefingAt
-      : widerDefault;
-    const widerSinceISO = widerSince.toISOString();
 
     const today = now.toISOString().split("T")[0];
 
-    // Run ALL queries in parallel
+    // Run queries in parallel — only calendar, meetings, work items, wiki, token usage
     const [
+      calendarResult,
       meetingsResult,
       workItemsResult,
-      basecampData,
-      calendarResult,
-      purchaseOrdersResult,
-      issuesResult,
-      candidatesResult,
       wikiResult,
       myTokenUsage,
       leaderboardResult,
     ] = await Promise.all([
-      // 1. Meetings since last briefing
+      // Calendar — always today's full events
+      fetchCalendarEvents(supabaseUrl, supabaseAdmin, authHeader, user.id),
+
+      // Meetings since last briefing (min 24h)
       supabaseAdmin
         .from("meetings")
         .select("id, title, meeting_date, summary, action_items, analysis, status")
@@ -94,7 +84,7 @@ serve(async (req) => {
         .order("meeting_date", { ascending: false })
         .limit(10),
 
-      // 2. Azure DevOps work items changed since last briefing
+      // Azure DevOps work items changed since last briefing
       supabaseAdmin
         .from("azure_work_items")
         .select("external_id, title, state, work_item_type, priority, changed_date, project_name, assigned_to")
@@ -103,37 +93,16 @@ serve(async (req) => {
         .order("changed_date", { ascending: false })
         .limit(15),
 
-      // 3. Basecamp todos + messages
-      fetchBasecampData(supabaseUrl, supabaseAdmin, authHeader, displayName),
-
-      // 5. Google Calendar - today's events
-      fetchCalendarEvents(supabaseUrl, supabaseAdmin, authHeader, user.id),
-
-      // 6. Purchase orders
-      fetchPurchaseOrders(supabaseAdmin, user.id),
-
-      // 7. Issues (since last briefing or 7 days)
-      supabaseAdmin
-        .from("issues")
-        .select("id, title, issue_type, severity, frequency, created_at, updated_at")
-        .eq("user_id", user.id)
-        .gte("updated_at", widerSinceISO)
-        .order("updated_at", { ascending: false })
-        .limit(10),
-
-      // 8. Candidates updated since last briefing
-      fetchRecruitmentUpdates(supabaseAdmin, user.id, widerSinceISO),
-
-      // 9. Wiki pages updated since last briefing
+      // Wiki pages updated recently
       supabaseAdmin
         .from("wiki_pages")
         .select("id, title, summary, updated_at, tags")
         .eq("is_published", true)
-        .gte("updated_at", widerSinceISO)
+        .gte("updated_at", sinceISO)
         .order("updated_at", { ascending: false })
         .limit(10),
 
-      // 10. My token usage today
+      // My token usage today
       supabaseAdmin
         .from("token_usage")
         .select("total_tokens, request_count, prompt_tokens, completion_tokens")
@@ -141,9 +110,8 @@ serve(async (req) => {
         .eq("usage_date", today)
         .maybeSingle(),
 
-      // 11. Top 3 leaderboard (all-time or last 30 days)
+      // Top 3 leaderboard
       fetchTokenLeaderboard(supabaseAdmin),
-
     ]);
 
     // Update last_briefing_at in preferences
@@ -176,7 +144,7 @@ serve(async (req) => {
       }
     }
 
-    // Build comprehensive briefing data
+    // Build briefing data
     const briefing = {
       user: {
         name: displayName,
@@ -207,19 +175,6 @@ serve(async (req) => {
           project: w.project_name,
         })) || [],
       },
-      purchase_orders: purchaseOrdersResult || { my_pending: [], awaiting_my_approval: [] },
-      issues: {
-        my_recent: issuesResult.data?.map((i) => ({
-          title: i.title,
-          type: i.issue_type,
-          severity: i.severity,
-          created: i.created_at,
-        })) || [],
-      },
-      recruitment: {
-        active_candidates: candidatesResult || [],
-      },
-      basecamp: basecampData || { my_todos: [], messages_mentioning_me: [] },
       wiki: {
         recently_updated: wikiResult.data?.map((w) => ({
           title: w.title,
@@ -266,13 +221,18 @@ async function fetchCalendarEvents(
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (!calToken) return [];
+    if (!calToken) {
+      console.log("Calendar briefing: no token found for user", userId);
+      return [];
+    }
 
     const now = new Date();
     const startOfDay = new Date(now);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(now);
     endOfDay.setHours(23, 59, 59, 999);
+
+    console.log("Calendar briefing: fetching events for", startOfDay.toISOString(), "to", endOfDay.toISOString());
 
     const resp = await fetch(`${supabaseUrl}/functions/v1/google-calendar-api`, {
       method: "POST",
@@ -288,10 +248,20 @@ async function fetchCalendarEvents(
       }),
     });
 
-    if (!resp.ok) return [];
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.error("Calendar briefing: API error", resp.status, errText);
+      return [];
+    }
     const result = await resp.json();
+    console.log("Calendar briefing: raw result keys", Object.keys(result));
     const events = result.items || result || [];
-    if (!Array.isArray(events)) return [];
+    if (!Array.isArray(events)) {
+      console.log("Calendar briefing: events not an array", typeof events);
+      return [];
+    }
+
+    console.log("Calendar briefing: found", events.length, "events");
 
     return events.map((e: any) => ({
       title: e.summary || "No title",
@@ -306,247 +276,7 @@ async function fetchCalendarEvents(
   }
 }
 
-// ── Helper: Fetch purchase orders relevant to user ──
-async function fetchPurchaseOrders(supabaseAdmin: any, userId: string) {
-  try {
-    const [myPOs, deptResult] = await Promise.all([
-      supabaseAdmin
-        .from("purchase_orders")
-        .select("po_number, vendor_name, description, total_amount, status, category, created_at")
-        .eq("requester_id", userId)
-        .in("status", ["draft", "pending_approval", "approved"])
-        .order("created_at", { ascending: false })
-        .limit(10),
-
-      supabaseAdmin
-        .from("departments")
-        .select("id")
-        .eq("owner_user_id", userId),
-    ]);
-
-    let awaitingApproval: any[] = [];
-    if (deptResult.data && deptResult.data.length > 0) {
-      const deptIds = deptResult.data.map((d: any) => d.id);
-      const { data: pendingPOs } = await supabaseAdmin
-        .from("purchase_orders")
-        .select("po_number, vendor_name, description, total_amount, status, category, created_at")
-        .in("department_id", deptIds)
-        .eq("status", "pending_approval")
-        .neq("requester_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(10);
-      awaitingApproval = pendingPOs || [];
-    }
-
-    return {
-      my_pending: myPOs.data?.map((p: any) => ({
-        po_number: p.po_number,
-        vendor: p.vendor_name,
-        amount: p.total_amount,
-        status: p.status,
-        category: p.category,
-      })) || [],
-      awaiting_my_approval: awaitingApproval.map((p: any) => ({
-        po_number: p.po_number,
-        vendor: p.vendor_name,
-        amount: p.total_amount,
-        category: p.category,
-      })),
-    };
-  } catch (err) {
-    console.error("PO briefing error:", err);
-    return { my_pending: [], awaiting_my_approval: [] };
-  }
-}
-
-// ── Helper: Fetch recruitment updates for jobs the user created ──
-async function fetchRecruitmentUpdates(supabaseAdmin: any, userId: string, since: string) {
-  try {
-    const { data: userJobs } = await supabaseAdmin
-      .from("job_roles")
-      .select("id, title")
-      .eq("created_by", userId)
-      .eq("status", "active");
-
-    if (!userJobs || userJobs.length === 0) return [];
-
-    const jobIds = userJobs.map((j: any) => j.id);
-    const jobMap = Object.fromEntries(userJobs.map((j: any) => [j.id, j.title]));
-
-    const { data: candidates } = await supabaseAdmin
-      .from("candidates")
-      .select("name, email, status, total_score, job_role_id, updated_at, hireflix_status")
-      .in("job_role_id", jobIds)
-      .gte("updated_at", since)
-      .order("updated_at", { ascending: false })
-      .limit(15);
-
-    return (candidates || []).map((c: any) => ({
-      name: c.name,
-      status: c.status,
-      score: c.total_score,
-      job_title: jobMap[c.job_role_id] || "Unknown role",
-      interview_status: c.hireflix_status,
-      updated: c.updated_at,
-    }));
-  } catch (err) {
-    console.error("Recruitment briefing error:", err);
-    return [];
-  }
-}
-
-// ── Helper: Fetch Basecamp todos + messages mentioning user ──
-async function fetchBasecampData(
-  supabaseUrl: string,
-  supabaseAdmin: any,
-  authHeader: string,
-  displayName: string
-) {
-  try {
-    const { data: basecampToken } = await supabaseAdmin
-      .from("basecamp_tokens")
-      .select("id")
-      .limit(1)
-      .maybeSingle();
-
-    if (!basecampToken) return { my_todos: [], messages_mentioning_me: [] };
-
-    const projectsResp = await fetch(`${supabaseUrl}/functions/v1/basecamp-api`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: authHeader },
-      body: JSON.stringify({ endpoint: "projects", method: "GET", paginate: true }),
-    });
-
-    if (!projectsResp.ok) return { my_todos: [], messages_mentioning_me: [] };
-    const projects = await projectsResp.json();
-    if (!Array.isArray(projects) || projects.length === 0) return { my_todos: [], messages_mentioning_me: [] };
-
-    const firstNameLower = displayName.toLowerCase().split(" ")[0];
-
-    const results = await Promise.all(
-      projects.slice(0, 3).map(async (project: any) => {
-        const todoSet = project.dock?.find((d: any) => d.name === "todoset" && d.enabled);
-        const messageBoard = project.dock?.find((d: any) => d.name === "message_board" && d.enabled);
-
-        const [todos, messages] = await Promise.all([
-          todoSet ? fetchProjectTodos(supabaseUrl, authHeader, project, todoSet) : Promise.resolve([]),
-          messageBoard ? fetchProjectMessages(supabaseUrl, authHeader, project, messageBoard, firstNameLower) : Promise.resolve([]),
-        ]);
-
-        return { todos, messages };
-      })
-    );
-
-    const allTodos = results.flatMap((r) => r.todos);
-    const allMessages = results.flatMap((r) => r.messages);
-
-    const myTodos = allTodos.filter((t: any) => {
-      if (t.assignees.length === 0) return true;
-      return t.assignees.some((a: string) => a.toLowerCase().includes(firstNameLower));
-    }).slice(0, 15);
-
-    return {
-      my_todos: myTodos,
-      messages_mentioning_me: allMessages.slice(0, 10),
-    };
-  } catch (err) {
-    console.error("Basecamp briefing error:", err);
-    return { my_todos: [], messages_mentioning_me: [] };
-  }
-}
-
-async function fetchProjectTodos(supabaseUrl: string, authHeader: string, project: any, todoSet: any) {
-  try {
-    const listsResp = await fetch(`${supabaseUrl}/functions/v1/basecamp-api`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: authHeader },
-      body: JSON.stringify({
-        endpoint: `buckets/${project.id}/todosets/${todoSet.id}/todolists`,
-        method: "GET",
-        paginate: true,
-      }),
-    });
-
-    if (!listsResp.ok) return [];
-    const lists = await listsResp.json();
-    if (!Array.isArray(lists)) return [];
-
-    const todosFromLists = await Promise.all(
-      lists.slice(0, 2).map(async (list: any) => {
-        const todosResp = await fetch(`${supabaseUrl}/functions/v1/basecamp-api`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: authHeader },
-          body: JSON.stringify({
-            endpoint: `buckets/${project.id}/todolists/${list.id}/todos`,
-            method: "GET",
-            paginate: true,
-          }),
-        });
-
-        if (!todosResp.ok) return [];
-        const todos = await todosResp.json();
-        if (!Array.isArray(todos)) return [];
-
-        return todos
-          .filter((t: any) => !t.completed)
-          .map((t: any) => ({
-            title: t.title,
-            due_on: t.due_on,
-            project_name: project.name,
-            list_name: list.title,
-            assignees: t.assignees?.map((a: any) => a.name) || [],
-          }));
-      })
-    );
-
-    return todosFromLists.flat();
-  } catch {
-    return [];
-  }
-}
-
-async function fetchProjectMessages(
-  supabaseUrl: string,
-  authHeader: string,
-  project: any,
-  messageBoard: any,
-  firstName: string
-) {
-  try {
-    const msgsResp = await fetch(`${supabaseUrl}/functions/v1/basecamp-api`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: authHeader },
-      body: JSON.stringify({
-        endpoint: `buckets/${project.id}/message_boards/${messageBoard.id}/messages`,
-        method: "GET",
-        paginate: true,
-      }),
-    });
-
-    if (!msgsResp.ok) return [];
-    const messages = await msgsResp.json();
-    if (!Array.isArray(messages)) return [];
-
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    return messages
-      .filter((m: any) => {
-        if (m.created_at < sevenDaysAgo) return false;
-        const content = ((m.content || "") + " " + (m.title || "")).toLowerCase();
-        return content.includes(firstName);
-      })
-      .slice(0, 5)
-      .map((m: any) => ({
-        title: m.title,
-        project_name: project.name,
-        author: m.creator?.name || "Unknown",
-        created_at: m.created_at,
-      }));
-  } catch {
-    return [];
-  }
-}
-
-// ── Helper: Fetch top 3 Duncan users by token usage (last 30 days) ──
+// ── Helper: Fetch top 3 users by token usage (last 30 days) ──
 async function fetchTokenLeaderboard(supabaseAdmin: any) {
   try {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
@@ -558,7 +288,6 @@ async function fetchTokenLeaderboard(supabaseAdmin: any) {
 
     if (!usageData || usageData.length === 0) return [];
 
-    // Aggregate by user
     const userTotals: Record<string, { total_tokens: number; request_count: number }> = {};
     for (const row of usageData) {
       if (!userTotals[row.user_id]) {
@@ -568,12 +297,10 @@ async function fetchTokenLeaderboard(supabaseAdmin: any) {
       userTotals[row.user_id].request_count += row.request_count;
     }
 
-    // Sort by total tokens and take top 3
     const sorted = Object.entries(userTotals)
       .sort((a, b) => b[1].total_tokens - a[1].total_tokens)
       .slice(0, 3);
 
-    // Fetch display names
     const userIds = sorted.map(([uid]) => uid);
     const { data: profiles } = await supabaseAdmin
       .from("profiles")
