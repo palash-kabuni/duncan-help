@@ -241,10 +241,12 @@ async function fetchCalendarEvents(
         Authorization: authHeader,
       },
       body: JSON.stringify({
-        action: "list",
-        timeMin: startOfDay.toISOString(),
-        timeMax: endOfDay.toISOString(),
-        maxResults: 20,
+        action: "listEvents",
+        params: {
+          timeMin: startOfDay.toISOString(),
+          timeMax: endOfDay.toISOString(),
+          maxResults: 20,
+        },
       }),
     });
 
