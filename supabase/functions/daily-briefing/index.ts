@@ -64,7 +64,7 @@ serve(async (req) => {
 
     const today = now.toISOString().split("T")[0];
 
-    // Run queries in parallel — only calendar, meetings, work items, wiki, token usage
+    // Run queries in parallel
     const [
       calendarResult,
       meetingsResult,
@@ -72,11 +72,11 @@ serve(async (req) => {
       wikiResult,
       myTokenUsage,
       leaderboardResult,
+      assignedCardsResult,
+      assignedTasksResult,
     ] = await Promise.all([
-      // Calendar — always today's full events
       fetchCalendarEvents(supabaseUrl, supabaseAdmin, authHeader, user.id),
 
-      // Meetings since last briefing (min 24h)
       supabaseAdmin
         .from("meetings")
         .select("id, title, meeting_date, summary, action_items, analysis, status")
@@ -84,7 +84,6 @@ serve(async (req) => {
         .order("meeting_date", { ascending: false })
         .limit(10),
 
-      // Azure DevOps work items changed since last briefing
       supabaseAdmin
         .from("azure_work_items")
         .select("external_id, title, state, work_item_type, priority, changed_date, project_name, assigned_to")
@@ -93,7 +92,6 @@ serve(async (req) => {
         .order("changed_date", { ascending: false })
         .limit(15),
 
-      // Wiki pages updated recently
       supabaseAdmin
         .from("wiki_pages")
         .select("id, title, summary, updated_at, tags")
@@ -102,7 +100,6 @@ serve(async (req) => {
         .order("updated_at", { ascending: false })
         .limit(10),
 
-      // My token usage today
       supabaseAdmin
         .from("token_usage")
         .select("total_tokens, request_count, prompt_tokens, completion_tokens")
@@ -110,8 +107,13 @@ serve(async (req) => {
         .eq("usage_date", today)
         .maybeSingle(),
 
-      // Top 3 leaderboard
       fetchTokenLeaderboard(supabaseAdmin),
+
+      // Workstream cards assigned to user (active, not archived)
+      fetchAssignedCards(supabaseAdmin, user.id),
+
+      // Workstream tasks assigned to user (incomplete)
+      fetchAssignedTasks(supabaseAdmin, user.id),
     ]);
 
     // Update last_briefing_at in preferences
