@@ -64,7 +64,7 @@ serve(async (req) => {
 
     const today = now.toISOString().split("T")[0];
 
-    // Run queries in parallel — only calendar, meetings, work items, wiki, token usage
+    // Run queries in parallel
     const [
       calendarResult,
       meetingsResult,
@@ -72,11 +72,11 @@ serve(async (req) => {
       wikiResult,
       myTokenUsage,
       leaderboardResult,
+      assignedCardsResult,
+      assignedTasksResult,
     ] = await Promise.all([
-      // Calendar — always today's full events
       fetchCalendarEvents(supabaseUrl, supabaseAdmin, authHeader, user.id),
 
-      // Meetings since last briefing (min 24h)
       supabaseAdmin
         .from("meetings")
         .select("id, title, meeting_date, summary, action_items, analysis, status")
@@ -84,7 +84,6 @@ serve(async (req) => {
         .order("meeting_date", { ascending: false })
         .limit(10),
 
-      // Azure DevOps work items changed since last briefing
       supabaseAdmin
         .from("azure_work_items")
         .select("external_id, title, state, work_item_type, priority, changed_date, project_name, assigned_to")
@@ -93,7 +92,6 @@ serve(async (req) => {
         .order("changed_date", { ascending: false })
         .limit(15),
 
-      // Wiki pages updated recently
       supabaseAdmin
         .from("wiki_pages")
         .select("id, title, summary, updated_at, tags")
@@ -102,7 +100,6 @@ serve(async (req) => {
         .order("updated_at", { ascending: false })
         .limit(10),
 
-      // My token usage today
       supabaseAdmin
         .from("token_usage")
         .select("total_tokens, request_count, prompt_tokens, completion_tokens")
@@ -110,8 +107,13 @@ serve(async (req) => {
         .eq("usage_date", today)
         .maybeSingle(),
 
-      // Top 3 leaderboard
       fetchTokenLeaderboard(supabaseAdmin),
+
+      // Workstream cards assigned to user (active, not archived)
+      fetchAssignedCards(supabaseAdmin, user.id),
+
+      // Workstream tasks assigned to user (incomplete)
+      fetchAssignedTasks(supabaseAdmin, user.id),
     ]);
 
     // Update last_briefing_at in preferences
@@ -174,6 +176,10 @@ serve(async (req) => {
           priority: w.priority,
           project: w.project_name,
         })) || [],
+      },
+      workstreams: {
+        assigned_cards: assignedCardsResult || [],
+        assigned_tasks: assignedTasksResult || [],
       },
       wiki: {
         recently_updated: wikiResult.data?.map((w) => ({
@@ -324,6 +330,104 @@ async function fetchTokenLeaderboard(supabaseAdmin: any) {
     }));
   } catch (err) {
     console.error("Leaderboard error:", err);
+    return [];
+  }
+}
+
+// ── Helper: Fetch workstream cards assigned to user ──
+async function fetchAssignedCards(supabaseAdmin: any, userId: string) {
+  try {
+    // Get card IDs where user is assigned
+    const { data: assignments } = await supabaseAdmin
+      .from("workstream_card_assignees")
+      .select("card_id, assignment_status")
+      .eq("user_id", userId);
+
+    if (!assignments || assignments.length === 0) return [];
+
+    const cardIds = assignments.map((a: any) => a.card_id);
+    const statusMap: Record<string, string> = {};
+    for (const a of assignments) {
+      statusMap[a.card_id] = a.assignment_status;
+    }
+
+    const { data: cards } = await supabaseAdmin
+      .from("workstream_cards")
+      .select("id, title, status, priority, due_date, project_tag, updated_at")
+      .in("id", cardIds)
+      .is("archived_at", null)
+      .order("updated_at", { ascending: false })
+      .limit(15);
+
+    return (cards || []).map((c: any) => ({
+      title: c.title,
+      status: c.status,
+      priority: c.priority,
+      due_date: c.due_date,
+      project_tag: c.project_tag,
+      assignment_status: statusMap[c.id] || "pending",
+    }));
+  } catch (err) {
+    console.error("Workstream cards briefing error:", err);
+    return [];
+  }
+}
+
+// ── Helper: Fetch workstream tasks assigned to user (incomplete) ──
+async function fetchAssignedTasks(supabaseAdmin: any, userId: string) {
+  try {
+    // Check both task_assignees table and direct assignee_id
+    const [taskAssigneeResult, directAssignResult] = await Promise.all([
+      supabaseAdmin
+        .from("workstream_task_assignees")
+        .select("task_id")
+        .eq("user_id", userId),
+      supabaseAdmin
+        .from("workstream_tasks")
+        .select("id, title, completed, due_date, card_id")
+        .eq("assignee_id", userId)
+        .eq("completed", false)
+        .limit(20),
+    ]);
+
+    const taskIds = new Set<string>();
+    if (taskAssigneeResult.data) {
+      for (const ta of taskAssigneeResult.data) taskIds.add(ta.task_id);
+    }
+    if (directAssignResult.data) {
+      for (const t of directAssignResult.data) taskIds.add(t.id);
+    }
+
+    if (taskIds.size === 0) return [];
+
+    const { data: tasks } = await supabaseAdmin
+      .from("workstream_tasks")
+      .select("id, title, completed, due_date, card_id")
+      .in("id", Array.from(taskIds))
+      .eq("completed", false)
+      .limit(20);
+
+    if (!tasks || tasks.length === 0) return [];
+
+    // Get card titles for context
+    const cardIds = [...new Set(tasks.map((t: any) => t.card_id))];
+    const { data: cards } = await supabaseAdmin
+      .from("workstream_cards")
+      .select("id, title")
+      .in("id", cardIds);
+
+    const cardMap: Record<string, string> = {};
+    if (cards) {
+      for (const c of cards) cardMap[c.id] = c.title;
+    }
+
+    return tasks.map((t: any) => ({
+      title: t.title,
+      due_date: t.due_date,
+      card_title: cardMap[t.card_id] || "Unknown card",
+    }));
+  } catch (err) {
+    console.error("Workstream tasks briefing error:", err);
     return [];
   }
 }

@@ -3278,21 +3278,15 @@ serve(async (req) => {
 
 **IMPORTANT CONTEXT**: If "since" is set, this is a CHECK-IN UPDATE — only highlight what has CHANGED or is NEW since that timestamp. Frame it as "Since your last check-in at [time]..." and focus on deltas. If "is_first_briefing" is true, give a full overview.
 
-Present a warm, concise briefing covering ALL of these sections (skip only if truly empty):
+Present a warm, concise briefing covering these sections (skip only if truly empty):
 
 1. 📅 **Today's Calendar** — Upcoming events/meetings scheduled for today
 2. 📋 **Meetings & Action Items** — New meeting summaries and action items assigned to this user
 3. 💼 **Project Updates** — Changes to their Azure DevOps work items
-4. 🛒 **Purchase Orders** — POs they submitted (pending/approved) and POs awaiting their approval
-5. 💰 **Finance** — Outstanding invoices/bills from Xero and any contacts with overdue balances
-6. ✅ **Basecamp Tasks** — To-dos assigned or relevant to them
-7. 💬 **Basecamp Messages** — Recent messages mentioning this user
-8. 🐛 **Issues & Feedback** — Issues they've submitted recently
-9. 👥 **Recruitment** — Candidate updates for job roles they created
-10. 📝 **NDAs** — Any NDA submissions in progress
-11. 📚 **Wiki Updates** — Recently updated wiki pages
+4. 📊 **Workstreams** — Cards assigned to this user (with status, priority, due dates) and incomplete tasks assigned to them. Highlight overdue or urgent items.
+5. 📚 **Wiki Updates** — Recently updated wiki pages
 
-Format as a natural, readable summary with clear sections. If a section has no data, briefly note "No updates since last check-in" for that area. Keep it actionable and concise. Address the user by name. Highlight anything urgent (overdue items, pending approvals, items due today). For returning check-ins, emphasize what's new or changed.`;
+Format as a natural, readable summary with clear sections. If a section has no data, briefly note "No updates since last check-in" for that area. Keep it actionable and concise. Address the user by name. Highlight anything urgent (overdue items, items due today). For returning check-ins, emphasize what's new or changed.`;
     } else if (mode === "reason") {
       systemContent += "\n\nYou are in REASONING mode. Think deeply and step-by-step. Show your reasoning chain explicitly using numbered steps. Consider multiple angles before concluding.";
     } else if (mode === "automate") {
