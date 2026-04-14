@@ -534,27 +534,26 @@ serve(async (req) => {
           continue;
         }
 
-        // Trigger CV parse
+        // Trigger CV parse — fire-and-forget to avoid blocking the ingestion loop
         const storedPath = candidate.cv_storage_path;
-        try {
-          const parseRes = await fetch(
-            `${supabaseUrl}/functions/v1/parse-cv`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${supabaseServiceKey}`,
-              },
-              body: JSON.stringify({
-                candidate_id: candidate.id,
-                storage_path: storedPath,
-              }),
-            }
-          );
+        // Use EdgeRuntime.waitUntil so the parse runs in background without blocking response
+        const parsePromise = fetch(
+          `${supabaseUrl}/functions/v1/parse-cv`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${supabaseServiceKey}`,
+            },
+            body: JSON.stringify({
+              candidate_id: candidate.id,
+              storage_path: storedPath,
+            }),
+          }
+        ).then(async (parseRes) => {
           if (parseRes.ok) {
             const parseData = await parseRes.json();
-
-            // --- DEDUP LAYER 2: parsed email + job_role_id ---
+            // Dedup layer 2: parsed email + job_role_id
             if (parseData.parsed_email && matchedRoleId) {
               const { data: emailDup } = await supabaseAdmin
                 .from("candidates")
@@ -563,44 +562,30 @@ serve(async (req) => {
                 .eq("job_role_id", matchedRoleId)
                 .neq("id", candidate.id)
                 .maybeSingle();
-
               if (emailDup) {
                 console.log(`Duplicate candidate by email+role: ${parseData.parsed_email} for role ${matchedRoleId}. Removing new record.`);
                 await supabaseAdmin.from("candidates").delete().eq("id", candidate.id);
                 await supabaseAdmin.storage.from("cvs").remove([storedPath]);
-                skipped++;
-                details.push({
-                  gmail_message_id: msg.id, filename: cv.filename,
-                  outcome: "duplicate_email",
-                  reason: `Duplicate: email ${parseData.parsed_email} already exists for this role`,
-                  candidate_id: emailDup.id,
-                });
-                continue;
+                return;
               }
             }
-
             console.log(`Parsed CV for ${candidate.id}: name=${parseData.parsed_name}, email=${parseData.parsed_email}`);
           } else {
             console.warn(`CV parse returned ${parseRes.status} for candidate ${candidate.id}`);
-            const { error: pfErr } = await supabaseAdmin
+            await supabaseAdmin
               .from("candidates")
               .update({ status: "parse_failed", failure_reason: `Parse returned HTTP ${parseRes.status}` })
               .eq("id", candidate.id);
-            if (pfErr) console.error("Failed to update parse_failed status:", pfErr);
-            parseFailed++;
-            details.push({ gmail_message_id: msg.id, filename: cv.filename, outcome: "parse_failed", reason: `Parse HTTP ${parseRes.status}`, candidate_id: candidate.id });
-            // Don't skip adding to results — still ingested
           }
-        } catch (parseErr: any) {
+        }).catch((parseErr: any) => {
           console.warn("CV parse failed:", parseErr);
-          const { error: pfErr } = await supabaseAdmin
+          supabaseAdmin
             .from("candidates")
             .update({ status: "parse_failed", failure_reason: `Parse exception: ${parseErr.message || "unknown"}` })
             .eq("id", candidate.id);
-          if (pfErr) console.error("Failed to update parse_failed status:", pfErr);
-          parseFailed++;
-          details.push({ gmail_message_id: msg.id, filename: cv.filename, outcome: "parse_failed", reason: parseErr.message, candidate_id: candidate.id });
-        }
+        });
+        // Keep the worker alive for background parsing
+        try { (globalThis as any).EdgeRuntime.waitUntil(parsePromise); } catch { /* fallback: fire-and-forget */ }
 
         results.push(candidate);
         ingested++;
