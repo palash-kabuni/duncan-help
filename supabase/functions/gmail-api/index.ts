@@ -336,7 +336,10 @@ Deno.serve(async (req) => {
       }
 
       const fromEmail = tokenData.emailAddress || "me";
-      const rawMessage = buildRFC2822(to, cc || "", bcc || "", subject, emailBody, fromEmail);
+      const formattedBody = emailBody
+        .replace(/\n\n/g, "<br><br>")
+        .replace(/\n/g, "<br>");
+      const rawMessage = buildRFC2822(to, cc || "", bcc || "", subject, formattedBody, fromEmail);
       const encoded = base64url(rawMessage);
 
       const sendRes = await fetch(
