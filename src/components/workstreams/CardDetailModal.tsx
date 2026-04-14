@@ -50,6 +50,8 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
   const [commentText, setCommentText] = useState("");
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [declineReason, setDeclineReason] = useState("");
+  const [showDeclineInput, setShowDeclineInput] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   if (!cardId) return null;
