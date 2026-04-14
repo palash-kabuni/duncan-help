@@ -92,13 +92,7 @@ serve(async (req) => {
         .order("changed_date", { ascending: false })
         .limit(15),
 
-      supabaseAdmin
-        .from("wiki_pages")
-        .select("id, title, summary, updated_at, tags")
-        .eq("is_published", true)
-        .gte("updated_at", sinceISO)
-        .order("updated_at", { ascending: false })
-        .limit(10),
+      // (wiki removed)
 
       supabaseAdmin
         .from("token_usage")
