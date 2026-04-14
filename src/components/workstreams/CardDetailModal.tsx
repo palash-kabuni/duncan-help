@@ -61,6 +61,12 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
   const comments = data?.comments || [];
   const activity = data?.activity || [];
 
+  // Check current user's assignment status
+  const myAssignment = useMemo(() => {
+    if (!card || !user) return null;
+    return (card.assignees || []).find(a => a.user_id === user.id) || null;
+  }, [card, user]);
+
   const handleAddTask = () => {
     if (!newTaskTitle.trim() || !cardId) return;
     createTask.mutate({
@@ -107,6 +113,8 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
       case "task_added": return <Plus className="h-3 w-3 text-emerald-500" />;
       case "task_completed": return <CheckCircle2 className="h-3 w-3 text-emerald-500" />;
       case "comment_added": return <MessageSquare className="h-3 w-3 text-primary" />;
+      case "assignment_accepted": return <Check className="h-3 w-3 text-emerald-500" />;
+      case "assignment_declined": return <XCircle className="h-3 w-3 text-red-500" />;
       default: return <Activity className="h-3 w-3 text-muted-foreground" />;
     }
   };
@@ -119,6 +127,8 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
       case "task_completed": return "Completed a task";
       case "task_uncompleted": return "Uncompleted a task";
       case "comment_added": return "Added a comment";
+      case "assignment_accepted": return "Accepted the assignment";
+      case "assignment_declined": return `Declined the assignment${details.decline_reason ? `: "${details.decline_reason}"` : ""}`;
       default: return action.replace(/_/g, " ");
     }
   };
