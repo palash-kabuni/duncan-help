@@ -1,8 +1,9 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { format, formatDistanceToNow } from "date-fns";
 import {
   X, CalendarDays, User, Flag, Tag, Plus, Trash2, CheckCircle2,
   Circle, Send, MessageSquare, Activity, Clock, Loader2, Users,
+  Check, XCircle,
 } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import {
   useWorkstreamCard, useUpdateCard, useUpdateCardAssignees, useCreateTask,
   useUpdateTask, useUpdateTaskAssignees, useDeleteTask,
   useAddComment, useDeleteComment, useDeleteCard, useUserProfiles,
+  useRespondToAssignment,
   type CardStatus, type CardPriority, type WorkstreamTask,
 } from "@/hooks/useWorkstreams";
 import { StatusBadge, priorityConfig } from "./StatusBadge";
@@ -42,6 +44,7 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
   const addComment = useAddComment();
   const deleteComment = useDeleteComment();
   const deleteCard = useDeleteCard();
+  const respondToAssignment = useRespondToAssignment();
 
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [commentText, setCommentText] = useState("");
