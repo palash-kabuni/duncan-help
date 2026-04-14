@@ -1548,21 +1548,30 @@ export type Database = {
       }
       workstream_card_assignees: {
         Row: {
+          assignment_status: string
           card_id: string
           created_at: string
+          decline_reason: string | null
           id: string
+          responded_at: string | null
           user_id: string
         }
         Insert: {
+          assignment_status?: string
           card_id: string
           created_at?: string
+          decline_reason?: string | null
           id?: string
+          responded_at?: string | null
           user_id: string
         }
         Update: {
+          assignment_status?: string
           card_id?: string
           created_at?: string
+          decline_reason?: string | null
           id?: string
+          responded_at?: string | null
           user_id?: string
         }
         Relationships: [
