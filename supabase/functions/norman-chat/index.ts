@@ -3284,7 +3284,6 @@ Present a warm, concise briefing covering these sections (skip only if truly emp
 2. 📋 **Meetings & Action Items** — New meeting summaries and action items assigned to this user
 3. 💼 **Project Updates** — Changes to their Azure DevOps work items
 4. 📊 **Workstreams** — Cards assigned to this user (with status, priority, due dates) and incomplete tasks assigned to them. Highlight overdue or urgent items.
-5. 📚 **Wiki Updates** — Recently updated wiki pages
 
 Format as a natural, readable summary with clear sections. If a section has no data, briefly note "No updates since last check-in" for that area. Keep it actionable and concise. Address the user by name. Highlight anything urgent (overdue items, items due today). For returning check-ins, emphasize what's new or changed.`;
     } else if (mode === "reason") {

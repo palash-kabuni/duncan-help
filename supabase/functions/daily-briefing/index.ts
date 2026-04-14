@@ -175,14 +175,6 @@ serve(async (req) => {
         assigned_cards: assignedCardsResult || [],
         assigned_tasks: assignedTasksResult || [],
       },
-      wiki: {
-        recently_updated: wikiResult.data?.map((w) => ({
-          title: w.title,
-          summary: w.summary,
-          updated: w.updated_at,
-          tags: w.tags,
-        })) || [],
-      },
       token_usage: {
         my_today: myTokenUsage.data ? {
           total_tokens: myTokenUsage.data.total_tokens,
