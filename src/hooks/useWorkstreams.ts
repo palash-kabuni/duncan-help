@@ -527,3 +527,47 @@ export function useDeleteComment() {
     onError: (e: Error) => toast.error(e.message),
   });
 }
+
+// Accept or decline an assignment
+export function useRespondToAssignment() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  return useMutation({
+    mutationFn: async ({ cardId, response, declineReason }: {
+      cardId: string;
+      response: "accepted" | "declined";
+      declineReason?: string;
+    }) => {
+      if (!user) throw new Error("Not authenticated");
+
+      const updatePayload: Record<string, any> = {
+        assignment_status: response,
+        responded_at: new Date().toISOString(),
+      };
+      if (response === "declined" && declineReason) {
+        updatePayload.decline_reason = declineReason;
+      }
+
+      const { error } = await supabase
+        .from("workstream_card_assignees")
+        .update(updatePayload)
+        .eq("card_id", cardId)
+        .eq("user_id", user.id);
+      if (error) throw error;
+
+      // Log activity
+      await supabase.from("workstream_activity").insert({
+        card_id: cardId,
+        user_id: user.id,
+        action: response === "accepted" ? "assignment_accepted" : "assignment_declined",
+        details: declineReason ? { decline_reason: declineReason } : {},
+      });
+    },
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["workstream-cards"] });
+      qc.invalidateQueries({ queryKey: ["workstream-card", vars.cardId] });
+      toast.success(vars.response === "accepted" ? "Assignment accepted" : "Assignment declined");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
