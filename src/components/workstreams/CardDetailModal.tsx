@@ -1,8 +1,9 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { format, formatDistanceToNow } from "date-fns";
 import {
   X, CalendarDays, User, Flag, Tag, Plus, Trash2, CheckCircle2,
   Circle, Send, MessageSquare, Activity, Clock, Loader2, Users,
+  Check, XCircle,
 } from "lucide-react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import {
   useWorkstreamCard, useUpdateCard, useUpdateCardAssignees, useCreateTask,
   useUpdateTask, useUpdateTaskAssignees, useDeleteTask,
   useAddComment, useDeleteComment, useDeleteCard, useUserProfiles,
+  useRespondToAssignment,
   type CardStatus, type CardPriority, type WorkstreamTask,
 } from "@/hooks/useWorkstreams";
 import { StatusBadge, priorityConfig } from "./StatusBadge";
@@ -42,16 +44,25 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
   const addComment = useAddComment();
   const deleteComment = useDeleteComment();
   const deleteCard = useDeleteCard();
+  const respondToAssignment = useRespondToAssignment();
 
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [commentText, setCommentText] = useState("");
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [declineReason, setDeclineReason] = useState("");
+  const [showDeclineInput, setShowDeclineInput] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Check current user's assignment status (must be before early return)
+  const card = data?.card;
+  const myAssignment = useMemo(() => {
+    if (!card || !user) return null;
+    return (card.assignees || []).find(a => a.user_id === user.id) || null;
+  }, [card, user]);
 
   if (!cardId) return null;
 
-  const card = data?.card;
   const tasks = data?.tasks || [];
   const comments = data?.comments || [];
   const activity = data?.activity || [];
@@ -102,6 +113,8 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
       case "task_added": return <Plus className="h-3 w-3 text-emerald-500" />;
       case "task_completed": return <CheckCircle2 className="h-3 w-3 text-emerald-500" />;
       case "comment_added": return <MessageSquare className="h-3 w-3 text-primary" />;
+      case "assignment_accepted": return <Check className="h-3 w-3 text-emerald-500" />;
+      case "assignment_declined": return <XCircle className="h-3 w-3 text-red-500" />;
       default: return <Activity className="h-3 w-3 text-muted-foreground" />;
     }
   };
@@ -114,6 +127,8 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
       case "task_completed": return "Completed a task";
       case "task_uncompleted": return "Uncompleted a task";
       case "comment_added": return "Added a comment";
+      case "assignment_accepted": return "Accepted the assignment";
+      case "assignment_declined": return `Declined the assignment${details.decline_reason ? `: "${details.decline_reason}"` : ""}`;
       default: return action.replace(/_/g, " ");
     }
   };
@@ -183,6 +198,92 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
                 ))}
               </div>
             </div>
+
+            {/* Assignment Accept/Decline Banner */}
+            {myAssignment && myAssignment.assignment_status === "pending" && (
+              <div className="px-6 py-3 bg-amber-500/10 border-b border-amber-500/20">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm text-amber-600 dark:text-amber-400 font-medium">
+                    You've been assigned to this card
+                  </p>
+                  {showDeclineInput ? (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={declineReason}
+                        onChange={e => setDeclineReason(e.target.value)}
+                        placeholder="Reason (optional)"
+                        className="h-7 text-xs w-40"
+                        onKeyDown={e => {
+                          if (e.key === "Enter") {
+                            respondToAssignment.mutate({ cardId: card.id, response: "declined", declineReason: declineReason || undefined });
+                            setShowDeclineInput(false);
+                            setDeclineReason("");
+                          }
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="h-7 text-xs"
+                        onClick={() => {
+                          respondToAssignment.mutate({ cardId: card.id, response: "declined", declineReason: declineReason || undefined });
+                          setShowDeclineInput(false);
+                          setDeclineReason("");
+                        }}
+                        disabled={respondToAssignment.isPending}
+                      >
+                        Confirm
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowDeclineInput(false)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs gap-1"
+                        onClick={() => respondToAssignment.mutate({ cardId: card.id, response: "accepted" })}
+                        disabled={respondToAssignment.isPending}
+                      >
+                        <Check className="h-3 w-3" /> Accept
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs gap-1"
+                        onClick={() => setShowDeclineInput(true)}
+                        disabled={respondToAssignment.isPending}
+                      >
+                        <XCircle className="h-3 w-3" /> Decline
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {myAssignment && myAssignment.assignment_status === "accepted" && (
+              <div className="px-6 py-2 bg-emerald-500/10 border-b border-emerald-500/20">
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1.5">
+                  <Check className="h-3 w-3" /> You accepted this assignment
+                  {myAssignment.responded_at && (
+                    <span className="text-muted-foreground font-normal ml-1">
+                      {formatDistanceToNow(new Date(myAssignment.responded_at), { addSuffix: true })}
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
+            {myAssignment && myAssignment.assignment_status === "declined" && (
+              <div className="px-6 py-2 bg-red-500/10 border-b border-red-500/20">
+                <p className="text-xs text-red-500 font-medium flex items-center gap-1.5">
+                  <XCircle className="h-3 w-3" /> You declined this assignment
+                  {myAssignment.decline_reason && (
+                    <span className="text-muted-foreground font-normal ml-1">— {myAssignment.decline_reason}</span>
+                  )}
+                </p>
+              </div>
+            )}
 
             {/* Body with tabs */}
             <ScrollArea className="flex-1">
