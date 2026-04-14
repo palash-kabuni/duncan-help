@@ -69,7 +69,7 @@ serve(async (req) => {
       calendarResult,
       meetingsResult,
       workItemsResult,
-      wikiResult,
+      _wikiPlaceholder,
       myTokenUsage,
       leaderboardResult,
       assignedCardsResult,
@@ -92,7 +92,7 @@ serve(async (req) => {
         .order("changed_date", { ascending: false })
         .limit(15),
 
-      // (wiki removed)
+      Promise.resolve(null),
 
       supabaseAdmin
         .from("token_usage")
