@@ -1,56 +1,40 @@
 
 
-## Plan: Agentic Workstream Creation via Duncan Chat
+## Plan: Add Email Composition Rules to Duncan's Prompt Engine
 
-### What This Enables
-Users can describe a workflow or project to Duncan in natural language (e.g., *"Create the workflow for the Lightning Strike Event with cards for venue booking, marketing, and logistics"*), and Duncan will autonomously create the workstream cards, set statuses, assign people, add tasks, and organize everything under the correct project tag.
+### What Changes
 
-### Architecture
+**Single file**: `supabase/functions/norman-chat/index.ts`
 
-Duncan already has a multi-round tool-calling loop (up to 5 rounds) in `norman-chat`. We add new **write tools** for workstreams alongside the existing read-only analytics tools.
+### Change 1: Add email composition rules to SYSTEM_PROMPT
 
-### New Tools to Add
+Insert a new section after line 29 (the Gmail Access capability description), within the existing prompt block. This adds explicit structural and tone rules for all emails Duncan composes:
 
-| Tool | Purpose |
-|------|---------|
-| `create_workstream_card` | Create a card with title, description, status, project_tag, due_date, assignees (by name) |
-| `add_tasks_to_card` | Add multiple tasks/checklist items to a card in one call |
-| `update_workstream_card` | Update status, description, assignees, or due_date of an existing card |
-| `list_team_members` | Look up available team members (names → user IDs) for assignment |
+```
+When composing emails (via send_gmail_email):
+- Subject: Clear, specific, max ~8 words. Must reflect purpose. Never use vague subjects like "Update" or "Quick note".
+- Greeting: "Hi [First Name]," if known, otherwise "Hi,".
+- Opening: First sentence states the purpose of the email.
+- Body: Max 2-3 short paragraphs. Use bullet points only when listing 3+ items. Keep sentences concise.
+- Closing: End with a clear next step or specific ask.
+- Sign-off: "Best, [Sender Name]" — use the sender's display name from their profile.
+- Tone: Professional but natural. Conversational, not robotic. Never sound like a template.
+- Length: Under 150 words unless user requests more detail.
+- NEVER use these phrases: "I hope this finds you well", "I wanted to reach out", "Please don't hesitate", "As per our discussion", "I'm writing to inform you".
+- Do NOT overuse bullet points. Do NOT write long paragraphs.
+- If user input is vague, infer a simple, clear email without adding unnecessary detail.
+```
 
-### System Prompt Update
+### Change 2: Update `send_gmail_email` tool description
 
-Add instructions telling Duncan:
-- When a user describes a workflow, project plan, or set of tasks, proactively break it down into workstream cards and tasks
-- Use `list_team_members` first to resolve names to IDs before assigning
-- Default project_tag from the fixed list: `Lightning Strike Event`, `Website`, `K10 App`, `School Integrations`
-- Default status to `amber` (Yellow) for new cards unless specified
-- Confirm the plan with the user before creating, or create directly if the user says "create" / "set up"
+**Line 844** — update the description to reinforce structure:
 
-### Implementation Steps
+From:
+> "Send an email from the user's Gmail account. Always confirm the details (to, subject, body) with the user before sending. Requires explicit confirmation."
 
-1. **Add `WORKSTREAM_TOOLS` array** in `norman-chat/index.ts` — tool definitions for `create_workstream_card`, `add_tasks_to_card`, `update_workstream_card`, and `list_team_members`
+To:
+> "Send an email from the user's Gmail account. The body MUST follow the email composition rules: greeting, clear opening, concise body (max 2-3 paragraphs), closing with next step, and sign-off with sender name. Always confirm the draft with the user before sending. Requires explicit confirmation."
 
-2. **Add `executeWorkstreamTool` function** — handler that uses `supabaseAdmin` to:
-   - Insert into `workstream_cards`, `workstream_card_assignees`, `workstream_tasks`, `workstream_activity`
-   - Resolve user names to IDs via profiles table lookup
-   - Return created card IDs so Duncan can chain task creation
-
-3. **Register tools** in the tools assembly block (~line 2709) and the execution router (~line 2856)
-
-4. **Update system prompt** (~line 28) with agentic workstream creation instructions
-
-### Technical Details
-
-- **File changed**: `supabase/functions/norman-chat/index.ts` only
-- **No DB migrations needed** — all tables already exist
-- **No RLS concerns** — edge function uses `supabaseAdmin` (service role)
-- **Name resolution**: fuzzy match on `profiles.display_name` (case-insensitive ILIKE) so users can say "assign to Palash" without knowing IDs
-- **Batch creation**: `add_tasks_to_card` accepts an array of tasks for efficiency within the tool-calling loop
-
-### Example Interaction
-
-**User**: *"Set up the workflow for the Lightning Strike Event. We need cards for Venue & Logistics (assign to Ellaine), Marketing & Comms (assign to Alex), and Budget & Sponsorship (assign to Nimesh). Each should have 3-4 relevant tasks."*
-
-**Duncan**: Creates 3 cards under "Lightning Strike Event" project tag, assigns the right people, adds tasks to each, and confirms with a summary.
+### Outcome
+Every email Duncan drafts will follow: Greeting → Purpose → Content → Ask → Sign-off, with natural tone and no AI fluff.
 
