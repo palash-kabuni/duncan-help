@@ -54,7 +54,7 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.96, y: 10 }}
           transition={{ duration: 0.2, ease: "easeOut" }}
-          className="relative z-10 w-full max-w-3xl mx-4 h-[min(85vh,640px)] rounded-2xl border border-border bg-card shadow-2xl flex flex-col overflow-hidden"
+          className="relative z-10 w-full max-w-3xl mx-4 h-[min(90vh,640px)] rounded-2xl border border-border bg-card shadow-2xl flex flex-col overflow-hidden"
         >
           <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
             <h2 className="text-base font-semibold text-foreground">Settings</h2>
