@@ -69,7 +69,7 @@ serve(async (req) => {
       calendarResult,
       meetingsResult,
       workItemsResult,
-      wikiResult,
+      _wikiPlaceholder,
       myTokenUsage,
       leaderboardResult,
       assignedCardsResult,
@@ -92,13 +92,7 @@ serve(async (req) => {
         .order("changed_date", { ascending: false })
         .limit(15),
 
-      supabaseAdmin
-        .from("wiki_pages")
-        .select("id, title, summary, updated_at, tags")
-        .eq("is_published", true)
-        .gte("updated_at", sinceISO)
-        .order("updated_at", { ascending: false })
-        .limit(10),
+      Promise.resolve(null),
 
       supabaseAdmin
         .from("token_usage")
@@ -180,14 +174,6 @@ serve(async (req) => {
       workstreams: {
         assigned_cards: assignedCardsResult || [],
         assigned_tasks: assignedTasksResult || [],
-      },
-      wiki: {
-        recently_updated: wikiResult.data?.map((w) => ({
-          title: w.title,
-          summary: w.summary,
-          updated: w.updated_at,
-          tags: w.tags,
-        })) || [],
       },
       token_usage: {
         my_today: myTokenUsage.data ? {
