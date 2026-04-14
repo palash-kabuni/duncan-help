@@ -66,7 +66,7 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             </button>
           </div>
 
-          <div className="flex flex-1 min-h-0">
+          <div className="flex flex-col sm:flex-row flex-1 min-h-0">
             <nav className="hidden sm:flex w-48 shrink-0 flex-col border-r border-border py-3 px-2 overflow-y-auto">
               {sections.map((s) => {
                 const Icon = s.icon;
@@ -88,7 +88,7 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               })}
             </nav>
 
-            <div className="sm:hidden flex border-b border-border overflow-x-auto shrink-0 px-2 gap-1 py-2 w-full">
+            <div className="sm:hidden flex border-b border-border overflow-x-auto shrink-0 px-2 gap-1 py-2">
               {sections.map((s) => {
                 const Icon = s.icon;
                 return (
@@ -109,7 +109,7 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               })}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-5 sm:p-6">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={active}
