@@ -28,6 +28,9 @@ export interface WorkstreamCard {
 export interface AssigneeInfo {
   user_id: string;
   display_name: string | null;
+  assignment_status?: string;
+  responded_at?: string | null;
+  decline_reason?: string | null;
 }
 
 export interface WorkstreamTask {
@@ -117,7 +120,7 @@ export function useWorkstreamCards(filters?: {
       // Fetch task counts, card assignees, and owner profiles in parallel
       const [tasksRes, cardAssigneesRes] = await Promise.all([
         supabase.from("workstream_tasks").select("card_id, completed").in("card_id", cardIds),
-        supabase.from("workstream_card_assignees").select("card_id, user_id").in("card_id", cardIds),
+        supabase.from("workstream_card_assignees").select("card_id, user_id, assignment_status, responded_at, decline_reason").in("card_id", cardIds),
       ]);
 
       // Collect all user IDs for profile resolution
@@ -144,9 +147,9 @@ export function useWorkstreamCards(filters?: {
 
       // Aggregate card assignees
       const cardAssigneeMap: Record<string, AssigneeInfo[]> = {};
-      (cardAssigneesRes.data || []).forEach(a => {
+      (cardAssigneesRes.data || []).forEach((a: any) => {
         if (!cardAssigneeMap[a.card_id]) cardAssigneeMap[a.card_id] = [];
-        cardAssigneeMap[a.card_id].push({ user_id: a.user_id, display_name: profileMap[a.user_id] || "Unknown" });
+        cardAssigneeMap[a.card_id].push({ user_id: a.user_id, display_name: profileMap[a.user_id] || "Unknown", assignment_status: a.assignment_status, responded_at: a.responded_at, decline_reason: a.decline_reason });
       });
 
       // Filter by assignee if needed (check both owner_id and card_assignees)
@@ -191,7 +194,7 @@ export function useWorkstreamCard(cardId: string | null) {
         supabase.from("workstream_tasks").select("*").eq("card_id", cardId).order("sort_order"),
         supabase.from("workstream_comments").select("*").eq("card_id", cardId).order("created_at", { ascending: false }),
         supabase.from("workstream_activity").select("*").eq("card_id", cardId).order("created_at", { ascending: false }).limit(50),
-        supabase.from("workstream_card_assignees").select("card_id, user_id").eq("card_id", cardId),
+        supabase.from("workstream_card_assignees").select("card_id, user_id, assignment_status, responded_at, decline_reason").eq("card_id", cardId),
       ]);
 
       const tasks = tasksRes.data || [];
@@ -242,7 +245,7 @@ export function useWorkstreamCard(cardId: string | null) {
             status: card.status as CardStatus,
             priority: card.priority as CardPriority,
             owner_name: card.owner_id ? profileMap[card.owner_id] : undefined,
-            assignees: cardAssignees.map(a => ({ user_id: a.user_id, display_name: profileMap[a.user_id] || "Unknown" })),
+            assignees: cardAssignees.map((a: any) => ({ user_id: a.user_id, display_name: profileMap[a.user_id] || "Unknown", assignment_status: a.assignment_status, responded_at: a.responded_at, decline_reason: a.decline_reason })),
           } as WorkstreamCard,
           tasks: tasks.map(t => ({
             ...t,
@@ -277,7 +280,7 @@ export function useWorkstreamCard(cardId: string | null) {
           status: card.status as CardStatus,
           priority: card.priority as CardPriority,
           owner_name: card.owner_id ? profileMap[card.owner_id] : undefined,
-          assignees: cardAssignees.map(a => ({ user_id: a.user_id, display_name: profileMap[a.user_id] || "Unknown" })),
+          assignees: cardAssignees.map((a: any) => ({ user_id: a.user_id, display_name: profileMap[a.user_id] || "Unknown", assignment_status: a.assignment_status, responded_at: a.responded_at, decline_reason: a.decline_reason })),
         } as WorkstreamCard,
         tasks: [] as WorkstreamTask[],
         comments: comments.map(c => ({ ...c, user_name: profileMap[c.user_id] })) as WorkstreamComment[],
