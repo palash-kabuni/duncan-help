@@ -54,18 +54,18 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
   const [showDeclineInput, setShowDeclineInput] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  if (!cardId) return null;
-
+  // Check current user's assignment status (must be before early return)
   const card = data?.card;
-  const tasks = data?.tasks || [];
-  const comments = data?.comments || [];
-  const activity = data?.activity || [];
-
-  // Check current user's assignment status
   const myAssignment = useMemo(() => {
     if (!card || !user) return null;
     return (card.assignees || []).find(a => a.user_id === user.id) || null;
   }, [card, user]);
+
+  if (!cardId) return null;
+
+  const tasks = data?.tasks || [];
+  const comments = data?.comments || [];
+  const activity = data?.activity || [];
 
   const handleAddTask = () => {
     if (!newTaskTitle.trim() || !cardId) return;
