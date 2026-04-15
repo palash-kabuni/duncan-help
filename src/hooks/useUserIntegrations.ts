@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { shadowInvoke } from "@/lib/shadowApi";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
@@ -43,12 +44,8 @@ export function useConnectIntegration() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated");
 
-      const res = await supabase.functions.invoke("connect-integration", {
-        body: { integration_id: integrationId, api_key: apiKey },
-      });
-
-      if (res.error) throw res.error;
-      return res.data;
+      const data = await shadowInvoke("connect-integration", { integration_id: integrationId, api_key: apiKey }, "POST", "/integrations/connect", { integration_id: integrationId, api_key: apiKey });
+      return data;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["user-integrations"] });
@@ -61,11 +58,8 @@ export function useDisconnectIntegration() {
 
   return useMutation({
     mutationFn: async (integrationId: string) => {
-      const res = await supabase.functions.invoke("connect-integration", {
-        body: { integration_id: integrationId, action: "disconnect" },
-      });
-      if (res.error) throw res.error;
-      return res.data;
+      const data = await shadowInvoke("connect-integration", { integration_id: integrationId, action: "disconnect" }, "POST", "/integrations/connect", { integration_id: integrationId, action: "disconnect" });
+      return data;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["user-integrations"] });

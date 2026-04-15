@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { shadowInvoke } from "@/lib/shadowApi";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -198,11 +199,7 @@ export function useProjectChat(chatId: string | null) {
     setMessages(prev => [...prev, tempUserMsg]);
 
     try {
-      const { data, error } = await supabase.functions.invoke("chat-with-project-context", {
-        body: { chat_id: targetChatId, message: message.trim() },
-      });
-
-      if (error) throw error;
+      const data = await shadowInvoke<any>("chat-with-project-context", { chat_id: targetChatId, message: message.trim() }, "POST", "/chats/message", { chat_id: targetChatId, message: message.trim() });
 
       // Refetch messages from DB to sync real IDs
       const { data: dbMessages } = await supabase
@@ -287,18 +284,12 @@ export function useProjectFiles(projectId: string | null) {
       // Auto-trigger indexing after upload
       try {
         setExtractingFiles(prev => new Set(prev).add(fileRecord.id));
-        const { data: extractData, error: extractError } = await supabase.functions.invoke("extract-file-text", {
-          body: { file_id: fileRecord.id },
-        });
-        if (extractError) {
-          console.error("Auto-index failed:", extractError);
-          toast({ title: "Indexing failed", description: "You can retry from the Files panel.", variant: "destructive" });
-        } else {
-          toast({ title: "File indexed", description: `${extractData.chunks_created || 0} chunks created` });
-          await fetchFiles();
-        }
+        const extractData = await shadowInvoke<any>("extract-file-text", { file_id: fileRecord.id }, "POST", "/files/extract", { file_id: fileRecord.id });
+        toast({ title: "File indexed", description: `${extractData.chunks_created || 0} chunks created` });
+        await fetchFiles();
       } catch (indexErr) {
         console.error("Auto-index error:", indexErr);
+        toast({ title: "Indexing failed", description: "You can retry from the Files panel.", variant: "destructive" });
       } finally {
         setExtractingFiles(prev => {
           const next = new Set(prev);
@@ -323,10 +314,7 @@ export function useProjectFiles(projectId: string | null) {
   const extractText = useCallback(async (fileId: string) => {
     setExtractingFiles(prev => new Set(prev).add(fileId));
     try {
-      const { data, error } = await supabase.functions.invoke("extract-file-text", {
-        body: { file_id: fileId },
-      });
-      if (error) throw error;
+      const data = await shadowInvoke<any>("extract-file-text", { file_id: fileId }, "POST", "/files/extract", { file_id: fileId });
 
       await fetchFiles();
       toast({ title: "File indexed", description: `${data.chunks_created || 0} chunks created (${data.text_length} chars)` });
@@ -345,10 +333,7 @@ export function useProjectFiles(projectId: string | null) {
 
   const deleteFile = useCallback(async (fileId: string) => {
     try {
-      const { error } = await supabase.functions.invoke("delete-project-file", {
-        body: { file_id: fileId },
-      });
-      if (error) throw error;
+      await shadowInvoke("delete-project-file", { file_id: fileId }, "POST", "/files/delete", { file_id: fileId });
       setFiles(prev => prev.filter(f => f.id !== fileId));
       toast({ title: "File deleted" });
       return true;

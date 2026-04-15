@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { shadowInvoke } from "@/lib/shadowApi";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -116,11 +117,8 @@ export function JobRolesManager() {
     }
     setGenerating(true);
     try {
-      const res = await supabase.functions.invoke("generate-jd", {
-        body: { job_role_id: "preview", title: title.trim() },
-      });
-      if (res.error) throw res.error;
-      const jdText = res.data?.full_text;
+      const resData = await shadowInvoke<any>("generate-jd", { job_role_id: "preview", title: title.trim() }, "POST", "/recruitment/generate-jd", { job_role_id: "preview", title: title.trim() });
+      const jdText = resData?.full_text;
       if (!jdText) throw new Error("No JD returned");
       setGeneratedJd(jdText);
       setDescription(jdText);
@@ -212,12 +210,8 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
 
       if (generatedJd && newRole) {
         try {
-          const res = await supabase.functions.invoke("generate-jd", {
-            body: { job_role_id: newRole.id, title: title.trim() },
-          });
-          if (!res.error && res.data?.competencies) {
-            // Competencies saved by edge function
-          }
+          const resData = await shadowInvoke<any>("generate-jd", { job_role_id: newRole.id, title: title.trim() }, "POST", "/recruitment/generate-jd", { job_role_id: newRole.id, title: title.trim() });
+          // Competencies saved by edge function
         } catch {
           // Non-critical
         }
