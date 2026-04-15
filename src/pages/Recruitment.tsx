@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { shadowInvoke } from "@/lib/shadowApi";
 import { useQuery } from "@tanstack/react-query";
 import AppLayout from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -208,8 +207,9 @@ const Recruitment = () => {
   const scoreValues = async () => {
     setScoring(true);
     try {
-      const resData = await shadowInvoke<any>("score-cv-values", {}, "POST", "/recruitment/score-values", {});
-      toast.success(`Scored ${resData.scored} candidate(s) on values.${resData.failed ? ` ${resData.failed} failed.` : ""}`);
+      const res = await supabase.functions.invoke("score-cv-values");
+      if (res.error) throw res.error;
+      toast.success(`Scored ${res.data.scored} candidate(s) on values.${res.data.failed ? ` ${res.data.failed} failed.` : ""}`);
       refetchCandidates();
     } catch (err: any) {
       toast.error("Failed to score candidates: " + err.message);
@@ -226,8 +226,11 @@ const Recruitment = () => {
 
     setScoringCompetencies(true);
     try {
-      const resData = await shadowInvoke<any>("score-cv-competencies", { role_id: selectedRoleId }, "POST", "/recruitment/score-competencies", { role_id: selectedRoleId });
-      toast.success(`Scored ${resData.scored} candidate(s) on competencies.${resData.skipped ? ` ${resData.skipped} skipped.` : ""}${resData.failed ? ` ${resData.failed} failed.` : ""}`);
+      const res = await supabase.functions.invoke("score-cv-competencies", {
+        body: { role_id: selectedRoleId },
+      });
+      if (res.error) throw res.error;
+      toast.success(`Scored ${res.data.scored} candidate(s) on competencies.${res.data.skipped ? ` ${res.data.skipped} skipped.` : ""}${res.data.failed ? ` ${res.data.failed} failed.` : ""}`);
       refetchCandidates();
     } catch (err: any) {
       toast.error("Failed to score competencies: " + err.message);
@@ -292,8 +295,13 @@ const Recruitment = () => {
         return;
       }
 
-      const res = await shadowInvoke<any>("hireflix-send-invite", { candidate_ids: Array.from(selectedCandidates) }, "POST", "/hireflix/send-invite", { candidate_ids: Array.from(selectedCandidates) });
-      const d = res;
+      const res = await supabase.functions.invoke("hireflix-send-invite", {
+        body: {
+          candidate_ids: Array.from(selectedCandidates),
+        },
+      });
+      if (res.error) throw res.error;
+      const d = res.data;
       if (d.invited > 0) {
         toast.success(`Invited ${d.invited} candidate(s).`);
       }

@@ -2,7 +2,6 @@ import { useConversation } from "@elevenlabs/react";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Mic, MicOff, Phone, PhoneOff, Loader2, Volume2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { shadowInvoke } from "@/lib/shadowApi";
 import { cn } from "@/lib/utils";
 
 export default function VoiceAgent() {
@@ -46,10 +45,12 @@ export default function VoiceAgent() {
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      const data = await shadowInvoke<any>("elevenlabs-conversation-token", {}, "GET", "/misc/elevenlabs-token");
+      const { data, error: fnError } = await supabase.functions.invoke(
+        "elevenlabs-conversation-token"
+      );
 
-      if (!data?.token) {
-        throw new Error("Failed to get conversation token");
+      if (fnError || !data?.token) {
+        throw new Error(fnError?.message || "Failed to get conversation token");
       }
 
       await conversation.startSession({
