@@ -1,6 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+import { API_BASE_URL, apiHeaders } from "@/lib/apiConfig";
 
 async function getToken(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();
@@ -21,10 +20,7 @@ class ApiClient {
 
   private async headers(): Promise<Record<string, string>> {
     const token = await getToken();
-    return {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    };
+    return apiHeaders(token);
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<ApiResponse<T>> {
@@ -74,4 +70,4 @@ class ApiClient {
   }
 }
 
-export const apiClient = new ApiClient(BASE_URL);
+export const apiClient = new ApiClient(API_BASE_URL);
