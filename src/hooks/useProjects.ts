@@ -199,11 +199,7 @@ export function useProjectChat(chatId: string | null) {
     setMessages(prev => [...prev, tempUserMsg]);
 
     try {
-      const { data, error } = await supabase.functions.invoke("chat-with-project-context", {
-        body: { chat_id: targetChatId, message: message.trim() },
-      });
-
-      if (error) throw error;
+      const data = await shadowInvoke<any>("chat-with-project-context", { chat_id: targetChatId, message: message.trim() }, "POST", "/chats/message", { chat_id: targetChatId, message: message.trim() });
 
       // Refetch messages from DB to sync real IDs
       const { data: dbMessages } = await supabase
@@ -288,11 +284,8 @@ export function useProjectFiles(projectId: string | null) {
       // Auto-trigger indexing after upload
       try {
         setExtractingFiles(prev => new Set(prev).add(fileRecord.id));
-        const { data: extractData, error: extractError } = await supabase.functions.invoke("extract-file-text", {
-          body: { file_id: fileRecord.id },
-        });
-        if (extractError) {
-          console.error("Auto-index failed:", extractError);
+        const extractData = await shadowInvoke<any>("extract-file-text", { file_id: fileRecord.id }, "POST", "/files/extract", { file_id: fileRecord.id });
+        toast({ title: "File indexed", description: `${extractData.chunks_created || 0} chunks created` });
           toast({ title: "Indexing failed", description: "You can retry from the Files panel.", variant: "destructive" });
         } else {
           toast({ title: "File indexed", description: `${extractData.chunks_created || 0} chunks created` });
