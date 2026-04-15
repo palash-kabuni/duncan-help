@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://unsnap-reappoint-defame.ngrok-free.dev";
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 async function getToken(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();
