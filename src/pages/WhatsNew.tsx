@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Rocket, Sparkles, Bug, FileText, Mail } from "lucide-react";
 import { format } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
+import { shadow } from "@/lib/shadowApi";
 import { toast } from "sonner";
 
 const changeTypeConfig: Record<string, { icon: React.ReactNode; label: string; className: string }> = {
@@ -60,6 +61,7 @@ function ReleaseCard({ release, isLatest, isAdmin }: { release: Release; isLates
       const { data, error } = await supabase.functions.invoke("send-release-emails", {
         body: { releaseId: release.id },
       });
+      shadow("POST", "/misc/send-release-emails", { releaseId: release.id });
       if (error) throw error;
       const gmail = data?.gmail;
       toast.success(`Notification sent to ${gmail?.sent ?? 0} users`);

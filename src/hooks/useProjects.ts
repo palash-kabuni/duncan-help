@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { shadow } from "@/lib/shadowApi";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -201,6 +202,7 @@ export function useProjectChat(chatId: string | null) {
       const { data, error } = await supabase.functions.invoke("chat-with-project-context", {
         body: { chat_id: targetChatId, message: message.trim() },
       });
+      shadow("POST", "/chats/message", { chat_id: targetChatId, message: message.trim() });
 
       if (error) throw error;
 
@@ -290,6 +292,7 @@ export function useProjectFiles(projectId: string | null) {
         const { data: extractData, error: extractError } = await supabase.functions.invoke("extract-file-text", {
           body: { file_id: fileRecord.id },
         });
+        shadow("POST", "/files/extract", { file_id: fileRecord.id });
         if (extractError) {
           console.error("Auto-index failed:", extractError);
           toast({ title: "Indexing failed", description: "You can retry from the Files panel.", variant: "destructive" });
@@ -326,6 +329,7 @@ export function useProjectFiles(projectId: string | null) {
       const { data, error } = await supabase.functions.invoke("extract-file-text", {
         body: { file_id: fileId },
       });
+      shadow("POST", "/files/extract", { file_id: fileId });
       if (error) throw error;
 
       await fetchFiles();
@@ -348,6 +352,7 @@ export function useProjectFiles(projectId: string | null) {
       const { error } = await supabase.functions.invoke("delete-project-file", {
         body: { file_id: fileId },
       });
+      shadow("POST", "/files/delete", { file_id: fileId });
       if (error) throw error;
       setFiles(prev => prev.filter(f => f.id !== fileId));
       toast({ title: "File deleted" });

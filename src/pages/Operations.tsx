@@ -9,6 +9,7 @@ import AppLayout from "@/components/AppLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
+import { shadow } from "@/lib/shadowApi";
 import { toast } from "sonner";
 
 function useWorkItems() {
@@ -58,6 +59,7 @@ const Operations = () => {
     setSyncing(type);
     try {
       const { error } = await supabase.functions.invoke("sync-azure-work-items");
+      shadow("POST", "/sync/azure-work-items", {});
       if (error) throw error;
       toast.success("Azure DevOps sync started");
     } catch (err: any) {
