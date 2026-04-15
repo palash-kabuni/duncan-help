@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { shadow } from "@/lib/shadowApi";
 import { useQuery } from "@tanstack/react-query";
 import AppLayout from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -152,6 +153,7 @@ const Recruitment = () => {
     setConnecting(true);
     try {
       const res = await supabase.functions.invoke("gmail-auth");
+      shadow("GET", "/gmail/auth");
       if (res.error) throw res.error;
       window.location.href = res.data.url;
     } catch (err: any) {
@@ -170,6 +172,7 @@ const Recruitment = () => {
       const res = await supabase.functions.invoke("fetch-gmail-cvs", {
         body: { role_id: selectedRoleId },
       });
+      shadow("POST", "/recruitment/fetch-gmail-cvs", { role_id: selectedRoleId });
       if (res.error) throw res.error;
       toast.success(`Fetched ${res.data.ingested} new CV(s), ${res.data.skipped} skipped.`);
       setHasFetched(true);
@@ -208,6 +211,7 @@ const Recruitment = () => {
     setScoring(true);
     try {
       const res = await supabase.functions.invoke("score-cv-values");
+      shadow("POST", "/recruitment/score-values", {});
       if (res.error) throw res.error;
       toast.success(`Scored ${res.data.scored} candidate(s) on values.${res.data.failed ? ` ${res.data.failed} failed.` : ""}`);
       refetchCandidates();
@@ -229,6 +233,7 @@ const Recruitment = () => {
       const res = await supabase.functions.invoke("score-cv-competencies", {
         body: { role_id: selectedRoleId },
       });
+      shadow("POST", "/recruitment/score-competencies", { role_id: selectedRoleId });
       if (res.error) throw res.error;
       toast.success(`Scored ${res.data.scored} candidate(s) on competencies.${res.data.skipped ? ` ${res.data.skipped} skipped.` : ""}${res.data.failed ? ` ${res.data.failed} failed.` : ""}`);
       refetchCandidates();
@@ -300,6 +305,7 @@ const Recruitment = () => {
           candidate_ids: Array.from(selectedCandidates),
         },
       });
+      shadow("POST", "/hireflix/send-invite", { candidate_ids: Array.from(selectedCandidates) });
       if (res.error) throw res.error;
       const d = res.data;
       if (d.invited > 0) {
