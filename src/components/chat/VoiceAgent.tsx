@@ -2,6 +2,7 @@ import { useConversation } from "@elevenlabs/react";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Mic, MicOff, Phone, PhoneOff, Loader2, Volume2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { shadowInvoke } from "@/lib/shadowApi";
 import { cn } from "@/lib/utils";
 
 export default function VoiceAgent() {
