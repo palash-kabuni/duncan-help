@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://unsnap-reappoint-defame.ngrok-free.dev";
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 /**
  * Listens to every Supabase auth state change and forwards the
