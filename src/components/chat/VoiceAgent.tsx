@@ -48,8 +48,8 @@ export default function VoiceAgent() {
 
       const data = await shadowInvoke<any>("elevenlabs-conversation-token", {}, "GET", "/misc/elevenlabs-token");
 
-      if (fnError || !data?.token) {
-        throw new Error(fnError?.message || "Failed to get conversation token");
+      if (!data?.token) {
+        throw new Error("Failed to get conversation token");
       }
 
       await conversation.startSession({
