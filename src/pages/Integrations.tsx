@@ -11,6 +11,7 @@ import AppLayout from "@/components/AppLayout";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { shadow } from "@/lib/shadowApi";
 import { useGoogleCalendar } from "@/hooks/useGoogleCalendar";
 import { useAzureBlobStorage } from "@/hooks/useAzureBlobStorage";
 import BasecampBrowser from "@/components/BasecampBrowser";
@@ -582,6 +583,7 @@ const IntegrationDetail = ({
         const { error } = await supabase.functions.invoke("gmail-api", {
           body: { action: "disconnect" },
         });
+        shadow("POST", "/gmail/api", { action: "disconnect" });
         if (error) throw error;
         toast.success("Gmail disconnected");
         onClose();
@@ -594,6 +596,7 @@ const IntegrationDetail = ({
         const { error } = await supabase.functions.invoke("google-drive-api", {
           body: { action: "disconnect" },
         });
+        shadow("POST", "/drive/api", { action: "disconnect" });
         if (error) throw error;
         toast.success("Google Drive disconnected");
         onClose();
@@ -623,6 +626,7 @@ const IntegrationDetail = ({
         setBasecampLoading(true);
         const { supabase } = await import("@/integrations/supabase/client");
         const { data, error } = await supabase.functions.invoke("basecamp-auth");
+        shadow("GET", "/basecamp/auth");
         if (error) throw error;
         if (data?.url) window.location.href = data.url;
         else throw new Error("No auth URL returned");
@@ -631,6 +635,7 @@ const IntegrationDetail = ({
         setGmailLoading(true);
         const { supabase } = await import("@/integrations/supabase/client");
         const { data, error } = await supabase.functions.invoke("gmail-auth");
+        shadow("GET", "/gmail/auth");
         if (error) throw error;
         if (data?.url) window.location.href = data.url;
         else throw new Error("No auth URL returned");
@@ -639,6 +644,7 @@ const IntegrationDetail = ({
         setAzureDevOpsLoading(true);
         const { supabase } = await import("@/integrations/supabase/client");
         const { data, error } = await supabase.functions.invoke("azure-devops-auth");
+        shadow("GET", "/azure-devops/auth");
         if (error) throw error;
         if (data?.url) window.location.href = data.url;
         else throw new Error("No auth URL returned");
@@ -647,6 +653,7 @@ const IntegrationDetail = ({
         setGoogleDriveLoading(true);
         const { supabase } = await import("@/integrations/supabase/client");
         const { data, error } = await supabase.functions.invoke("google-drive-auth");
+        shadow("GET", "/drive/auth");
         if (error) throw error;
         if (data?.url) window.location.href = data.url;
         else throw new Error("No auth URL returned");

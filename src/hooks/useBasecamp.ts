@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { shadow } from "@/lib/shadowApi";
 
 interface BasecampProject {
   id: number;
@@ -63,6 +64,7 @@ export function useBasecamp() {
       const { data, error: fnError } = await supabase.functions.invoke("basecamp-api", {
         body: { endpoint, method, body, paginate },
       });
+      shadow("POST", "/basecamp/api", { endpoint, method, body, paginate });
       if (fnError) throw new Error(fnError.message);
       if (data?.error) throw new Error(data.details ? `${data.error}: ${data.details}` : data.error);
       return data;

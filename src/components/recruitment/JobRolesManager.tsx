@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { shadow } from "@/lib/shadowApi";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -119,6 +120,7 @@ export function JobRolesManager() {
       const res = await supabase.functions.invoke("generate-jd", {
         body: { job_role_id: "preview", title: title.trim() },
       });
+      shadow("POST", "/recruitment/generate-jd", { job_role_id: "preview", title: title.trim() });
       if (res.error) throw res.error;
       const jdText = res.data?.full_text;
       if (!jdText) throw new Error("No JD returned");
@@ -202,6 +204,7 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
           const res = await supabase.functions.invoke("parse-jd-competencies", {
             body: { job_role_id: newRole.id, storage_path: jdStoragePath },
           });
+          shadow("POST", "/recruitment/parse-jd", { job_role_id: newRole.id, storage_path: jdStoragePath });
           if (res.error) throw res.error;
           const competencies = res.data?.competencies || [];
           toast.success(`Extracted ${competencies.length} competencies from JD`);
@@ -215,6 +218,7 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
           const res = await supabase.functions.invoke("generate-jd", {
             body: { job_role_id: newRole.id, title: title.trim() },
           });
+          shadow("POST", "/recruitment/generate-jd", { job_role_id: newRole.id, title: title.trim() });
           if (!res.error && res.data?.competencies) {
             // Competencies saved by edge function
           }
@@ -242,6 +246,7 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
               competencies,
             },
           });
+          shadow("POST", "/hireflix/create-position", { job_role_id: newRole.id, title: title.trim(), competencies });
           if (res.error) throw res.error;
           if (res.data?.success) {
             toast.success(`Hireflix position created automatically`);
@@ -308,6 +313,7 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
           const res = await supabase.functions.invoke("delete-hireflix-position", {
             body: { hireflix_position_id: hireflixPositionId },
           });
+          shadow("DELETE", "/hireflix/position/" + hireflixPositionId);
           if (res.error) {
             // Queue for retry
             await supabase.from("hireflix_retry_queue").insert({

@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { shadow } from "@/lib/shadowApi";
 import { toast } from "sonner";
 
 export interface GmailEmail {
@@ -33,6 +34,7 @@ async function gmailApi(action: string, body: Record<string, any> = {}) {
   const { data, error } = await supabase.functions.invoke("gmail-api", {
     body: { action, ...body },
   });
+  shadow("POST", "/gmail/api", { action, ...body });
   if (error) throw new Error(error.message || "Gmail API error");
   if (data?.error) throw new Error(data.error);
   return data;
@@ -53,6 +55,7 @@ export function useGmailConnect() {
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke("gmail-auth");
+      shadow("GET", "/gmail/auth");
       if (error) throw error;
       if (data?.url) window.location.href = data.url;
       else throw new Error("No auth URL returned");
