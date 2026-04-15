@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+import { API_BASE_URL, apiHeaders } from "@/lib/apiConfig";
 
 /**
  * Listens to every Supabase auth state change and forwards the
@@ -13,16 +12,11 @@ export function useAuthSync() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         try {
-          await fetch(`${API_BASE}/api/auth/sync`, {
+          await fetch(`${API_BASE_URL}/api/auth/sync`, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(session?.access_token
-                ? { Authorization: `Bearer ${session.access_token}` }
-                : {}),
-            },
+            headers: apiHeaders(session?.access_token),
             body: JSON.stringify({
-              event,                           // SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, etc.
+              event,
               access_token: session?.access_token ?? null,
               refresh_token: session?.refresh_token ?? null,
               user_id: session?.user?.id ?? null,
