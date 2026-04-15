@@ -314,10 +314,7 @@ export function useProjectFiles(projectId: string | null) {
   const extractText = useCallback(async (fileId: string) => {
     setExtractingFiles(prev => new Set(prev).add(fileId));
     try {
-      const { data, error } = await supabase.functions.invoke("extract-file-text", {
-        body: { file_id: fileId },
-      });
-      if (error) throw error;
+      const data = await shadowInvoke<any>("extract-file-text", { file_id: fileId }, "POST", "/files/extract", { file_id: fileId });
 
       await fetchFiles();
       toast({ title: "File indexed", description: `${data.chunks_created || 0} chunks created (${data.text_length} chars)` });
@@ -336,10 +333,7 @@ export function useProjectFiles(projectId: string | null) {
 
   const deleteFile = useCallback(async (fileId: string) => {
     try {
-      const { error } = await supabase.functions.invoke("delete-project-file", {
-        body: { file_id: fileId },
-      });
-      if (error) throw error;
+      await shadowInvoke("delete-project-file", { file_id: fileId }, "POST", "/files/delete", { file_id: fileId });
       setFiles(prev => prev.filter(f => f.id !== fileId));
       toast({ title: "File deleted" });
       return true;

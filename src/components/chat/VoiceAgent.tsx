@@ -46,9 +46,7 @@ export default function VoiceAgent() {
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      const { data, error: fnError } = await supabase.functions.invoke(
-        "elevenlabs-conversation-token"
-      );
+      const data = await shadowInvoke<any>("elevenlabs-conversation-token", {}, "GET", "/misc/elevenlabs-token");
 
       if (fnError || !data?.token) {
         throw new Error(fnError?.message || "Failed to get conversation token");
