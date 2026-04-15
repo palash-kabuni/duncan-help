@@ -286,13 +286,10 @@ export function useProjectFiles(projectId: string | null) {
         setExtractingFiles(prev => new Set(prev).add(fileRecord.id));
         const extractData = await shadowInvoke<any>("extract-file-text", { file_id: fileRecord.id }, "POST", "/files/extract", { file_id: fileRecord.id });
         toast({ title: "File indexed", description: `${extractData.chunks_created || 0} chunks created` });
-          toast({ title: "Indexing failed", description: "You can retry from the Files panel.", variant: "destructive" });
-        } else {
-          toast({ title: "File indexed", description: `${extractData.chunks_created || 0} chunks created` });
-          await fetchFiles();
-        }
+        await fetchFiles();
       } catch (indexErr) {
         console.error("Auto-index error:", indexErr);
+        toast({ title: "Indexing failed", description: "You can retry from the Files panel.", variant: "destructive" });
       } finally {
         setExtractingFiles(prev => {
           const next = new Set(prev);
