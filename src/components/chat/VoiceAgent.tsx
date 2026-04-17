@@ -2,7 +2,7 @@ import { useConversation } from "@elevenlabs/react";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Mic, MicOff, Phone, PhoneOff, Loader2, Volume2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { shadow } from "@/lib/shadowApi";
+import { fastApi, withFastApi } from "@/lib/fastApiClient";
 import { cn } from "@/lib/utils";
 
 export default function VoiceAgent() {
@@ -46,13 +46,19 @@ export default function VoiceAgent() {
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      const { data, error: fnError } = await supabase.functions.invoke(
-        "elevenlabs-conversation-token"
+      const data = await withFastApi<{ token?: string }>(
+        async () => {
+          const { data, error: fnError } = await supabase.functions.invoke(
+            "elevenlabs-conversation-token"
+          );
+          if (fnError) throw new Error(fnError.message || "Failed to get conversation token");
+          return data;
+        },
+        () => fastApi("GET", "/misc/elevenlabs-token"),
       );
-      shadow("GET", "/misc/elevenlabs-token");
 
-      if (fnError || !data?.token) {
-        throw new Error(fnError?.message || "Failed to get conversation token");
+      if (!data?.token) {
+        throw new Error("Failed to get conversation token");
       }
 
       await conversation.startSession({

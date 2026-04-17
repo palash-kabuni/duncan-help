@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { shadow } from "@/lib/shadowApi";
+import { fastApi, withFastApi } from "@/lib/fastApiClient";
 
 export interface CompanyIntegration {
   id: string;
@@ -38,13 +38,20 @@ export function useUpdateCompanyIntegration() {
       apiKey?: string;
       action?: "disconnect";
     }) => {
-      const res = await supabase.functions.invoke("manage-company-integration", {
-        body: { integration_id: integrationId, api_key: apiKey, action },
-      });
-      shadow("POST", "/integrations/manage-company", { integration_id: integrationId, api_key: apiKey, action });
-
-      if (res.error) throw res.error;
-      return res.data;
+      return await withFastApi(
+        async () => {
+          const res = await supabase.functions.invoke("manage-company-integration", {
+            body: { integration_id: integrationId, api_key: apiKey, action },
+          });
+          if (res.error) throw res.error;
+          return res.data;
+        },
+        () => fastApi("POST", "/integrations/manage-company", {
+          integration_id: integrationId,
+          api_key: apiKey,
+          action,
+        }),
+      );
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["company-integrations"] });

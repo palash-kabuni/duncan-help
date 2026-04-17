@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { shadow } from "@/lib/shadowApi";
+import { fastApi, withFastApi } from "@/lib/fastApiClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -94,11 +94,18 @@ export function usePublishRelease() {
       if (updateError) throw updateError;
 
       // Trigger email sending via edge function
-      const { error: fnError } = await supabase.functions.invoke("send-release-emails", {
-        body: { releaseId },
-      });
-      shadow("POST", "/misc/send-release-emails", { releaseId });
-      if (fnError) {
+      try {
+        await withFastApi(
+          async () => {
+            const { error: fnError } = await supabase.functions.invoke("send-release-emails", {
+              body: { releaseId },
+            });
+            if (fnError) throw fnError;
+            return null;
+          },
+          () => fastApi("POST", "/misc/send-release-emails", { releaseId }),
+        );
+      } catch (fnError: any) {
         console.error("Email sending failed:", fnError);
         toast({ title: "Published", description: "Release published but email sending failed. You can retry from the release manager.", variant: "destructive" });
         return;
