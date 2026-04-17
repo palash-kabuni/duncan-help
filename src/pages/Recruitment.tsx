@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { shadow } from "@/lib/shadowApi";
+import { fastApi, withFastApi } from "@/lib/fastApiClient";
 import { useQuery } from "@tanstack/react-query";
 import AppLayout from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -152,10 +152,16 @@ const Recruitment = () => {
   const connectGmail = async () => {
     setConnecting(true);
     try {
-      const res = await supabase.functions.invoke("gmail-auth");
-      shadow("GET", "/gmail/auth");
-      if (res.error) throw res.error;
-      window.location.href = res.data.url;
+      const data = await withFastApi<{ url?: string }>(
+        async () => {
+          const res = await supabase.functions.invoke("gmail-auth");
+          if (res.error) throw res.error;
+          return res.data;
+        },
+        () => fastApi("GET", "/gmail/auth"),
+      );
+      if (!data?.url) throw new Error("No auth URL returned");
+      window.location.href = data.url;
     } catch (err: any) {
       toast.error("Failed to start Gmail connection: " + err.message);
       setConnecting(false);
@@ -169,12 +175,17 @@ const Recruitment = () => {
     }
     setFetching(true);
     try {
-      const res = await supabase.functions.invoke("fetch-gmail-cvs", {
-        body: { role_id: selectedRoleId },
-      });
-      shadow("POST", "/recruitment/fetch-gmail-cvs", { role_id: selectedRoleId });
-      if (res.error) throw res.error;
-      toast.success(`Fetched ${res.data.ingested} new CV(s), ${res.data.skipped} skipped.`);
+      const data = await withFastApi<{ ingested: number; skipped: number }>(
+        async () => {
+          const res = await supabase.functions.invoke("fetch-gmail-cvs", {
+            body: { role_id: selectedRoleId },
+          });
+          if (res.error) throw res.error;
+          return res.data;
+        },
+        () => fastApi("POST", "/recruitment/fetch-gmail-cvs", { role_id: selectedRoleId }),
+      );
+      toast.success(`Fetched ${data.ingested} new CV(s), ${data.skipped} skipped.`);
       setHasFetched(true);
       refetchCandidates();
     } catch (err: any) {
@@ -210,10 +221,15 @@ const Recruitment = () => {
   const scoreValues = async () => {
     setScoring(true);
     try {
-      const res = await supabase.functions.invoke("score-cv-values");
-      shadow("POST", "/recruitment/score-values", {});
-      if (res.error) throw res.error;
-      toast.success(`Scored ${res.data.scored} candidate(s) on values.${res.data.failed ? ` ${res.data.failed} failed.` : ""}`);
+      const data = await withFastApi<{ scored: number; failed?: number }>(
+        async () => {
+          const res = await supabase.functions.invoke("score-cv-values");
+          if (res.error) throw res.error;
+          return res.data;
+        },
+        () => fastApi("POST", "/recruitment/score-values", {}),
+      );
+      toast.success(`Scored ${data.scored} candidate(s) on values.${data.failed ? ` ${data.failed} failed.` : ""}`);
       refetchCandidates();
     } catch (err: any) {
       toast.error("Failed to score candidates: " + err.message);
@@ -230,12 +246,17 @@ const Recruitment = () => {
 
     setScoringCompetencies(true);
     try {
-      const res = await supabase.functions.invoke("score-cv-competencies", {
-        body: { role_id: selectedRoleId },
-      });
-      shadow("POST", "/recruitment/score-competencies", { role_id: selectedRoleId });
-      if (res.error) throw res.error;
-      toast.success(`Scored ${res.data.scored} candidate(s) on competencies.${res.data.skipped ? ` ${res.data.skipped} skipped.` : ""}${res.data.failed ? ` ${res.data.failed} failed.` : ""}`);
+      const data = await withFastApi<{ scored: number; skipped?: number; failed?: number }>(
+        async () => {
+          const res = await supabase.functions.invoke("score-cv-competencies", {
+            body: { role_id: selectedRoleId },
+          });
+          if (res.error) throw res.error;
+          return res.data;
+        },
+        () => fastApi("POST", "/recruitment/score-competencies", { role_id: selectedRoleId }),
+      );
+      toast.success(`Scored ${data.scored} candidate(s) on competencies.${data.skipped ? ` ${data.skipped} skipped.` : ""}${data.failed ? ` ${data.failed} failed.` : ""}`);
       refetchCandidates();
     } catch (err: any) {
       toast.error("Failed to score competencies: " + err.message);
@@ -300,14 +321,19 @@ const Recruitment = () => {
         return;
       }
 
-      const res = await supabase.functions.invoke("hireflix-send-invite", {
-        body: {
-          candidate_ids: Array.from(selectedCandidates),
+      const data = await withFastApi<{ invited: number; failed: number; skipped: number; results?: any[] }>(
+        async () => {
+          const res = await supabase.functions.invoke("hireflix-send-invite", {
+            body: {
+              candidate_ids: Array.from(selectedCandidates),
+            },
+          });
+          if (res.error) throw res.error;
+          return res.data;
         },
-      });
-      shadow("POST", "/hireflix/send-invite", { candidate_ids: Array.from(selectedCandidates) });
-      if (res.error) throw res.error;
-      const d = res.data;
+        () => fastApi("POST", "/hireflix/send-invite", { candidate_ids: Array.from(selectedCandidates) }),
+      );
+      const d = data;
       if (d.invited > 0) {
         toast.success(`Invited ${d.invited} candidate(s).`);
       }

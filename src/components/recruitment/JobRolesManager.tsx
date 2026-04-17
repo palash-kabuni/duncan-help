@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { shadow } from "@/lib/shadowApi";
+import { fastApi, withFastApi } from "@/lib/fastApiClient";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -117,12 +117,17 @@ export function JobRolesManager() {
     }
     setGenerating(true);
     try {
-      const res = await supabase.functions.invoke("generate-jd", {
-        body: { job_role_id: "preview", title: title.trim() },
-      });
-      shadow("POST", "/recruitment/generate-jd", { job_role_id: "preview", title: title.trim() });
-      if (res.error) throw res.error;
-      const jdText = res.data?.full_text;
+      const data = await withFastApi<{ full_text?: string }>(
+        async () => {
+          const res = await supabase.functions.invoke("generate-jd", {
+            body: { job_role_id: "preview", title: title.trim() },
+          });
+          if (res.error) throw res.error;
+          return res.data;
+        },
+        () => fastApi("POST", "/recruitment/generate-jd", { job_role_id: "preview", title: title.trim() }),
+      );
+      const jdText = data?.full_text;
       if (!jdText) throw new Error("No JD returned");
       setGeneratedJd(jdText);
       setDescription(jdText);
@@ -201,12 +206,17 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
       if (jdStoragePath && newRole) {
         toast.info("Parsing JD for competencies...");
         try {
-          const res = await supabase.functions.invoke("parse-jd-competencies", {
-            body: { job_role_id: newRole.id, storage_path: jdStoragePath },
-          });
-          shadow("POST", "/recruitment/parse-jd", { job_role_id: newRole.id, storage_path: jdStoragePath });
-          if (res.error) throw res.error;
-          const competencies = res.data?.competencies || [];
+          const data = await withFastApi<{ competencies?: any[] }>(
+            async () => {
+              const res = await supabase.functions.invoke("parse-jd-competencies", {
+                body: { job_role_id: newRole.id, storage_path: jdStoragePath },
+              });
+              if (res.error) throw res.error;
+              return res.data;
+            },
+            () => fastApi("POST", "/recruitment/parse-jd", { job_role_id: newRole.id, storage_path: jdStoragePath }),
+          );
+          const competencies = data?.competencies || [];
           toast.success(`Extracted ${competencies.length} competencies from JD`);
         } catch (err: any) {
           toast.warning("Role created but JD parsing failed: " + err.message);
@@ -215,13 +225,17 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
 
       if (generatedJd && newRole) {
         try {
-          const res = await supabase.functions.invoke("generate-jd", {
-            body: { job_role_id: newRole.id, title: title.trim() },
-          });
-          shadow("POST", "/recruitment/generate-jd", { job_role_id: newRole.id, title: title.trim() });
-          if (!res.error && res.data?.competencies) {
-            // Competencies saved by edge function
-          }
+          await withFastApi(
+            async () => {
+              const res = await supabase.functions.invoke("generate-jd", {
+                body: { job_role_id: newRole.id, title: title.trim() },
+              });
+              if (res.error) throw res.error;
+              return res.data;
+            },
+            () => fastApi("POST", "/recruitment/generate-jd", { job_role_id: newRole.id, title: title.trim() }),
+          );
+          // Competencies saved by edge function
         } catch {
           // Non-critical
         }
@@ -239,19 +253,28 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
 
           const competencies = roleData?.competencies || [];
 
-          const res = await supabase.functions.invoke("create-hireflix-position", {
-            body: {
+          const data = await withFastApi<{ success?: boolean; error?: string }>(
+            async () => {
+              const res = await supabase.functions.invoke("create-hireflix-position", {
+                body: {
+                  job_role_id: newRole.id,
+                  title: title.trim(),
+                  competencies,
+                },
+              });
+              if (res.error) throw res.error;
+              return res.data;
+            },
+            () => fastApi("POST", "/hireflix/create-position", {
               job_role_id: newRole.id,
               title: title.trim(),
               competencies,
-            },
-          });
-          shadow("POST", "/hireflix/create-position", { job_role_id: newRole.id, title: title.trim(), competencies });
-          if (res.error) throw res.error;
-          if (res.data?.success) {
+            }),
+          );
+          if (data?.success) {
             toast.success(`Hireflix position created automatically`);
           } else {
-            const exactError = res.data?.error || "Unknown issue";
+            const exactError = data?.error || "Unknown issue";
             // Always queue for retry on failure
             const { error: queueError } = await supabase
               .from("hireflix_retry_queue")
@@ -310,18 +333,16 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
       // Delete the corresponding Hireflix position
       if (hireflixPositionId) {
         try {
-          const res = await supabase.functions.invoke("delete-hireflix-position", {
-            body: { hireflix_position_id: hireflixPositionId },
-          });
-          shadow("DELETE", "/hireflix/position/" + hireflixPositionId);
-          if (res.error) {
-            // Queue for retry
-            await supabase.from("hireflix_retry_queue").insert({
-              operation: "delete_position",
-              payload: JSON.parse(JSON.stringify({ hireflix_position_id: hireflixPositionId })),
-            });
-            console.error("Hireflix delete failed, queued for retry");
-          }
+          await withFastApi(
+            async () => {
+              const res = await supabase.functions.invoke("delete-hireflix-position", {
+                body: { hireflix_position_id: hireflixPositionId },
+              });
+              if (res.error) throw res.error;
+              return res.data;
+            },
+            () => fastApi("DELETE", `/hireflix/position/${hireflixPositionId}`),
+          );
         } catch (err: any) {
           // Queue for retry silently
           try {
