@@ -970,7 +970,6 @@ export type Database = {
       }
       project_files: {
         Row: {
-          azure_blob_path: string | null
           created_at: string
           extracted_text: string | null
           file_name: string
@@ -979,7 +978,6 @@ export type Database = {
           storage_path: string
         }
         Insert: {
-          azure_blob_path?: string | null
           created_at?: string
           extracted_text?: string | null
           file_name: string
@@ -988,7 +986,6 @@ export type Database = {
           storage_path: string
         }
         Update: {
-          azure_blob_path?: string | null
           created_at?: string
           extracted_text?: string | null
           file_name?: string

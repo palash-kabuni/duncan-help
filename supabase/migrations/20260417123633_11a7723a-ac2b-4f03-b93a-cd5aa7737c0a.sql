@@ -1,1 +1,0 @@
-ALTER TABLE public.project_files ADD COLUMN IF NOT EXISTS azure_blob_path text;
