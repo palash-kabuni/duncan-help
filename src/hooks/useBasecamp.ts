@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { shadow } from "@/lib/shadowApi";
+import { fastApi, withFastApi } from "@/lib/fastApiClient";
 
 interface BasecampProject {
   id: number;
@@ -61,12 +61,17 @@ export function useBasecamp() {
     setLoading(true);
     setError(null);
     try {
-      const { data, error: fnError } = await supabase.functions.invoke("basecamp-api", {
-        body: { endpoint, method, body, paginate },
-      });
-      shadow("POST", "/basecamp/api", { endpoint, method, body, paginate });
-      if (fnError) throw new Error(fnError.message);
-      if (data?.error) throw new Error(data.details ? `${data.error}: ${data.details}` : data.error);
+      const data = await withFastApi(
+        async () => {
+          const { data, error: fnError } = await supabase.functions.invoke("basecamp-api", {
+            body: { endpoint, method, body, paginate },
+          });
+          if (fnError) throw new Error(fnError.message);
+          if (data?.error) throw new Error(data.details ? `${data.error}: ${data.details}` : data.error);
+          return data;
+        },
+        () => fastApi("POST", "/basecamp/api", { endpoint, method, body, paginate }),
+      );
       return data;
     } catch (err: any) {
       setError(err.message);

@@ -9,7 +9,7 @@ import AppLayout from "@/components/AppLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
-import { shadow } from "@/lib/shadowApi";
+import { fastApi, withFastApi } from "@/lib/fastApiClient";
 import { toast } from "sonner";
 
 function useWorkItems() {
@@ -58,9 +58,14 @@ const Operations = () => {
   const handleSync = async (type: "azure") => {
     setSyncing(type);
     try {
-      const { error } = await supabase.functions.invoke("sync-azure-work-items");
-      shadow("POST", "/sync/azure-work-items", {});
-      if (error) throw error;
+      await withFastApi(
+        async () => {
+          const { error } = await supabase.functions.invoke("sync-azure-work-items");
+          if (error) throw error;
+          return null;
+        },
+        () => fastApi("POST", "/sync/azure-work-items", {}),
+      );
       toast.success("Azure DevOps sync started");
     } catch (err: any) {
       toast.error(err.message || "Sync failed");
