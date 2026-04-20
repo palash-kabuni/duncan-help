@@ -21,8 +21,8 @@ function useWorkItems() {
       const { data, error } = await supabase
         .from("azure_work_items")
         .select("*")
-        .order("changed_date", { ascending: false })
-        .limit(100);
+        .order("changed_date", { ascending: false, nullsFirst: false })
+        .limit(1000);
       if (error) throw error;
       return data || [];
     },
