@@ -1,30 +1,31 @@
 
+The user wants to add a new release entry to the What's New timeline covering today's work. Releases are managed via the `releases` table (admin-only Release Manager UI per memory `mem://features/release-announcement-system`).
 
-## Issue
-The auto-draft worker successfully created 1 draft (per logs), but Gmail shows it blank.
+Today's notable changes from this session:
+1. Auto-draft Gmail replies (new feature + user toggle in Settings)
+2. Token usage now appears in daily briefing
+3. Daily briefing gated to once per calendar day (server-side)
+4. Fixed blank Gmail drafts (multipart MIME)
 
-## Root cause
-The draft MIME message is built as **single-part `text/html` only**. Gmail's web compose editor preferentially loads the `text/plain` part of a draft into the editor — when only `text/html` exists, the editor often renders blank even though the HTML content is present in the raw message.
+I'll insert one new release row directly via migration so it appears on `/whats-new` immediately.
 
-Additionally, the `From:` header is set to a bare lowercased email (`myEmail`) rather than the proper address from the token row, which can also confuse Gmail's draft validation.
+## Plan
 
-## Fix
-In `supabase/functions/gmail-auto-draft/index.ts`, rebuild the draft as a `multipart/alternative` MIME message with both `text/plain` and `text/html` parts:
+### Add release entry "Today's date" via DB migration
 
-1. Replace the single-part header block (lines 260-270) with a proper multipart construction:
-   - Outer headers: `From`, `To`, `Subject`, `In-Reply-To`, `References`, `MIME-Version`, `Content-Type: multipart/alternative; boundary="..."`
-   - Part 1: `text/plain; charset=UTF-8` with the raw `draftBodyText`
-   - Part 2: `text/html; charset=UTF-8` with the `<br>`-converted HTML
-2. Use the original-case email from `tokenRow.email_address` for the `From:` header (don't lowercase).
-3. Keep base64url encoding of the full assembled message.
+Insert into `releases`:
+- **version**: auto-incremented (next after current latest — will check, likely v1.x)
+- **title**: "Auto-drafted replies & smarter briefings"
+- **summary**: Short paragraph on the theme
+- **status**: `published`
+- **published_at**: now()
+- **changes** (JSONB):
+  - **feature**: "Duncan can now pre-draft Gmail replies in the background — toggle on/off in Settings → Gmail."
+  - **feature**: "Daily briefing now includes your AI token usage today plus the 30-day team leaderboard."
+  - **improvement**: "Daily briefing now shows once per calendar day instead of once per session — no more repeats across tabs or refreshes."
+  - **fix**: "Auto-drafted Gmail replies no longer appear blank in the Gmail editor (multipart MIME fix)."
 
-## Files
-- `supabase/functions/gmail-auto-draft/index.ts` — rewrite MIME assembly (lines ~252-281)
+### Files
+- One DB migration: `INSERT INTO releases (...)` — I'll first read the latest version number to pick the next one.
 
-## Verification
-After deploy, manually trigger the function via the test tool, then open Gmail Drafts — the new draft should display the `[Auto-drafted by Duncan — review before sending]` prefix plus the generated reply in the editor.
-
-## Notes
-- Existing blank draft can be deleted manually from Gmail.
-- Duncan label was applied, so that thread won't be re-drafted automatically. To re-draft for testing, remove the `Duncan/Auto-Drafted` label from the message in Gmail first.
-
+No code changes, no UI changes — the existing `/whats-new` page will render the new entry automatically.
