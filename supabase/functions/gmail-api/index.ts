@@ -366,6 +366,194 @@ Deno.serve(async (req) => {
       );
     }
 
+    // ─── READ THREAD (full conversation) ───
+    if (action === "read_thread") {
+      const { threadId, maxMessages = 5 } = body;
+      if (!threadId) throw new Error("threadId is required");
+
+      const res = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/threads/${threadId}?format=full`,
+        { headers: gmailHeaders }
+      );
+      if (!res.ok) throw new Error(`Gmail thread read failed: ${await res.text()}`);
+      const thread = await res.json();
+
+      function decodeBody(payload: any): { html: string; text: string } {
+        let html = "", text = "";
+        function walk(p: any) {
+          if (p.mimeType === "text/html" && p.body?.data) {
+            html = atob(p.body.data.replace(/-/g, "+").replace(/_/g, "/"));
+          } else if (p.mimeType === "text/plain" && p.body?.data) {
+            text = atob(p.body.data.replace(/-/g, "+").replace(/_/g, "/"));
+          }
+          (p.parts || []).forEach(walk);
+        }
+        walk(payload);
+        return { html, text };
+      }
+
+      const allMessages = thread.messages || [];
+      // Take the last N messages (most recent context)
+      const messages = allMessages.slice(-maxMessages).map((m: any) => {
+        const headers = m.payload?.headers || [];
+        const getH = (n: string) => headers.find((h: any) => h.name.toLowerCase() === n.toLowerCase())?.value || "";
+        const { html, text } = decodeBody(m.payload || {});
+        return {
+          id: m.id,
+          from: getH("From"),
+          to: getH("To"),
+          cc: getH("Cc"),
+          subject: getH("Subject"),
+          date: getH("Date"),
+          messageIdHeader: getH("Message-ID"),
+          references: getH("References"),
+          snippet: m.snippet,
+          textBody: text || html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
+        };
+      });
+
+      return new Response(
+        JSON.stringify({
+          threadId: thread.id,
+          totalMessages: allMessages.length,
+          messages,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ─── CREATE DRAFT (new or reply) ───
+    if (action === "create_draft") {
+      const { to, cc, bcc, subject, body: emailBody, threadId, inReplyTo, references } = body;
+      if (!to || !subject || !emailBody) {
+        throw new Error("to, subject, and body are required");
+      }
+
+      const fromEmail = tokenData.emailAddress || "me";
+      const formattedBody = String(emailBody).replace(/\n\n/g, "<br><br>").replace(/\n/g, "<br>");
+
+      const headerLines: string[] = [];
+      headerLines.push(`From: ${fromEmail}`);
+      headerLines.push(`To: ${to}`);
+      if (cc) headerLines.push(`Cc: ${cc}`);
+      if (bcc) headerLines.push(`Bcc: ${bcc}`);
+      headerLines.push(`Subject: ${subject}`);
+      if (inReplyTo) headerLines.push(`In-Reply-To: ${inReplyTo}`);
+      if (references) headerLines.push(`References: ${references}`);
+      headerLines.push("MIME-Version: 1.0");
+      headerLines.push('Content-Type: text/html; charset="UTF-8"');
+      headerLines.push("");
+      headerLines.push(formattedBody);
+      const raw = base64url(headerLines.join("\r\n"));
+
+      const draftBody: any = { message: { raw } };
+      if (threadId) draftBody.message.threadId = threadId;
+
+      const draftRes = await fetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+        {
+          method: "POST",
+          headers: { ...gmailHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify(draftBody),
+        }
+      );
+      if (!draftRes.ok) throw new Error(`Gmail draft create failed: ${await draftRes.text()}`);
+      const result = await draftRes.json();
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          draftId: result.id,
+          messageId: result.message?.id,
+          threadId: result.message?.threadId,
+          draftUrl: `https://mail.google.com/mail/u/0/#drafts?compose=${result.message?.id || result.id}`,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ─── LIST DRAFTS ───
+    if (action === "list_drafts") {
+      const { maxResults = 20 } = body;
+      const res = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/drafts?maxResults=${maxResults}`,
+        { headers: gmailHeaders }
+      );
+      if (!res.ok) throw new Error(`Gmail drafts list failed: ${await res.text()}`);
+      const data = await res.json();
+      return new Response(
+        JSON.stringify({ drafts: data.drafts || [] }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ─── LEARN FROM SENT (pull last N sent messages for style training) ───
+    if (action === "learn_from_sent") {
+      const { maxResults = 300 } = body;
+
+      // Page through SENT folder
+      const collected: any[] = [];
+      let pageToken: string | undefined;
+      while (collected.length < maxResults) {
+        const params = new URLSearchParams({
+          labelIds: "SENT",
+          maxResults: String(Math.min(100, maxResults - collected.length)),
+        });
+        if (pageToken) params.set("pageToken", pageToken);
+        const listRes = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages?${params}`,
+          { headers: gmailHeaders }
+        );
+        if (!listRes.ok) break;
+        const listData = await listRes.json();
+        const ids = (listData.messages || []).map((m: any) => m.id);
+        collected.push(...ids);
+        pageToken = listData.nextPageToken;
+        if (!pageToken) break;
+      }
+
+      // Fetch full content for each (in parallel batches of 10)
+      const samples: any[] = [];
+      for (let i = 0; i < collected.length; i += 10) {
+        const batch = collected.slice(i, i + 10);
+        const results = await Promise.all(
+          batch.map(async (id) => {
+            const r = await fetch(
+              `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`,
+              { headers: gmailHeaders }
+            );
+            if (!r.ok) return null;
+            const msg = await r.json();
+            const headers = msg.payload?.headers || [];
+            const getH = (n: string) => headers.find((h: any) => h.name.toLowerCase() === n.toLowerCase())?.value || "";
+            let html = "", text = "";
+            function walk(p: any) {
+              if (p.mimeType === "text/html" && p.body?.data) {
+                html = atob(p.body.data.replace(/-/g, "+").replace(/_/g, "/"));
+              } else if (p.mimeType === "text/plain" && p.body?.data) {
+                text = atob(p.body.data.replace(/-/g, "+").replace(/_/g, "/"));
+              }
+              (p.parts || []).forEach(walk);
+            }
+            walk(msg.payload || {});
+            const rawBody = text || html.replace(/<[^>]+>/g, " ");
+            return {
+              subject: getH("Subject"),
+              to: getH("To"),
+              date: getH("Date"),
+              body: rawBody,
+            };
+          })
+        );
+        samples.push(...results.filter(Boolean));
+      }
+
+      return new Response(
+        JSON.stringify({ samples, count: samples.length }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     return new Response(JSON.stringify({ error: "Unknown action" }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
