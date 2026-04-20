@@ -34,6 +34,8 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
         return <SettingsProfile />;
       case "appearance":
         return <SettingsAppearance />;
+      case "gmail":
+        return <SettingsGmail />;
       case "bug":
         return <SettingsBugReport />;
     }

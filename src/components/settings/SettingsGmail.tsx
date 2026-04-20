@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Mail, Loader2, Sparkles, Trash2, RefreshCw, CheckCircle2 } from "lucide-react";
 import {
   useGmailWritingProfile,
@@ -13,7 +12,6 @@ export default function SettingsGmail() {
   const { data: profile, isLoading } = useGmailWritingProfile();
   const trainMutation = useGmailTrainStyle();
   const deleteMutation = useGmailDeleteWritingProfile();
-  const [scope, setScope] = useState<300>(300);
 
   const trained = profile?.last_trained_at;
 
@@ -88,7 +86,7 @@ export default function SettingsGmail() {
       {/* Actions */}
       <div className="flex flex-wrap gap-2">
         <button
-          onClick={() => trainMutation.mutate(scope)}
+          onClick={() => trainMutation.mutate(300)}
           disabled={trainMutation.isPending}
           className="flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-4 py-2 text-xs font-medium hover:bg-primary/90 transition-all disabled:opacity-50"
         >
