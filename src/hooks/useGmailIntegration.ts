@@ -125,11 +125,99 @@ export function useGmailReadEmail() {
   });
 }
 
+export function useGmailReadThread() {
+  return useMutation({
+    mutationFn: (threadId: string) => gmailApi("read_thread", { threadId, maxMessages: 5 }),
+  });
+}
+
 export function useGmailSendEmail() {
   return useMutation({
     mutationFn: (params: { to: string; cc?: string; bcc?: string; subject: string; body: string }) =>
       gmailApi("send", params),
     onSuccess: () => toast.success("Email sent successfully!"),
     onError: (err: any) => toast.error(err.message || "Failed to send email"),
+  });
+}
+
+export function useGmailCreateDraft() {
+  return useMutation({
+    mutationFn: (params: {
+      to: string;
+      cc?: string;
+      bcc?: string;
+      subject: string;
+      body: string;
+      threadId?: string;
+      inReplyTo?: string;
+      references?: string;
+    }) => gmailApi("create_draft", params),
+    onSuccess: (data: any) => {
+      toast.success("Draft saved to Gmail", {
+        action: data?.draftUrl
+          ? { label: "Open", onClick: () => window.open(data.draftUrl, "_blank") }
+          : undefined,
+      });
+    },
+    onError: (err: any) => toast.error(err.message || "Failed to create draft"),
+  });
+}
+
+export interface GmailWritingProfile {
+  id: string;
+  user_id: string;
+  style_summary: string;
+  common_phrases: Record<string, string[]>;
+  sample_replies: string[];
+  tone_metrics: Record<string, any>;
+  sample_count: number;
+  last_trained_at: string | null;
+}
+
+export function useGmailWritingProfile() {
+  return useQuery<GmailWritingProfile | null>({
+    queryKey: ["gmail-writing-profile"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("gmail_writing_profiles")
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      return data as any;
+    },
+    staleTime: 60_000,
+  });
+}
+
+export function useGmailTrainStyle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (maxResults = 300) => {
+      const { data, error } = await supabase.functions.invoke("gmail-train-style", {
+        body: { maxResults },
+      });
+      if (error) throw new Error(error.message || "Training failed");
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["gmail-writing-profile"] });
+      toast.success("Duncan has learned your writing style");
+    },
+    onError: (err: any) => toast.error(err.message || "Training failed"),
+  });
+}
+
+export function useGmailDeleteWritingProfile() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("gmail_writing_profiles").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["gmail-writing-profile"] });
+      toast.success("Writing profile deleted");
+    },
   });
 }
