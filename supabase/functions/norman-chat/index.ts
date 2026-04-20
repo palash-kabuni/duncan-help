@@ -869,6 +869,59 @@ const GMAIL_TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "read_gmail_thread",
+      description: "Read a full Gmail thread (conversation) by threadId. Returns the last 5 messages in chronological order. ALWAYS call this before draft_gmail_reply so you have full context of the conversation, including the original message and any prior replies.",
+      parameters: {
+        type: "object",
+        properties: {
+          threadId: { type: "string", description: "The Gmail thread ID (returned by list/search/read)." },
+        },
+        required: ["threadId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "draft_gmail_reply",
+      description: "Draft a reply to an existing Gmail thread. The draft is saved to the user's Gmail Drafts folder — IT IS NEVER SENT. The user reviews/edits/sends it themselves in Gmail. Returns a draftUrl. Always call read_gmail_thread first to understand context. The body MUST follow the user's writing style (provided in system prompt) AND email composition rules.",
+      parameters: {
+        type: "object",
+        properties: {
+          threadId: { type: "string", description: "Thread ID to reply within." },
+          messageId: { type: "string", description: "Message-ID header of the message being replied to (from read_gmail_thread.messageIdHeader)." },
+          to: { type: "string", description: "Recipient email — usually the From of the message being replied to." },
+          cc: { type: "string", description: "CC addresses (comma-separated). Optional." },
+          bcc: { type: "string", description: "BCC addresses (comma-separated). Optional." },
+          subject: { type: "string", description: "Subject — typically 'Re: <original subject>'." },
+          body: { type: "string", description: "Reply body. Mimic the user's writing style." },
+          references: { type: "string", description: "References header value, optional, for proper threading." },
+        },
+        required: ["threadId", "to", "subject", "body"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "draft_gmail_email",
+      description: "Create a new email draft (not a reply). Saved to the user's Gmail Drafts folder — NEVER auto-sent. The user reviews and sends it themselves. Returns a draftUrl. Body MUST follow user's writing style (provided in system prompt) AND email composition rules.",
+      parameters: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "Recipient email." },
+          cc: { type: "string", description: "CC addresses (comma-separated). Optional." },
+          bcc: { type: "string", description: "BCC addresses (comma-separated). Optional." },
+          subject: { type: "string", description: "Subject line." },
+          body: { type: "string", description: "Draft body." },
+        },
+        required: ["to", "subject", "body"],
+      },
+    },
+  },
 ];
 
 const GOOGLE_DRIVE_TOOLS = [
@@ -2054,10 +2107,65 @@ async function executeGmailTool(
         messageId: data.messageId,
       };
     }
-
-    default:
-      throw new Error(`Unknown Gmail tool: ${toolName}`);
   }
+
+  // Extra cases (drafts/threads) — declared after switch for cleanliness
+  if (toolName === "read_gmail_thread") {
+    const data = await callGmailApi("read_thread", { threadId: args.threadId, maxMessages: 5 });
+    return {
+      threadId: data.threadId,
+      totalMessages: data.totalMessages,
+      messages: (data.messages || []).map((m: any) => ({
+        id: m.id,
+        from: m.from,
+        to: m.to,
+        cc: m.cc,
+        subject: m.subject,
+        date: m.date,
+        messageIdHeader: m.messageIdHeader,
+        references: m.references,
+        body: (m.textBody || m.snippet || "").slice(0, 4000),
+      })),
+      hint: "Use messageIdHeader from the message you're replying to as the 'messageId' arg in draft_gmail_reply.",
+    };
+  }
+
+  if (toolName === "draft_gmail_reply") {
+    const data = await callGmailApi("create_draft", {
+      to: args.to,
+      cc: args.cc || "",
+      bcc: args.bcc || "",
+      subject: args.subject,
+      body: args.body,
+      threadId: args.threadId,
+      inReplyTo: args.messageId || "",
+      references: args.references || args.messageId || "",
+    });
+    return {
+      success: true,
+      message: `📝 Draft reply saved to Gmail Drafts. Open it in Gmail to review and send.`,
+      draftId: data.draftId,
+      draftUrl: data.draftUrl,
+    };
+  }
+
+  if (toolName === "draft_gmail_email") {
+    const data = await callGmailApi("create_draft", {
+      to: args.to,
+      cc: args.cc || "",
+      bcc: args.bcc || "",
+      subject: args.subject,
+      body: args.body,
+    });
+    return {
+      success: true,
+      message: `📝 Draft saved to Gmail Drafts. Open it in Gmail to review and send.`,
+      draftId: data.draftId,
+      draftUrl: data.draftUrl,
+    };
+  }
+
+  throw new Error(`Unknown Gmail tool: ${toolName}`);
 }
 
 async function executeDriveTool(
@@ -3273,7 +3381,17 @@ serve(async (req) => {
       }
     }
 
-    if (mode === "briefing") {
+    // Inject user's Gmail writing-style profile if it exists
+    if (userId) {
+      const { data: writingProfile } = await supabaseAdmin
+        .from("gmail_writing_profiles")
+        .select("style_summary, common_phrases, sample_replies")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (writingProfile && writingProfile.style_summary) {
+        systemContent += `\n\n## USER'S EMAIL WRITING STYLE (mimic this when drafting emails)\n${writingProfile.style_summary}\n\nCommon phrases this user uses:\n${JSON.stringify(writingProfile.common_phrases, null, 2)}\n\nWhen using draft_gmail_reply or draft_gmail_email, write in THIS style. Override the generic email composition rules ONLY where they conflict with the user's natural voice. The drafts go to Gmail Drafts — never auto-sent — so prioritise sounding like the user over generic professionalism.`;
+      }
+    }
       systemContent += `\n\nYou are generating a personalized briefing for ${userProfile?.display_name || "a team member"}. The briefing data includes a "since" field indicating when the last briefing was generated, and an "is_first_briefing" flag.
 
 **IMPORTANT CONTEXT**: If "since" is set, this is a CHECK-IN UPDATE — only highlight what has CHANGED or is NEW since that timestamp. Frame it as "Since your last check-in at [time]..." and focus on deltas. If "is_first_briefing" is true, give a full overview.
@@ -3479,7 +3597,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
       const meetingToolNames = ["fetch_plaud_meetings", "list_meetings", "get_meeting", "analyze_meetings", "search_meeting_transcripts"];
       const azureDevOpsToolNames = ["list_azure_devops_projects", "query_azure_work_items", "get_azure_work_item", "search_synced_work_items"];
       const xeroToolNames = ["list_xero_invoices", "get_xero_invoice", "approve_xero_invoice_payment", "search_xero_contacts", "create_xero_invoice", "list_xero_bank_accounts", "create_xero_expense"];
-      const gmailToolNames = ["list_gmail_emails", "search_gmail", "read_gmail_email", "send_gmail_email"];
+      const gmailToolNames = ["list_gmail_emails", "search_gmail", "read_gmail_email", "send_gmail_email", "read_gmail_thread", "draft_gmail_reply", "draft_gmail_email"];
       const driveToolNames = ["drive_list_files", "drive_search", "drive_get_content"];
       const analyticsToolNames = ["get_workstream_analytics", "get_recruitment_analytics", "get_team_activity_analytics", "get_operational_summary"];
       const workstreamMgmtToolNames = ["list_team_members", "create_workstream_card", "add_tasks_to_card", "update_workstream_card", "check_team_availability"];

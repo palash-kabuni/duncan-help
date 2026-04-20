@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Settings, User, Bug, Palette } from "lucide-react";
+import { X, Settings, User, Bug, Palette, Mail } from "lucide-react";
 import SettingsGeneral from "./settings/SettingsGeneral";
 import SettingsProfile from "./settings/SettingsProfile";
 import SettingsBugReport from "./settings/SettingsBugReport";
 import SettingsAppearance from "./settings/SettingsAppearance";
+import SettingsGmail from "./settings/SettingsGmail";
 import { cn } from "@/lib/utils";
 
 const sections = [
   { id: "general", label: "General", icon: Settings },
   { id: "profile", label: "Profile", icon: User },
   { id: "appearance", label: "Appearance", icon: Palette },
+  { id: "gmail", label: "Gmail", icon: Mail },
   { id: "bug", label: "Bug Report", icon: Bug },
 ] as const;
 
@@ -34,6 +36,8 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
         return <SettingsProfile />;
       case "appearance":
         return <SettingsAppearance />;
+      case "gmail":
+        return <SettingsGmail />;
       case "bug":
         return <SettingsBugReport />;
     }

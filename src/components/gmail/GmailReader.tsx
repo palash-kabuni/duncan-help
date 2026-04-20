@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Loader2, User, Clock } from "lucide-react";
-import { useGmailReadEmail, type GmailFullEmail } from "@/hooks/useGmailIntegration";
+import { ArrowLeft, Loader2, User, Clock, Sparkles } from "lucide-react";
+import { useGmailReadEmail, useGmailCreateDraft, type GmailFullEmail } from "@/hooks/useGmailIntegration";
 import { format } from "date-fns";
 
 interface GmailReaderProps {
@@ -11,7 +11,20 @@ interface GmailReaderProps {
 
 const GmailReader = ({ messageId, onBack }: GmailReaderProps) => {
   const readMutation = useGmailReadEmail();
+  const draftMutation = useGmailCreateDraft();
   const [email, setEmail] = useState<GmailFullEmail | null>(null);
+
+  const handleDraftReply = () => {
+    if (!email) return;
+    const fromAddr = (email.from.match(/<([^>]+)>/)?.[1]) || email.from;
+    const subject = email.subject?.startsWith("Re:") ? email.subject : `Re: ${email.subject || ""}`;
+    draftMutation.mutate({
+      to: fromAddr,
+      subject,
+      body: "",
+      threadId: email.threadId,
+    });
+  };
 
   useEffect(() => {
     readMutation.mutate(messageId, {
@@ -59,9 +72,23 @@ const GmailReader = ({ messageId, onBack }: GmailReaderProps) => {
           <ArrowLeft className="h-3.5 w-3.5" />
           Back
         </button>
-        <h2 className="text-base font-semibold text-foreground leading-snug">
-          {email.subject || "(no subject)"}
-        </h2>
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-base font-semibold text-foreground leading-snug flex-1">
+            {email.subject || "(no subject)"}
+          </h2>
+          <button
+            onClick={handleDraftReply}
+            disabled={draftMutation.isPending}
+            className="shrink-0 flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-3 py-1.5 text-xs font-medium hover:bg-primary/90 transition-all disabled:opacity-50"
+          >
+            {draftMutation.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" />
+            )}
+            Draft reply with Duncan
+          </button>
+        </div>
         <div className="flex items-center gap-4 mt-3">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-full bg-secondary flex items-center justify-center">
