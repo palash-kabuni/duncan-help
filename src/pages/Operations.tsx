@@ -234,9 +234,9 @@ const Operations = () => {
                         {filterOptions.assignees.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    {filterOptions.projects.length > 1 && (
+                    {filterOptions.projects.length > 0 && (
                       <Select value={projectFilter} onValueChange={setProjectFilter}>
-                        <SelectTrigger className="h-9 w-[150px] text-xs"><SelectValue placeholder="Project" /></SelectTrigger>
+                        <SelectTrigger className="h-9 w-[170px] text-xs"><SelectValue placeholder="All projects" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All projects</SelectItem>
                           {filterOptions.projects.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
