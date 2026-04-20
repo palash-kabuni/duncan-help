@@ -32,7 +32,7 @@ export default function WhatsNew() {
           <p className="text-sm text-muted-foreground mt-1">See what's changed in each Duncan release</p>
         </div>
 
-        {isAdmin && currentDraft && <DraftBanner draft={currentDraft} />}
+        {isAdmin && (currentDraft ? <DraftBanner draft={currentDraft} /> : <NoDraftHint />)}
 
         {isLoading ? (
           <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
