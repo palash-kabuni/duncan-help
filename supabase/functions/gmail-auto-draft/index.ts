@@ -196,7 +196,7 @@ async function processUser(
       }
 
       // Skip self-sent
-      if (from.toLowerCase().includes(myEmail)) { stats.skipped++; continue; }
+      if (from.toLowerCase().includes(myEmailLower)) { stats.skipped++; continue; }
 
       // Skip automated senders
       if (DENY_SENDER_PATTERNS.some((re) => re.test(from))) { stats.skipped++; continue; }
