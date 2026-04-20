@@ -19,8 +19,8 @@ import {
   useWorkstreamCard, useUpdateCard, useUpdateCardAssignees, useCreateTask,
   useUpdateTask, useUpdateTaskAssignees, useDeleteTask,
   useAddComment, useDeleteComment, useDeleteCard, useUserProfiles,
-  useRespondToAssignment,
-  type CardStatus, type CardPriority, type WorkstreamTask,
+  useRespondToAssignment, useTaskComments, useAddTaskComment, useDeleteTaskComment,
+  type CardStatus, type CardPriority, type WorkstreamTask, type UserProfile,
 } from "@/hooks/useWorkstreams";
 import { StatusBadge, priorityConfig } from "./StatusBadge";
 import MultiAssigneeSelect from "./MultiAssigneeSelect";
@@ -493,6 +493,165 @@ function MetaField({ icon, label, value, children }: {
         >
           {value}
         </button>
+      )}
+    </div>
+  );
+}
+
+function TaskRow({
+  task, users, currentUserId, onToggle, onDelete, onUpdateAssignees, onUpdateDueDate,
+}: {
+  task: WorkstreamTask;
+  users: UserProfile[];
+  currentUserId?: string;
+  onToggle: () => void;
+  onDelete: () => void;
+  onUpdateAssignees: (ids: string[]) => void;
+  onUpdateDueDate: (date: string | null) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [newComment, setNewComment] = useState("");
+  const { data: taskComments = [] } = useTaskComments(expanded ? task.id : null);
+  const addTaskComment = useAddTaskComment();
+  const deleteTaskComment = useDeleteTaskComment();
+
+  const handleAddComment = () => {
+    if (!newComment.trim()) return;
+    addTaskComment.mutate(
+      { task_id: task.id, card_id: task.card_id, content: newComment.trim() },
+      { onSuccess: () => setNewComment("") },
+    );
+  };
+
+  return (
+    <div className="group rounded-lg border border-border/60 bg-card/50 p-2.5">
+      <div className="flex items-start gap-2">
+        <button onClick={onToggle} className="mt-0.5 shrink-0">
+          {task.completed ? (
+            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+          ) : (
+            <Circle className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors" />
+          )}
+        </button>
+        <div className="flex-1 min-w-0">
+          <span className={`text-sm ${task.completed ? "line-through text-muted-foreground" : "text-foreground"}`}>
+            {task.title}
+          </span>
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            {(task.assignees || []).map(a => (
+              <Badge key={a.user_id} variant="secondary" className="text-[10px] py-0 px-1.5">
+                {(a.display_name || "?").split(" ")[0]}
+              </Badge>
+            ))}
+            {task.due_date && (
+              <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                <CalendarDays className="h-2.5 w-2.5" /> {format(new Date(task.due_date), "MMM d")}
+              </span>
+            )}
+            <button
+              onClick={() => setExpanded(e => !e)}
+              className="text-[10px] text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
+            >
+              <MessageSquare className="h-2.5 w-2.5" />
+              {expanded ? "Hide" : "Comments"}
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="w-[120px]">
+            <MultiAssigneeSelect
+              users={users}
+              selectedIds={(task.assignees || []).map(a => a.user_id)}
+              onChange={onUpdateAssignees}
+              compact
+              placeholder="Assign"
+            />
+          </div>
+          <button
+            onClick={onDelete}
+            className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive transition-colors"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="mt-3 pt-3 border-t border-border/60 space-y-3">
+          {/* Due date editor */}
+          <div className="flex items-center gap-2">
+            <Label className="text-[10px] text-muted-foreground flex items-center gap-1 shrink-0">
+              <CalendarDays className="h-3 w-3" /> Due date
+            </Label>
+            <Input
+              type="date"
+              value={task.due_date ? task.due_date.slice(0, 10) : ""}
+              onChange={e => onUpdateDueDate(e.target.value || null)}
+              className="h-7 text-xs w-40"
+            />
+            {task.due_date && (
+              <button
+                onClick={() => onUpdateDueDate(null)}
+                className="text-[10px] text-muted-foreground hover:text-destructive transition-colors"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          {/* Comments list */}
+          <div className="space-y-2">
+            {taskComments.length === 0 ? (
+              <p className="text-[10px] text-muted-foreground italic">No comments yet</p>
+            ) : (
+              taskComments.map(c => (
+                <div key={c.id} className="rounded-md bg-secondary/40 px-2.5 py-1.5 group/c">
+                  <div className="flex items-center justify-between gap-2 mb-0.5">
+                    <span className="text-[10px] font-medium text-foreground">{c.user_name || "Unknown"}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] text-muted-foreground">
+                        {formatDistanceToNow(new Date(c.created_at), { addSuffix: true })}
+                      </span>
+                      {c.user_id === currentUserId && (
+                        <button
+                          onClick={() => deleteTaskComment.mutate({ id: c.id, task_id: task.id })}
+                          className="opacity-0 group-hover/c:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                        >
+                          <Trash2 className="h-2.5 w-2.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-xs text-foreground/80 whitespace-pre-wrap">{c.content}</p>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Add comment */}
+          <div className="flex items-start gap-2">
+            <Textarea
+              value={newComment}
+              onChange={e => setNewComment(e.target.value)}
+              placeholder="Add a comment…"
+              className="text-xs min-h-[40px] py-1.5"
+              onKeyDown={e => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  handleAddComment();
+                }
+              }}
+            />
+            <Button
+              size="sm"
+              className="h-8"
+              onClick={handleAddComment}
+              disabled={!newComment.trim() || addTaskComment.isPending}
+            >
+              <Send className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );
