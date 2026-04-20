@@ -101,6 +101,17 @@ function DraftBanner({ draft }: { draft: Release }) {
   );
 }
 
+function NoDraftHint() {
+  return (
+    <div className="mb-6 rounded-lg border border-dashed border-border bg-muted/30 p-4">
+      <p className="text-sm text-foreground font-medium">No draft release yet</p>
+      <p className="text-xs text-muted-foreground mt-1">
+        Tell Duncan in chat about a fix or feature you've shipped (e.g. <span className="italic">"Just fixed the publish button on What's New"</span>) and a draft will appear here ready to publish.
+      </p>
+    </div>
+  );
+}
+
 function ReleaseCard({ release, isLatest, isAdmin }: { release: Release; isLatest: boolean; isAdmin: boolean }) {
   const [sending, setSending] = useState(false);
   const features = release.changes.filter((c) => c.type === "feature");
