@@ -151,7 +151,8 @@ async function processUser(
     return stats;
   }
   const headers = { Authorization: `Bearer ${tokenData.accessToken}` };
-  const myEmail = (tokenData.emailAddress || "").toLowerCase();
+  const myEmail = tokenData.emailAddress || "";
+  const myEmailLower = myEmail.toLowerCase();
 
   // Build query: unread inbox messages received after last run (or last 24h on first run)
   const sinceTs = profile.auto_draft_last_run_at
