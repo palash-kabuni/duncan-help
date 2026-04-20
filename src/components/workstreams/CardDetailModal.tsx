@@ -172,9 +172,6 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
                     )}
                   </div>
                 </div>
-                <Button variant="ghost" size="icon" onClick={onClose} className="shrink-0">
-                  <X className="h-4 w-4" />
-                </Button>
               </div>
 
               {/* Status selector */}
