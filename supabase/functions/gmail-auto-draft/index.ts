@@ -193,38 +193,46 @@ async function processUser(
 
       // Skip already-drafted
       if (labelIds.some((l) => l.toLowerCase().includes("duncan"))) {
+        console.log(`Skip ${m.id}: already-labelled`);
         stats.skipped++; continue;
       }
 
       // Skip self-sent
-      if (from.toLowerCase().includes(myEmailLower)) { stats.skipped++; continue; }
+      if (from.toLowerCase().includes(myEmailLower)) {
+        console.log(`Skip ${m.id}: self-sent`);
+        stats.skipped++; continue;
+      }
 
       // Skip automated senders
-      if (DENY_SENDER_PATTERNS.some((re) => re.test(from))) { stats.skipped++; continue; }
-      if (listUnsubscribe) { stats.skipped++; continue; }
+      if (DENY_SENDER_PATTERNS.some((re) => re.test(from))) {
+        console.log(`Skip ${m.id}: automated-sender (${from})`);
+        stats.skipped++; continue;
+      }
+      if (listUnsubscribe) {
+        console.log(`Skip ${m.id}: list-unsubscribe`);
+        stats.skipped++; continue;
+      }
 
       const bodyText = decodeBody(msg.payload);
       const wordCount = bodyText.trim().split(/\s+/).length;
-      if (wordCount < 30) { stats.skipped++; continue; }
+      if (wordCount < 30) {
+        console.log(`Skip ${m.id}: too-short (${wordCount} words)`);
+        stats.skipped++; continue;
+      }
 
-      // Skip if thread already has a draft
+      // Skip if thread already has a draft (thread-scoped check via DRAFT label)
       const threadRes = await fetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/threads/${msg.threadId}?format=minimal`,
         { headers },
       );
       if (threadRes.ok) {
         const thread = await threadRes.json();
-        const threadMsgIds: string[] = (thread.messages || []).map((tm: any) => tm.id);
-        const draftsListRes = await fetch(
-          "https://gmail.googleapis.com/gmail/v1/users/me/drafts?maxResults=50",
-          { headers },
+        const threadHasDraft = (thread.messages || []).some((tm: any) =>
+          (tm.labelIds || []).includes("DRAFT"),
         );
-        if (draftsListRes.ok) {
-          const draftsData = await draftsListRes.json();
-          const hasDraft = (draftsData.drafts || []).some((d: any) =>
-            threadMsgIds.includes(d.message?.id),
-          );
-          if (hasDraft) { stats.skipped++; continue; }
+        if (threadHasDraft) {
+          console.log(`Skip ${m.id}: thread-already-has-draft`);
+          stats.skipped++; continue;
         }
       }
 
