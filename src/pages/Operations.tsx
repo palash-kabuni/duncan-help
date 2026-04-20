@@ -57,6 +57,54 @@ const Operations = () => {
   const { data: syncLogs = [], isLoading: slLoading } = useSyncLogs();
   const [syncing, setSyncing] = useState<string | null>(null);
 
+  // Filters
+  const [searchQuery, setSearchQuery] = useState("");
+  const [stateFilter, setStateFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
+  const [projectFilter, setProjectFilter] = useState<string>("all");
+
+  // Unique filter options
+  const filterOptions = useMemo(() => {
+    const states = new Set<string>();
+    const types = new Set<string>();
+    const assignees = new Set<string>();
+    const projects = new Set<string>();
+    workItems.forEach((w: any) => {
+      if (w.state) states.add(w.state);
+      if (w.work_item_type) types.add(w.work_item_type);
+      if (w.assigned_to) assignees.add(w.assigned_to);
+      if (w.project_name) projects.add(w.project_name);
+    });
+    return {
+      states: Array.from(states).sort(),
+      types: Array.from(types).sort(),
+      assignees: Array.from(assignees).sort(),
+      projects: Array.from(projects).sort(),
+    };
+  }, [workItems]);
+
+  const filteredItems = useMemo(() => {
+    return workItems.filter((w: any) => {
+      if (stateFilter !== "all" && w.state !== stateFilter) return false;
+      if (typeFilter !== "all" && w.work_item_type !== typeFilter) return false;
+      if (assigneeFilter !== "all") {
+        if (assigneeFilter === "__unassigned__" ? w.assigned_to : w.assigned_to !== assigneeFilter) return false;
+      }
+      if (projectFilter !== "all" && w.project_name !== projectFilter) return false;
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        if (!w.title?.toLowerCase().includes(q) && !String(w.external_id).includes(q)) return false;
+      }
+      return true;
+    });
+  }, [workItems, stateFilter, typeFilter, assigneeFilter, projectFilter, searchQuery]);
+
+  const hasActiveFilters = stateFilter !== "all" || typeFilter !== "all" || assigneeFilter !== "all" || projectFilter !== "all" || searchQuery !== "";
+  const clearFilters = () => {
+    setStateFilter("all"); setTypeFilter("all"); setAssigneeFilter("all"); setProjectFilter("all"); setSearchQuery("");
+  };
+
   const handleSync = async (type: "azure") => {
     setSyncing(type);
     try {
