@@ -154,11 +154,11 @@ async function processUser(
   const myEmail = tokenData.emailAddress || "";
   const myEmailLower = myEmail.toLowerCase();
 
-  // Build query: unread inbox messages received after last run (or last 24h on first run)
-  const sinceTs = profile.auto_draft_last_run_at
-    ? Math.floor(new Date(profile.auto_draft_last_run_at).getTime() / 1000)
-    : Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000);
-  const query = `is:unread in:inbox after:${sinceTs} -label:${DUNCAN_LABEL.replace("/", "-")}`;
+  // Fixed 7-day rolling lookback. Duncan label + daily cap prevent re-drafting,
+  // so we don't gate by last-run timestamp (that caused the window to shrink to ~10 min).
+  const sinceTs = Math.floor((Date.now() - 7 * 24 * 60 * 60 * 1000) / 1000);
+  const query = `is:unread in:inbox after:${sinceTs} -label:"${DUNCAN_LABEL}"`;
+  console.log(`User ${userId} query: ${query}`);
 
   const listRes = await fetch(
     `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${MAX_DRAFTS_PER_RUN}&q=${encodeURIComponent(query)}`,
@@ -170,6 +170,7 @@ async function processUser(
     return stats;
   }
   const { messages = [] } = await listRes.json();
+  console.log(`User ${userId} Gmail returned ${messages.length} messages`);
 
   for (const m of messages.slice(0, MAX_DRAFTS_PER_RUN)) {
     if (draftsToday >= MAX_DRAFTS_PER_DAY) break;
@@ -192,38 +193,46 @@ async function processUser(
 
       // Skip already-drafted
       if (labelIds.some((l) => l.toLowerCase().includes("duncan"))) {
+        console.log(`Skip ${m.id}: already-labelled`);
         stats.skipped++; continue;
       }
 
       // Skip self-sent
-      if (from.toLowerCase().includes(myEmailLower)) { stats.skipped++; continue; }
+      if (from.toLowerCase().includes(myEmailLower)) {
+        console.log(`Skip ${m.id}: self-sent`);
+        stats.skipped++; continue;
+      }
 
       // Skip automated senders
-      if (DENY_SENDER_PATTERNS.some((re) => re.test(from))) { stats.skipped++; continue; }
-      if (listUnsubscribe) { stats.skipped++; continue; }
+      if (DENY_SENDER_PATTERNS.some((re) => re.test(from))) {
+        console.log(`Skip ${m.id}: automated-sender (${from})`);
+        stats.skipped++; continue;
+      }
+      if (listUnsubscribe) {
+        console.log(`Skip ${m.id}: list-unsubscribe`);
+        stats.skipped++; continue;
+      }
 
       const bodyText = decodeBody(msg.payload);
       const wordCount = bodyText.trim().split(/\s+/).length;
-      if (wordCount < 30) { stats.skipped++; continue; }
+      if (wordCount < 30) {
+        console.log(`Skip ${m.id}: too-short (${wordCount} words)`);
+        stats.skipped++; continue;
+      }
 
-      // Skip if thread already has a draft
+      // Skip if thread already has a draft (thread-scoped check via DRAFT label)
       const threadRes = await fetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/threads/${msg.threadId}?format=minimal`,
         { headers },
       );
       if (threadRes.ok) {
         const thread = await threadRes.json();
-        const threadMsgIds: string[] = (thread.messages || []).map((tm: any) => tm.id);
-        const draftsListRes = await fetch(
-          "https://gmail.googleapis.com/gmail/v1/users/me/drafts?maxResults=50",
-          { headers },
+        const threadHasDraft = (thread.messages || []).some((tm: any) =>
+          (tm.labelIds || []).includes("DRAFT"),
         );
-        if (draftsListRes.ok) {
-          const draftsData = await draftsListRes.json();
-          const hasDraft = (draftsData.drafts || []).some((d: any) =>
-            threadMsgIds.includes(d.message?.id),
-          );
-          if (hasDraft) { stats.skipped++; continue; }
+        if (threadHasDraft) {
+          console.log(`Skip ${m.id}: thread-already-has-draft`);
+          stats.skipped++; continue;
         }
       }
 
