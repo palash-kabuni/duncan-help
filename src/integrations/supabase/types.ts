@@ -460,6 +460,45 @@ export type Database = {
         }
         Relationships: []
       }
+      gmail_writing_profiles: {
+        Row: {
+          common_phrases: Json
+          created_at: string
+          id: string
+          last_trained_at: string | null
+          sample_count: number
+          sample_replies: Json
+          style_summary: string
+          tone_metrics: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          common_phrases?: Json
+          created_at?: string
+          id?: string
+          last_trained_at?: string | null
+          sample_count?: number
+          sample_replies?: Json
+          style_summary?: string
+          tone_metrics?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          common_phrases?: Json
+          created_at?: string
+          id?: string
+          last_trained_at?: string | null
+          sample_count?: number
+          sample_replies?: Json
+          style_summary?: string
+          tone_metrics?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       google_calendar_tokens: {
         Row: {
           access_token: string
