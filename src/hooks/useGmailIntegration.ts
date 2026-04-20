@@ -191,10 +191,10 @@ export function useGmailWritingProfile() {
 
 export function useGmailTrainStyle() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (maxResults = 300) => {
+  return useMutation<any, Error, number | undefined>({
+    mutationFn: async (maxResults?: number) => {
       const { data, error } = await supabase.functions.invoke("gmail-train-style", {
-        body: { maxResults },
+        body: { maxResults: maxResults ?? 300 },
       });
       if (error) throw new Error(error.message || "Training failed");
       if (data?.error) throw new Error(data.error);
