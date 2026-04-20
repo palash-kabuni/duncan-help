@@ -21,8 +21,8 @@ function useWorkItems() {
       const { data, error } = await supabase
         .from("azure_work_items")
         .select("*")
-        .order("changed_date", { ascending: false })
-        .limit(100);
+        .order("changed_date", { ascending: false, nullsFirst: false })
+        .limit(1000);
       if (error) throw error;
       return data || [];
     },
@@ -88,10 +88,16 @@ const Operations = () => {
     return workItems.filter((w: any) => {
       if (stateFilter !== "all" && w.state !== stateFilter) return false;
       if (typeFilter !== "all" && w.work_item_type !== typeFilter) return false;
-      if (assigneeFilter !== "all") {
-        if (assigneeFilter === "__unassigned__" ? w.assigned_to : w.assigned_to !== assigneeFilter) return false;
+      if (assigneeFilter === "__unassigned__") {
+        if (w.assigned_to) return false;
+      } else if (assigneeFilter !== "all") {
+        if (w.assigned_to !== assigneeFilter) return false;
       }
-      if (projectFilter !== "all" && w.project_name !== projectFilter) return false;
+      if (projectFilter !== "all") {
+        const wp = (w.project_name || "").toString().trim().toLowerCase();
+        const pf = projectFilter.toString().trim().toLowerCase();
+        if (wp !== pf) return false;
+      }
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         if (!w.title?.toLowerCase().includes(q) && !String(w.external_id).includes(q)) return false;
@@ -228,9 +234,9 @@ const Operations = () => {
                         {filterOptions.assignees.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    {filterOptions.projects.length > 1 && (
+                    {filterOptions.projects.length > 0 && (
                       <Select value={projectFilter} onValueChange={setProjectFilter}>
-                        <SelectTrigger className="h-9 w-[150px] text-xs"><SelectValue placeholder="Project" /></SelectTrigger>
+                        <SelectTrigger className="h-9 w-[170px] text-xs"><SelectValue placeholder="All projects" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All projects</SelectItem>
                           {filterOptions.projects.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
