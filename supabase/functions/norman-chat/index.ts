@@ -3480,6 +3480,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
     tools.push(...WORKSTREAM_TOOLS);
     // Executive summary document generation
     tools.push(...EXEC_SUMMARY_TOOLS);
+    // Release logging tool (admin-only enforced inside executor)
+    tools.push(...RELEASE_TOOLS);
     if (tools.length > 0) {
       requestBody.tools = tools;
     }
