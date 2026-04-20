@@ -158,6 +158,10 @@ const Index = () => {
           throw new Error("Briefing fetch failed");
         }
         const briefingData = await resp.json();
+        if (briefingData?.already_shown_today) {
+          console.log("Duncan: Briefing already shown today, skipping.");
+          return;
+        }
         console.log("Duncan: Briefing data received, sending to chat...");
         sendBriefing(briefingData);
       } catch (err) {

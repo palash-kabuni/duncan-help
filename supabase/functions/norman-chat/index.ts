@@ -3398,12 +3398,13 @@ serve(async (req) => {
 
 **IMPORTANT CONTEXT**: If "since" is set, this is a CHECK-IN UPDATE — only highlight what has CHANGED or is NEW since that timestamp. Frame it as "Since your last check-in at [time]..." and focus on deltas. If "is_first_briefing" is true, give a full overview.
 
-Present a warm, concise briefing covering these sections (skip only if truly empty):
+Present a warm, concise briefing covering these sections IN THIS EXACT ORDER (skip a section ONLY if its data is truly empty — but ALWAYS include section 5 if token_usage data is present):
 
 1. 📅 **Today's Calendar** — Upcoming events/meetings scheduled for today
 2. 📋 **Meetings & Action Items** — New meeting summaries and action items assigned to this user
 3. 💼 **Project Updates** — Changes to their Azure DevOps work items
 4. 📊 **Workstreams** — Cards assigned to this user (with status, priority, due dates) and incomplete tasks assigned to them. Highlight overdue or urgent items.
+5. 📈 **Your AI Usage Today** — REQUIRED FOOTER. Show the user's today's \`token_usage.my_today.total_tokens\` and \`request_count\` in one line, then list the top-3 from \`token_usage.leaderboard\` (last 30 days) as a compact ranked list (e.g. "🥇 Name — 12,345 tokens"). Keep this section to 2–3 lines max, presented as a light footer at the very bottom of the briefing. Do NOT omit this section.
 
 Format as a natural, readable summary with clear sections. If a section has no data, briefly note "No updates since last check-in" for that area. Keep it actionable and concise. Address the user by name. Highlight anything urgent (overdue items, items due today). For returning check-ins, emphasize what's new or changed.`;
     } else if (mode === "reason") {

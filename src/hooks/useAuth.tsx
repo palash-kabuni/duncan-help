@@ -27,9 +27,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       (event, session) => {
         setSession(session);
         setLoading(false);
-        if (event === "SIGNED_IN") {
-          sessionStorage.removeItem("duncan_briefing_done");
-        }
         if (event === "SIGNED_OUT") {
           sessionStorage.removeItem("duncan_briefing_done");
         }
