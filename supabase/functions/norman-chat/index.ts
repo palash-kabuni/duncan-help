@@ -554,13 +554,15 @@ const MEETING_TOOLS = [
     type: "function",
     function: {
       name: "list_meetings",
-      description: "List stored meetings with optional filters. Use this to browse meetings, find specific ones, or check status.",
+      description: "List stored meetings with optional filters. Results are sorted by meeting_date DESC (most recent first). The search is typo-tolerant — it splits the query into words and matches any of them (so 'lightning' will also match misspellings like 'lighting'). Always prefer using from_date/to_date when the user specifies a date so you don't return stale results.",
       parameters: {
         type: "object",
         properties: {
           status: { type: "string", description: "Filter by status: pending, transcribed, audio_only, analyzed" },
           limit: { type: "number", description: "Max results (default 20)" },
-          search: { type: "string", description: "Search meetings by title or transcript content" },
+          search: { type: "string", description: "Keyword(s) to match in title or transcript. Words are matched independently (OR), so partial / misspelled queries still work." },
+          from_date: { type: "string", description: "Only return meetings on or after this date (YYYY-MM-DD)." },
+          to_date: { type: "string", description: "Only return meetings on or before this date (YYYY-MM-DD)." },
         },
         required: [],
       },
@@ -2533,11 +2535,30 @@ async function executeMeetingTool(
       let query = supabaseAdmin
         .from("meetings")
         .select("id, title, meeting_date, status, source, summary, participants, sender_email, created_at")
-        .order("meeting_date", { ascending: false })
+        .order("meeting_date", { ascending: false, nullsFirst: false })
         .limit(args.limit || 20);
 
       if (args.status) query = query.eq("status", args.status);
-      if (args.search) query = query.or(`title.ilike.%${args.search}%,transcript.ilike.%${args.search}%`);
+      if (args.from_date) query = query.gte("meeting_date", args.from_date);
+      if (args.to_date) query = query.lte("meeting_date", `${args.to_date}T23:59:59`);
+
+      if (args.search) {
+        // Typo-tolerant: split into words >=4 chars and OR each across title + transcript.
+        // Falls back to the raw query if no usable tokens found.
+        const tokens = String(args.search)
+          .split(/\s+/)
+          .map((t) => t.replace(/[^\w]/g, ""))
+          .filter((t) => t.length >= 4);
+        const escape = (s: string) => s.replace(/[%,()]/g, "");
+        const terms = tokens.length > 0 ? tokens : [String(args.search)];
+        const orClauses = terms
+          .flatMap((t) => [
+            `title.ilike.%${escape(t)}%`,
+            `transcript.ilike.%${escape(t)}%`,
+          ])
+          .join(",");
+        query = query.or(orClauses);
+      }
 
       const { data, error } = await query;
       if (error) throw new Error(`Failed to list meetings: ${error.message}`);
