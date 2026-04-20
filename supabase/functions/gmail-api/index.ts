@@ -487,6 +487,52 @@ Deno.serve(async (req) => {
       );
     }
 
+    // ─── ADD LABEL to a message ───
+    if (action === "add_label") {
+      const { messageId, labelName = "Duncan/Auto-Drafted" } = body;
+      if (!messageId) throw new Error("messageId is required");
+
+      // Find or create the label
+      const labelsRes = await fetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/labels",
+        { headers: gmailHeaders }
+      );
+      if (!labelsRes.ok) throw new Error(`Gmail labels list failed: ${await labelsRes.text()}`);
+      const labelsData = await labelsRes.json();
+      let label = (labelsData.labels || []).find((l: any) => l.name === labelName);
+      if (!label) {
+        const createRes = await fetch(
+          "https://gmail.googleapis.com/gmail/v1/users/me/labels",
+          {
+            method: "POST",
+            headers: { ...gmailHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: labelName,
+              labelListVisibility: "labelShow",
+              messageListVisibility: "show",
+            }),
+          }
+        );
+        if (!createRes.ok) throw new Error(`Gmail label create failed: ${await createRes.text()}`);
+        label = await createRes.json();
+      }
+
+      const modifyRes = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`,
+        {
+          method: "POST",
+          headers: { ...gmailHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ addLabelIds: [label.id] }),
+        }
+      );
+      if (!modifyRes.ok) throw new Error(`Gmail modify failed: ${await modifyRes.text()}`);
+
+      return new Response(
+        JSON.stringify({ success: true, labelId: label.id }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // ─── LEARN FROM SENT (pull last N sent messages for style training) ───
     if (action === "learn_from_sent") {
       const { maxResults = 300 } = body;

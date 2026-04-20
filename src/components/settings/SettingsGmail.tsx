@@ -1,10 +1,12 @@
-import { Mail, Loader2, Sparkles, Trash2, RefreshCw, CheckCircle2 } from "lucide-react";
+import { Mail, Loader2, Sparkles, Trash2, RefreshCw, CheckCircle2, Wand2 } from "lucide-react";
 import {
   useGmailWritingProfile,
   useGmailTrainStyle,
   useGmailDeleteWritingProfile,
   useGmailStatus,
+  useGmailAutoDraftToggle,
 } from "@/hooks/useGmailIntegration";
+import { Switch } from "@/components/ui/switch";
 import { formatDistanceToNow } from "date-fns";
 
 export default function SettingsGmail() {
@@ -12,8 +14,15 @@ export default function SettingsGmail() {
   const { data: profile, isLoading } = useGmailWritingProfile();
   const trainMutation = useGmailTrainStyle();
   const deleteMutation = useGmailDeleteWritingProfile();
+  const autoDraftToggle = useGmailAutoDraftToggle();
 
   const trained = profile?.last_trained_at;
+  const autoDraftEnabled = profile?.auto_draft_enabled ?? false;
+  const lastRun = profile?.auto_draft_last_run_at;
+  const today = new Date().toISOString().slice(0, 10);
+  const draftsToday = profile?.auto_drafts_counter_date === today
+    ? profile?.auto_drafts_created_today ?? 0
+    : 0;
 
   if (!status?.connected) {
     return (
@@ -83,7 +92,7 @@ export default function SettingsGmail() {
         </details>
       )}
 
-      {/* Actions */}
+      {/* Training actions */}
       <div className="flex flex-wrap gap-2">
         <button
           onClick={() => trainMutation.mutate(300)}
@@ -119,9 +128,60 @@ export default function SettingsGmail() {
         )}
       </div>
 
+      {/* Auto-draft section */}
+      <div className="border-t border-border pt-6">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Wand2 className="h-4 w-4 text-primary" />
+            Auto-draft replies
+          </h3>
+          <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+            Duncan checks your inbox every 10 minutes and pre-drafts replies to new emails using your
+            writing style. Drafts go straight to your Gmail Drafts folder — nothing is ever sent automatically.
+          </p>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-border bg-card/50 p-4 space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <div className="text-xs font-medium text-foreground">
+                Auto-draft replies for new emails
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                {trained
+                  ? "Skips noreply senders, calendar invites, list emails, and short notifications. Capped at 100 drafts per day."
+                  : "Train Duncan on your writing style first — otherwise drafts will sound generic."}
+              </p>
+            </div>
+            <Switch
+              checked={autoDraftEnabled}
+              disabled={!trained || autoDraftToggle.isPending}
+              onCheckedChange={(v) => autoDraftToggle.mutate(v)}
+            />
+          </div>
+
+          {autoDraftEnabled && (
+            <div className="grid grid-cols-2 gap-3 pt-3 border-t border-border">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Last run</div>
+                <div className="text-xs text-foreground mt-0.5">
+                  {lastRun ? formatDistanceToNow(new Date(lastRun), { addSuffix: true }) : "Not yet"}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Drafts today</div>
+                <div className="text-xs text-foreground mt-0.5">{draftsToday} / 100</div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       <p className="text-[10px] text-muted-foreground/60 leading-relaxed">
         Privacy: Email content is sent to OpenAI for one-time analysis only. Personal details (emails,
         phone numbers) are redacted before processing. Only the derived style profile is stored.
+        Auto-drafted replies are prefixed with "[Auto-drafted by Duncan]" so you always know which
+        drafts are AI-generated.
       </p>
     </div>
   );

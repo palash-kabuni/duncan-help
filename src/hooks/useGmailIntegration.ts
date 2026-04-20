@@ -172,6 +172,10 @@ export interface GmailWritingProfile {
   tone_metrics: Record<string, any>;
   sample_count: number;
   last_trained_at: string | null;
+  auto_draft_enabled: boolean;
+  auto_draft_last_run_at: string | null;
+  auto_drafts_created_today: number;
+  auto_drafts_counter_date: string;
 }
 
 export function useGmailWritingProfile() {
@@ -219,5 +223,26 @@ export function useGmailDeleteWritingProfile() {
       qc.invalidateQueries({ queryKey: ["gmail-writing-profile"] });
       toast.success("Writing profile deleted");
     },
+  });
+}
+
+export function useGmailAutoDraftToggle() {
+  const qc = useQueryClient();
+  return useMutation<any, Error, boolean>({
+    mutationFn: async (enabled: boolean) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not signed in");
+      const { error } = await supabase
+        .from("gmail_writing_profiles")
+        .update({ auto_draft_enabled: enabled })
+        .eq("user_id", user.id);
+      if (error) throw error;
+      return { enabled };
+    },
+    onSuccess: ({ enabled }) => {
+      qc.invalidateQueries({ queryKey: ["gmail-writing-profile"] });
+      toast.success(enabled ? "Auto-draft enabled — Duncan will pre-draft replies every 10 min" : "Auto-draft disabled");
+    },
+    onError: (err) => toast.error(err.message || "Failed to update auto-draft setting"),
   });
 }
