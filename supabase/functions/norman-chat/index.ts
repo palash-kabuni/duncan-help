@@ -998,6 +998,90 @@ const RELEASE_TOOLS = [
   },
 ];
 
+function bumpVersion(version: string, kind: "patch" | "minor" | "major" = "patch"): string {
+  const parts = version.replace(/^v/i, "").split(".").map((n) => parseInt(n, 10));
+  while (parts.length < 3) parts.push(0);
+  let [maj, min, pat] = parts.map((n) => (isNaN(n) ? 0 : n));
+  if (kind === "major") { maj += 1; min = 0; pat = 0; }
+  else if (kind === "minor") { min += 1; pat = 0; }
+  else { pat += 1; }
+  return `${maj}.${min}.${pat}`;
+}
+
+async function executeReleaseTool(
+  toolName: string,
+  args: any,
+  supabaseAdmin: any,
+  userId: string,
+): Promise<any> {
+  if (toolName !== "log_release_change") return { error: "Unknown release tool" };
+  if (!userId) return { error: "Authentication required" };
+
+  // Admin check
+  const { data: isAdmin } = await supabaseAdmin.rpc("has_role", {
+    _user_id: userId,
+    _role: "admin",
+  });
+  if (!isAdmin) return { error: "Release logging requires admin permission" };
+
+  const { type, description, version_bump } = args || {};
+  if (!type || !description) return { error: "type and description are required" };
+
+  // Find current draft
+  const { data: drafts } = await supabaseAdmin
+    .from("releases")
+    .select("*")
+    .eq("status", "draft")
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  let release = drafts && drafts[0];
+
+  if (!release) {
+    // Determine next version from latest published
+    const { data: latestPub } = await supabaseAdmin
+      .from("releases")
+      .select("version")
+      .eq("status", "published")
+      .order("published_at", { ascending: false })
+      .limit(1);
+    const baseVersion = latestPub?.[0]?.version || "0.0.0";
+    const newVersion = bumpVersion(baseVersion, (version_bump as any) || "patch");
+
+    const { data: created, error: createErr } = await supabaseAdmin
+      .from("releases")
+      .insert({
+        version: newVersion,
+        title: "Draft",
+        summary: "",
+        changes: [],
+        status: "draft",
+        created_by: userId,
+      })
+      .select()
+      .single();
+    if (createErr) return { error: `Failed to create draft: ${createErr.message}` };
+    release = created;
+  }
+
+  const existingChanges = Array.isArray(release.changes) ? release.changes : [];
+  const updatedChanges = [...existingChanges, { type, description }];
+
+  const { error: updErr } = await supabaseAdmin
+    .from("releases")
+    .update({ changes: updatedChanges })
+    .eq("id", release.id);
+  if (updErr) return { error: `Failed to append change: ${updErr.message}` };
+
+  return {
+    success: true,
+    release_id: release.id,
+    version: release.version,
+    total_changes: updatedChanges.length,
+    message: `Added to draft release v${release.version} (${updatedChanges.length} change${updatedChanges.length === 1 ? "" : "s"} pending publication).`,
+  };
+}
+
 const EXEC_SUMMARY_TOOLS = [
   {
     type: "function",
