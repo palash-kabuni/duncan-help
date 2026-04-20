@@ -1975,12 +1975,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      _list_vault_secret_names: {
-        Args: never
-        Returns: {
-          name: string
-        }[]
-      }
       call_edge_function_with_service_role: {
         Args: { body?: Json; function_name: string }
         Returns: number
