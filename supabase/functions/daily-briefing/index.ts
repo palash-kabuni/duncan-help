@@ -55,6 +55,19 @@ serve(async (req) => {
       ? new Date(prefs.last_briefing_at)
       : null;
 
+    // Gate: only one briefing per UTC calendar day per user
+    const todayUTC = now.toISOString().split("T")[0];
+    const lastBriefingDay = lastBriefingAt
+      ? lastBriefingAt.toISOString().split("T")[0]
+      : null;
+    if (lastBriefingDay === todayUTC) {
+      console.log("daily-briefing: already shown today for user", user.id);
+      return new Response(
+        JSON.stringify({ already_shown_today: true, last_briefing_at: lastBriefingAt?.toISOString() }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Use a minimum 24h window so data is always meaningful
     const minSince = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const sinceDatetime = lastBriefingAt && lastBriefingAt < minSince
