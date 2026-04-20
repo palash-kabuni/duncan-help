@@ -462,6 +462,10 @@ export type Database = {
       }
       gmail_writing_profiles: {
         Row: {
+          auto_draft_enabled: boolean
+          auto_draft_last_run_at: string | null
+          auto_drafts_counter_date: string
+          auto_drafts_created_today: number
           common_phrases: Json
           created_at: string
           id: string
@@ -474,6 +478,10 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          auto_draft_enabled?: boolean
+          auto_draft_last_run_at?: string | null
+          auto_drafts_counter_date?: string
+          auto_drafts_created_today?: number
           common_phrases?: Json
           created_at?: string
           id?: string
@@ -486,6 +494,10 @@ export type Database = {
           user_id: string
         }
         Update: {
+          auto_draft_enabled?: boolean
+          auto_draft_last_run_at?: string | null
+          auto_drafts_counter_date?: string
+          auto_drafts_created_today?: number
           common_phrases?: Json
           created_at?: string
           id?: string
