@@ -32,7 +32,7 @@ export default function WhatsNew() {
           <p className="text-sm text-muted-foreground mt-1">See what's changed in each Duncan release</p>
         </div>
 
-        {isAdmin && currentDraft && <DraftBanner draft={currentDraft} />}
+        {isAdmin && (currentDraft ? <DraftBanner draft={currentDraft} /> : <NoDraftHint />)}
 
         {isLoading ? (
           <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
@@ -97,6 +97,17 @@ function DraftBanner({ draft }: { draft: Release }) {
         {publishing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
         Publish
       </Button>
+    </div>
+  );
+}
+
+function NoDraftHint() {
+  return (
+    <div className="mb-6 rounded-lg border border-dashed border-border bg-muted/30 p-4">
+      <p className="text-sm text-foreground font-medium">No draft release yet</p>
+      <p className="text-xs text-muted-foreground mt-1">
+        Tell Duncan in chat about a fix or feature you've shipped (e.g. <span className="italic">"Just fixed the publish button on What's New"</span>) and a draft will appear here ready to publish.
+      </p>
     </div>
   );
 }
