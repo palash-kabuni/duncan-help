@@ -317,6 +317,7 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
                         <SelectItem value="Website">Website</SelectItem>
                         <SelectItem value="K10 App">K10 App</SelectItem>
                         <SelectItem value="School Integrations">School Integrations</SelectItem>
+                        <SelectItem value="Duncan">Duncan</SelectItem>
                       </SelectContent>
                     </Select>
                   </MetaField>
