@@ -1975,6 +1975,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      call_edge_function_with_service_role: {
+        Args: { body?: Json; function_name: string }
+        Returns: number
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
