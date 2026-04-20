@@ -24,7 +24,7 @@ Your capabilities:
 - **Document Search**: You have access to the company's document storage. You can search for documents, read their content, list folders, and answer questions based on them. Documents are organized in folders: documents/, ndas/, and templates/.
 - **Notion Access**: You have access to the company's Notion workspace. You can search for pages, query databases, and read page content. Use these tools when users ask about information stored in Notion.
 - **Basecamp Access**: You have access to the company's Basecamp. You can list projects, fetch to-do lists and individual to-dos (both completed and incomplete), read messages from message boards, and fetch cards from Card Tables. Use these tools when users ask about project status, tasks, to-dos, messages, or cards in Basecamp. When asked about a specific project, first use list_basecamp_projects to find it, then use the project ID and dock tool IDs to fetch to-dos, messages, or cards. For Card Tables, look for the 'card_table' dock item.
-- **Meeting Intelligence**: You can fetch and analyze meeting recordings from Plaud AI. Use fetch_plaud_meetings to pull new recordings from email, list_meetings to browse stored meetings, get_meeting to view a specific meeting's transcript and analysis, and analyze_meetings to run AI analysis on meetings. When users ask about meetings, what was discussed, action items, or meeting insights, use these tools. You can search across all meeting transcripts to answer questions like "What did we decide about X?".
+- **Meeting Intelligence**: You can fetch and analyze meeting recordings from Plaud AI / Gemini meeting notes. Use fetch_plaud_meetings to pull new recordings from email, list_meetings to browse stored meetings (supports from_date/to_date and typo-tolerant search), get_meeting to view a specific meeting's transcript and analysis, and analyze_meetings to run AI analysis on meetings. **CRITICAL**: When the user asks about a meeting on a specific recent date (e.g. "today's standup", "yesterday's meeting", "the April 17 standup"), ALWAYS call fetch_plaud_meetings FIRST to ingest any newly-arrived notes, THEN call list_meetings with from_date/to_date for that day. This avoids returning stale meetings. Note that meeting titles in the database may contain typos (e.g. "Lighting" instead of "Lightning") — the search is now typo-tolerant, but always confirm the date matches what the user asked for before answering. You can search across all meeting transcripts to answer questions like "What did we decide about X?".
 - **Xero Finance**: You have access to the company's Xero accounting system. You can list and search invoices (both payable and receivable), get invoice details, approve payment for invoices, **submit new invoices** (both bills/ACCPAY and sales invoices/ACCREC), and **record expenses** (Spend Money transactions). When users ask about invoices, bills, payments, expenses, or financial data from Xero, use these tools. For payment approval, invoices under £300 can be auto-approved; larger amounts require explicit confirmation. Always show invoice details (number, contact, amount, due date, status) before approving payment. When creating invoices, collect all details conversationally: contact name, invoice type (bill or sales invoice), line items (description, quantity, unit price, account code), due date, and reference. Search contacts first to find the correct Xero contact. Always confirm all details before submitting. When recording expenses: first list bank accounts to find the correct payment source, search for the contact, collect line items (description, amount, account code like '429' for General Expenses, '400' for Advertising, '404' for Cleaning, '461' for Printing, '310' for Insurance), then confirm and submit.
 - **Gmail Access**: You have access to the user's personal Gmail inbox. You can list recent emails, search emails by query (sender, subject, date, keywords), read full email content, and send emails on behalf of the user. Use these tools when the user asks about their emails, wants to find a specific email, read an email, or send a new email. When sending emails, collect to, subject, and body; optionally cc and bcc. Always confirm before sending. Present email lists clearly with sender, subject, date, and unread status.
 
@@ -554,13 +554,15 @@ const MEETING_TOOLS = [
     type: "function",
     function: {
       name: "list_meetings",
-      description: "List stored meetings with optional filters. Use this to browse meetings, find specific ones, or check status.",
+      description: "List stored meetings with optional filters. Results are sorted by meeting_date DESC (most recent first). The search is typo-tolerant — it splits the query into words and matches any of them (so 'lightning' will also match misspellings like 'lighting'). Always prefer using from_date/to_date when the user specifies a date so you don't return stale results.",
       parameters: {
         type: "object",
         properties: {
           status: { type: "string", description: "Filter by status: pending, transcribed, audio_only, analyzed" },
           limit: { type: "number", description: "Max results (default 20)" },
-          search: { type: "string", description: "Search meetings by title or transcript content" },
+          search: { type: "string", description: "Keyword(s) to match in title or transcript. Words are matched independently (OR), so partial / misspelled queries still work." },
+          from_date: { type: "string", description: "Only return meetings on or after this date (YYYY-MM-DD)." },
+          to_date: { type: "string", description: "Only return meetings on or before this date (YYYY-MM-DD)." },
         },
         required: [],
       },
@@ -2533,11 +2535,30 @@ async function executeMeetingTool(
       let query = supabaseAdmin
         .from("meetings")
         .select("id, title, meeting_date, status, source, summary, participants, sender_email, created_at")
-        .order("meeting_date", { ascending: false })
+        .order("meeting_date", { ascending: false, nullsFirst: false })
         .limit(args.limit || 20);
 
       if (args.status) query = query.eq("status", args.status);
-      if (args.search) query = query.or(`title.ilike.%${args.search}%,transcript.ilike.%${args.search}%`);
+      if (args.from_date) query = query.gte("meeting_date", args.from_date);
+      if (args.to_date) query = query.lte("meeting_date", `${args.to_date}T23:59:59`);
+
+      if (args.search) {
+        // Typo-tolerant: split into words >=4 chars and OR each across title + transcript.
+        // Falls back to the raw query if no usable tokens found.
+        const tokens = String(args.search)
+          .split(/\s+/)
+          .map((t) => t.replace(/[^\w]/g, ""))
+          .filter((t) => t.length >= 4);
+        const escape = (s: string) => s.replace(/[%,()]/g, "");
+        const terms = tokens.length > 0 ? tokens : [String(args.search)];
+        const orClauses = terms
+          .flatMap((t) => [
+            `title.ilike.%${escape(t)}%`,
+            `transcript.ilike.%${escape(t)}%`,
+          ])
+          .join(",");
+        query = query.or(orClauses);
+      }
 
       const { data, error } = await query;
       if (error) throw new Error(`Failed to list meetings: ${error.message}`);
