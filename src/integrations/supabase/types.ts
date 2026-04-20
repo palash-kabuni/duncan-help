@@ -1744,6 +1744,38 @@ export type Database = {
           },
         ]
       }
+      workstream_task_comments: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          task_id: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          task_id: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          task_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workstream_task_comments_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "workstream_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workstream_tasks: {
         Row: {
           assignee_id: string | null
