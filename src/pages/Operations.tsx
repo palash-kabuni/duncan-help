@@ -185,7 +185,7 @@ const Operations = () => {
             </TabsList>
 
             {/* Work Items */}
-            <TabsContent value="work-items">
+            <TabsContent value="work-items" className="space-y-3">
               {wiLoading ? (
                 <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
               ) : workItems.length === 0 ? (
@@ -194,34 +194,98 @@ const Operations = () => {
                   <p className="text-sm">No work items synced yet. Connect Azure DevOps and run a sync.</p>
                 </div>
               ) : (
-                <div className="rounded-xl border border-border bg-card overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-secondary/30">
-                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">ID</th>
-                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Title</th>
-                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">State</th>
-                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Type</th>
-                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Assigned To</th>
-                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Project</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {workItems.map((item: any) => (
-                        <tr key={item.id} className="border-b border-border/50 hover:bg-secondary/20 transition-colors">
-                          <td className="px-4 py-3 font-mono text-xs text-muted-foreground">#{item.external_id}</td>
-                          <td className="px-4 py-3 font-medium text-foreground max-w-xs truncate">{item.title}</td>
-                          <td className="px-4 py-3">
-                            <Badge variant="outline" className={stateColors[item.state] || ""}>{item.state}</Badge>
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground">{item.work_item_type}</td>
-                          <td className="px-4 py-3 text-muted-foreground">{item.assigned_to || "—"}</td>
-                          <td className="px-4 py-3 text-xs font-mono text-muted-foreground">{item.project_name}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <>
+                  {/* Filter bar */}
+                  <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card p-3">
+                    <div className="relative flex-1 min-w-[180px]">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                      <Input
+                        placeholder="Search title or #ID…"
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        className="h-9 pl-8 text-xs"
+                      />
+                    </div>
+                    <Select value={stateFilter} onValueChange={setStateFilter}>
+                      <SelectTrigger className="h-9 w-[130px] text-xs"><SelectValue placeholder="State" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All states</SelectItem>
+                        {filterOptions.states.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Select value={typeFilter} onValueChange={setTypeFilter}>
+                      <SelectTrigger className="h-9 w-[130px] text-xs"><SelectValue placeholder="Type" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All types</SelectItem>
+                        {filterOptions.types.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+                      <SelectTrigger className="h-9 w-[160px] text-xs"><SelectValue placeholder="Assignee" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All assignees</SelectItem>
+                        <SelectItem value="__unassigned__">Unassigned</SelectItem>
+                        {filterOptions.assignees.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    {filterOptions.projects.length > 1 && (
+                      <Select value={projectFilter} onValueChange={setProjectFilter}>
+                        <SelectTrigger className="h-9 w-[150px] text-xs"><SelectValue placeholder="Project" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All projects</SelectItem>
+                          {filterOptions.projects.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {hasActiveFilters && (
+                      <button
+                        onClick={clearFilters}
+                        className="flex items-center gap-1 h-9 px-2.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                      >
+                        <X className="h-3.5 w-3.5" /> Clear
+                      </button>
+                    )}
+                    <span className="ml-auto text-xs font-mono text-muted-foreground">
+                      {filteredItems.length} of {workItems.length}
+                    </span>
+                  </div>
+
+                  {filteredItems.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground rounded-xl border border-border bg-card">
+                      <Search className="h-8 w-8 mx-auto mb-3 opacity-30" />
+                      <p className="text-sm">No work items match these filters.</p>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-border bg-card overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border bg-secondary/30">
+                            <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">ID</th>
+                            <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Title</th>
+                            <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">State</th>
+                            <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Type</th>
+                            <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Assigned To</th>
+                            <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Project</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredItems.map((item: any) => (
+                            <tr key={item.id} className="border-b border-border/50 hover:bg-secondary/20 transition-colors">
+                              <td className="px-4 py-3 font-mono text-xs text-muted-foreground">#{item.external_id}</td>
+                              <td className="px-4 py-3 font-medium text-foreground max-w-xs truncate">{item.title}</td>
+                              <td className="px-4 py-3">
+                                <Badge variant="outline" className={stateColors[item.state] || ""}>{item.state}</Badge>
+                              </td>
+                              <td className="px-4 py-3 text-muted-foreground">{item.work_item_type}</td>
+                              <td className="px-4 py-3 text-muted-foreground">{item.assigned_to || "—"}</td>
+                              <td className="px-4 py-3 text-xs font-mono text-muted-foreground">{item.project_name}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
               )}
             </TabsContent>
 
