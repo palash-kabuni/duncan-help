@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Loader2, User, Clock } from "lucide-react";
-import { useGmailReadEmail, type GmailFullEmail } from "@/hooks/useGmailIntegration";
+import { ArrowLeft, Loader2, User, Clock, Sparkles } from "lucide-react";
+import { useGmailReadEmail, useGmailCreateDraft, type GmailFullEmail } from "@/hooks/useGmailIntegration";
 import { format } from "date-fns";
 
 interface GmailReaderProps {
@@ -11,7 +11,20 @@ interface GmailReaderProps {
 
 const GmailReader = ({ messageId, onBack }: GmailReaderProps) => {
   const readMutation = useGmailReadEmail();
+  const draftMutation = useGmailCreateDraft();
   const [email, setEmail] = useState<GmailFullEmail | null>(null);
+
+  const handleDraftReply = () => {
+    if (!email) return;
+    const fromAddr = (email.from.match(/<([^>]+)>/)?.[1]) || email.from;
+    const subject = email.subject?.startsWith("Re:") ? email.subject : `Re: ${email.subject || ""}`;
+    draftMutation.mutate({
+      to: fromAddr,
+      subject,
+      body: "",
+      threadId: email.threadId,
+    });
+  };
 
   useEffect(() => {
     readMutation.mutate(messageId, {
