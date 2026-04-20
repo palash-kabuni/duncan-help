@@ -80,6 +80,14 @@ serve(async (req) => {
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
+    // Check if first-time connect (for auto-training trigger)
+    const { data: existingToken } = await supabaseAdmin
+      .from("gmail_tokens")
+      .select("id")
+      .eq("connected_by", userId)
+      .maybeSingle();
+    const isFirstConnect = !existingToken;
+
     // Delete existing tokens for this user only
     await supabaseAdmin.from("gmail_tokens").delete().eq("connected_by", userId);
 
@@ -99,9 +107,12 @@ serve(async (req) => {
       });
     }
 
+    const successUrl = isFirstConnect
+      ? `${appUrl}/integrations?gmail_connected=true&gmail_first_connect=true`
+      : `${appUrl}/integrations?gmail_connected=true`;
     return new Response(null, {
       status: 302,
-      headers: { Location: `${appUrl}/integrations?gmail_connected=true` },
+      headers: { Location: successUrl },
     });
   } catch (error) {
     console.error("Gmail callback error:", error);
