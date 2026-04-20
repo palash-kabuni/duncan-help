@@ -1,31 +1,38 @@
 
-The user wants to add a new release entry to the What's New timeline covering today's work. Releases are managed via the `releases` table (admin-only Release Manager UI per memory `mem://features/release-announcement-system`).
+Yes — that's exactly the issue, and the logs confirm it.
 
-Today's notable changes from this session:
-1. Auto-draft Gmail replies (new feature + user toggle in Settings)
-2. Token usage now appears in daily briefing
-3. Daily briefing gated to once per calendar day (server-side)
-4. Fixed blank Gmail drafts (multipart MIME)
+## What the logs show
 
-I'll insert one new release row directly via migration so it appears on `/whats-new` immediately.
+`Auto-draft run complete: { users: 1, created: 0, skipped: 0, errors: 0 }`
 
-## Plan
+`skipped: 0` is the giveaway. If Duncan were looking at messages and rejecting them (too short, automated sender, etc.), `skipped` would be > 0. Zero skipped means **Gmail returned zero messages to look at** — the search query itself is filtering everything out before any per-message logic runs.
 
-### Add release entry "Today's date" via DB migration
+## Why
 
-Insert into `releases`:
-- **version**: auto-incremented (next after current latest — will check, likely v1.x)
-- **title**: "Auto-drafted replies & smarter briefings"
-- **summary**: Short paragraph on the theme
-- **status**: `published`
-- **published_at**: now()
-- **changes** (JSONB):
-  - **feature**: "Duncan can now pre-draft Gmail replies in the background — toggle on/off in Settings → Gmail."
-  - **feature**: "Daily briefing now includes your AI token usage today plus the 30-day team leaderboard."
-  - **improvement**: "Daily briefing now shows once per calendar day instead of once per session — no more repeats across tabs or refreshes."
-  - **fix**: "Auto-drafted Gmail replies no longer appear blank in the Gmail editor (multipart MIME fix)."
+In `supabase/functions/gmail-auto-draft/index.ts` the search query is:
 
-### Files
-- One DB migration: `INSERT INTO releases (...)` — I'll first read the latest version number to pick the next one.
+```
+is:unread in:inbox after:${sinceTs} -label:Duncan-Auto-Drafted
+```
 
-No code changes, no UI changes — the existing `/whats-new` page will render the new entry automatically.
+Where `sinceTs` = `auto_draft_last_run_at` (or 24h ago on first run). That timestamp gets bumped to "now" at the **end of every run**, even when nothing was drafted. So every 10-minute run only looks at mail that arrived in the last ~10 minutes. Older unread mail in your inbox is permanently outside the window.
+
+It is not looking at old email. Only brand-new arrivals.
+
+## Fix (same as the previous plan you approved but not yet implemented)
+
+In `supabase/functions/gmail-auto-draft/index.ts`:
+
+1. **Replace the moving `after:` window with a fixed 7-day rolling lookback**: `after:${Math.floor((Date.now() - 7*24*60*60*1000)/1000)}`. The Duncan label + daily cap already prevent re-drafting, so we don't need the timestamp gate.
+2. **Stop using `auto_draft_last_run_at` for filtering** — keep updating it for observability only.
+3. **Fix the label exclusion** to properly quote the slash: `-label:"Duncan/Auto-Drafted"`.
+4. **Add diagnostic logs**: query string, message count returned, per-message skip reason. So if anything still gets filtered out, we can see why.
+5. **Tighten the "thread already has draft" check** to be thread-scoped (look at `DRAFT` in `thread.messages[].labelIds`) rather than scanning the global last 50 drafts.
+
+## Verification
+
+After deploy, the next scheduled run (≤10 min) will sweep the last 7 days of unread inbox. Expected: up to 20 drafts created in one go (capped by `MAX_DRAFTS_PER_RUN`), then the daily cap of 100 kicks in. Logs will show `query: ... returned: N` with N > 0.
+
+## Files
+
+- `supabase/functions/gmail-auto-draft/index.ts` — query rewrite, logging, draft check fix
