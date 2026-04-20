@@ -88,10 +88,16 @@ const Operations = () => {
     return workItems.filter((w: any) => {
       if (stateFilter !== "all" && w.state !== stateFilter) return false;
       if (typeFilter !== "all" && w.work_item_type !== typeFilter) return false;
-      if (assigneeFilter !== "all") {
-        if (assigneeFilter === "__unassigned__" ? w.assigned_to : w.assigned_to !== assigneeFilter) return false;
+      if (assigneeFilter === "__unassigned__") {
+        if (w.assigned_to) return false;
+      } else if (assigneeFilter !== "all") {
+        if (w.assigned_to !== assigneeFilter) return false;
       }
-      if (projectFilter !== "all" && w.project_name !== projectFilter) return false;
+      if (projectFilter !== "all") {
+        const wp = (w.project_name || "").toString().trim().toLowerCase();
+        const pf = projectFilter.toString().trim().toLowerCase();
+        if (wp !== pf) return false;
+      }
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         if (!w.title?.toLowerCase().includes(q) && !String(w.external_id).includes(q)) return false;
