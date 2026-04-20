@@ -4,11 +4,12 @@ import { useReleases, Release } from "@/hooks/useReleases";
 import { useIsAdmin } from "@/hooks/useUserRoles";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, Rocket, Sparkles, Bug, FileText, Mail } from "lucide-react";
+import { Loader2, Rocket, Sparkles, Bug, FileText, Mail, Send } from "lucide-react";
 import { format } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import { fastApi, withFastApi } from "@/lib/fastApiClient";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 
 const changeTypeConfig: Record<string, { icon: React.ReactNode; label: string; className: string }> = {
   feature: { icon: <Rocket className="h-3.5 w-3.5" />, label: "Feature", className: "bg-primary/10 text-primary" },
@@ -19,7 +20,9 @@ const changeTypeConfig: Record<string, { icon: React.ReactNode; label: string; c
 
 export default function WhatsNew() {
   const { data: releases = [], isLoading } = useReleases("published");
+  const { data: drafts = [] } = useReleases("draft");
   const { isAdmin } = useIsAdmin();
+  const currentDraft = drafts[0];
 
   return (
     <AppLayout>
@@ -28,6 +31,8 @@ export default function WhatsNew() {
           <h1 className="text-2xl font-bold text-foreground">What's New</h1>
           <p className="text-sm text-muted-foreground mt-1">See what's changed in each Duncan release</p>
         </div>
+
+        {isAdmin && currentDraft && <DraftBanner draft={currentDraft} />}
 
         {isLoading ? (
           <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
@@ -45,6 +50,54 @@ export default function WhatsNew() {
         )}
       </div>
     </AppLayout>
+  );
+}
+
+function DraftBanner({ draft }: { draft: Release }) {
+  const [publishing, setPublishing] = useState(false);
+  const qc = useQueryClient();
+  const changeCount = Array.isArray(draft.changes) ? draft.changes.length : 0;
+
+  const handlePublish = async () => {
+    if (changeCount === 0) {
+      toast.error("Draft has no changes yet");
+      return;
+    }
+    setPublishing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("finalize-release", {
+        body: { releaseId: draft.id },
+      });
+      if (error) throw error;
+      toast.success(`Published v${data?.version ?? draft.version}`);
+      qc.invalidateQueries({ queryKey: ["releases"] });
+    } catch (err: any) {
+      toast.error(err.message || "Failed to publish");
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  return (
+    <div className="mb-6 rounded-lg border border-primary/30 bg-primary/5 p-4 flex items-center justify-between gap-4">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+          <Sparkles className="h-4 w-4 text-primary" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">
+            Current draft <span className="font-mono text-xs text-muted-foreground">v{draft.version}</span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {changeCount} change{changeCount === 1 ? "" : "s"} ready — title & summary auto-generated on publish
+          </p>
+        </div>
+      </div>
+      <Button size="sm" onClick={handlePublish} disabled={publishing || changeCount === 0} className="shrink-0">
+        {publishing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+        Publish
+      </Button>
+    </div>
   );
 }
 

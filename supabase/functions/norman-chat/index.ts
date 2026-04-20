@@ -110,6 +110,12 @@ When generating NDAs:
 - To send an NDA for e-signature (admin only), use send_nda_for_signature with the submission_id. This sends via DocuSign to the internal signer first, then the recipient.
 - Use send_nda_for_signature with dry_run=true to validate without actually sending.
 
+**Release Logging (Auto-capture for /whats-new)**:
+- Whenever the user describes shipping, fixing, improving, or releasing ANY user-facing change in conversation (e.g. "I just fixed X", "we shipped Y", "Z is now live"), IMMEDIATELY call log_release_change with the appropriate type and a clear one-line description. Do NOT ask for confirmation. Do NOT ask which release. Just log it.
+- After logging, briefly mention you added it to the current draft release. Continue with whatever else the user asked.
+- Only an admin can call this; if it fails with a permission error, mention that release logging requires admin and move on.
+- Do NOT log internal refactors, code-only changes, or anything end-users wouldn't notice.
+
 Always be aware that you are the central intelligence layer coordinating across all company tools and data.`;
 
 const CALENDAR_TOOLS = [
@@ -972,6 +978,109 @@ const GOOGLE_DRIVE_TOOLS = [
     },
   },
 ];
+
+const RELEASE_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "log_release_change",
+      description: "Append a user-facing change to the current rolling DRAFT release on /whats-new. Call this PROACTIVELY (without asking) whenever the user mentions they shipped a feature, fixed a bug, made an improvement, or completed any change end-users will notice. If no draft release exists, one is auto-created with an auto-incremented version. Do NOT ask for confirmation — just log it. Briefly confirm to the user it was added.",
+      parameters: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["feature", "improvement", "fix", "other"], description: "Category of the change" },
+          description: { type: "string", description: "One-line user-facing description of the change. Plain English, present tense (e.g. 'Gmail auto-drafts now scan the last 7 days of inbox')." },
+          version_bump: { type: "string", enum: ["patch", "minor", "major"], description: "Optional. How to bump the version when creating a new draft (defaults to patch)." },
+        },
+        required: ["type", "description"],
+      },
+    },
+  },
+];
+
+function bumpVersion(version: string, kind: "patch" | "minor" | "major" = "patch"): string {
+  const parts = version.replace(/^v/i, "").split(".").map((n) => parseInt(n, 10));
+  while (parts.length < 3) parts.push(0);
+  let [maj, min, pat] = parts.map((n) => (isNaN(n) ? 0 : n));
+  if (kind === "major") { maj += 1; min = 0; pat = 0; }
+  else if (kind === "minor") { min += 1; pat = 0; }
+  else { pat += 1; }
+  return `${maj}.${min}.${pat}`;
+}
+
+async function executeReleaseTool(
+  toolName: string,
+  args: any,
+  supabaseAdmin: any,
+  userId: string,
+): Promise<any> {
+  if (toolName !== "log_release_change") return { error: "Unknown release tool" };
+  if (!userId) return { error: "Authentication required" };
+
+  // Admin check
+  const { data: isAdmin } = await supabaseAdmin.rpc("has_role", {
+    _user_id: userId,
+    _role: "admin",
+  });
+  if (!isAdmin) return { error: "Release logging requires admin permission" };
+
+  const { type, description, version_bump } = args || {};
+  if (!type || !description) return { error: "type and description are required" };
+
+  // Find current draft
+  const { data: drafts } = await supabaseAdmin
+    .from("releases")
+    .select("*")
+    .eq("status", "draft")
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  let release = drafts && drafts[0];
+
+  if (!release) {
+    // Determine next version from latest published
+    const { data: latestPub } = await supabaseAdmin
+      .from("releases")
+      .select("version")
+      .eq("status", "published")
+      .order("published_at", { ascending: false })
+      .limit(1);
+    const baseVersion = latestPub?.[0]?.version || "0.0.0";
+    const newVersion = bumpVersion(baseVersion, (version_bump as any) || "patch");
+
+    const { data: created, error: createErr } = await supabaseAdmin
+      .from("releases")
+      .insert({
+        version: newVersion,
+        title: "Draft",
+        summary: "",
+        changes: [],
+        status: "draft",
+        created_by: userId,
+      })
+      .select()
+      .single();
+    if (createErr) return { error: `Failed to create draft: ${createErr.message}` };
+    release = created;
+  }
+
+  const existingChanges = Array.isArray(release.changes) ? release.changes : [];
+  const updatedChanges = [...existingChanges, { type, description }];
+
+  const { error: updErr } = await supabaseAdmin
+    .from("releases")
+    .update({ changes: updatedChanges })
+    .eq("id", release.id);
+  if (updErr) return { error: `Failed to append change: ${updErr.message}` };
+
+  return {
+    success: true,
+    release_id: release.id,
+    version: release.version,
+    total_changes: updatedChanges.length,
+    message: `Added to draft release v${release.version} (${updatedChanges.length} change${updatedChanges.length === 1 ? "" : "s"} pending publication).`,
+  };
+}
 
 const EXEC_SUMMARY_TOOLS = [
   {
@@ -3455,6 +3564,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
     tools.push(...WORKSTREAM_TOOLS);
     // Executive summary document generation
     tools.push(...EXEC_SUMMARY_TOOLS);
+    // Release logging tool (admin-only enforced inside executor)
+    tools.push(...RELEASE_TOOLS);
     if (tools.length > 0) {
       requestBody.tools = tools;
     }
@@ -3605,6 +3716,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
       const analyticsToolNames = ["get_workstream_analytics", "get_recruitment_analytics", "get_team_activity_analytics", "get_operational_summary"];
       const workstreamMgmtToolNames = ["list_team_members", "create_workstream_card", "add_tasks_to_card", "update_workstream_card", "check_team_availability"];
       const execSummaryToolNames = ["generate_exec_summary_document"];
+      const releaseToolNames = ["log_release_change"];
       const toolResults: any[] = [];
 
       for (const tc of toolCalls) {
@@ -3657,6 +3769,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
               result = await executeWorkstreamTool(tc.function.name, args, supabaseAdmin, userId || "");
           } else if (execSummaryToolNames.includes(tc.function.name)) {
               result = await executeExecSummaryTool(tc.function.name, args, supabaseUrl, authHeader || "");
+          } else if (releaseToolNames.includes(tc.function.name)) {
+              result = await executeReleaseTool(tc.function.name, args, supabaseAdmin, userId || "");
           } else {
           }
           
