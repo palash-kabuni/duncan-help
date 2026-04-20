@@ -3392,6 +3392,8 @@ serve(async (req) => {
         systemContent += `\n\n## USER'S EMAIL WRITING STYLE (mimic this when drafting emails)\n${writingProfile.style_summary}\n\nCommon phrases this user uses:\n${JSON.stringify(writingProfile.common_phrases, null, 2)}\n\nWhen using draft_gmail_reply or draft_gmail_email, write in THIS style. Override the generic email composition rules ONLY where they conflict with the user's natural voice. The drafts go to Gmail Drafts — never auto-sent — so prioritise sounding like the user over generic professionalism.`;
       }
     }
+
+    if (mode === "briefing") {
       systemContent += `\n\nYou are generating a personalized briefing for ${userProfile?.display_name || "a team member"}. The briefing data includes a "since" field indicating when the last briefing was generated, and an "is_first_briefing" flag.
 
 **IMPORTANT CONTEXT**: If "since" is set, this is a CHECK-IN UPDATE — only highlight what has CHANGED or is NEW since that timestamp. Frame it as "Since your last check-in at [time]..." and focus on deltas. If "is_first_briefing" is true, give a full overview.
