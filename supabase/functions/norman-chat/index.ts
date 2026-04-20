@@ -110,6 +110,12 @@ When generating NDAs:
 - To send an NDA for e-signature (admin only), use send_nda_for_signature with the submission_id. This sends via DocuSign to the internal signer first, then the recipient.
 - Use send_nda_for_signature with dry_run=true to validate without actually sending.
 
+**Release Logging (Auto-capture for /whats-new)**:
+- Whenever the user describes shipping, fixing, improving, or releasing ANY user-facing change in conversation (e.g. "I just fixed X", "we shipped Y", "Z is now live"), IMMEDIATELY call log_release_change with the appropriate type and a clear one-line description. Do NOT ask for confirmation. Do NOT ask which release. Just log it.
+- After logging, briefly mention you added it to the current draft release. Continue with whatever else the user asked.
+- Only an admin can call this; if it fails with a permission error, mention that release logging requires admin and move on.
+- Do NOT log internal refactors, code-only changes, or anything end-users wouldn't notice.
+
 Always be aware that you are the central intelligence layer coordinating across all company tools and data.`;
 
 const CALENDAR_TOOLS = [
