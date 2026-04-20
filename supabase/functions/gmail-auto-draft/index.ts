@@ -154,11 +154,11 @@ async function processUser(
   const myEmail = tokenData.emailAddress || "";
   const myEmailLower = myEmail.toLowerCase();
 
-  // Build query: unread inbox messages received after last run (or last 24h on first run)
-  const sinceTs = profile.auto_draft_last_run_at
-    ? Math.floor(new Date(profile.auto_draft_last_run_at).getTime() / 1000)
-    : Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000);
-  const query = `is:unread in:inbox after:${sinceTs} -label:${DUNCAN_LABEL.replace("/", "-")}`;
+  // Fixed 7-day rolling lookback. Duncan label + daily cap prevent re-drafting,
+  // so we don't gate by last-run timestamp (that caused the window to shrink to ~10 min).
+  const sinceTs = Math.floor((Date.now() - 7 * 24 * 60 * 60 * 1000) / 1000);
+  const query = `is:unread in:inbox after:${sinceTs} -label:"${DUNCAN_LABEL}"`;
+  console.log(`User ${userId} query: ${query}`);
 
   const listRes = await fetch(
     `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${MAX_DRAFTS_PER_RUN}&q=${encodeURIComponent(query)}`,
@@ -170,6 +170,7 @@ async function processUser(
     return stats;
   }
   const { messages = [] } = await listRes.json();
+  console.log(`User ${userId} Gmail returned ${messages.length} messages`);
 
   for (const m of messages.slice(0, MAX_DRAFTS_PER_RUN)) {
     if (draftsToday >= MAX_DRAFTS_PER_DAY) break;
