@@ -3381,7 +3381,17 @@ serve(async (req) => {
       }
     }
 
-    if (mode === "briefing") {
+    // Inject user's Gmail writing-style profile if it exists
+    if (userId) {
+      const { data: writingProfile } = await supabaseAdmin
+        .from("gmail_writing_profiles")
+        .select("style_summary, common_phrases, sample_replies")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (writingProfile && writingProfile.style_summary) {
+        systemContent += `\n\n## USER'S EMAIL WRITING STYLE (mimic this when drafting emails)\n${writingProfile.style_summary}\n\nCommon phrases this user uses:\n${JSON.stringify(writingProfile.common_phrases, null, 2)}\n\nWhen using draft_gmail_reply or draft_gmail_email, write in THIS style. Override the generic email composition rules ONLY where they conflict with the user's natural voice. The drafts go to Gmail Drafts — never auto-sent — so prioritise sounding like the user over generic professionalism.`;
+      }
+    }
       systemContent += `\n\nYou are generating a personalized briefing for ${userProfile?.display_name || "a team member"}. The briefing data includes a "since" field indicating when the last briefing was generated, and an "is_first_briefing" flag.
 
 **IMPORTANT CONTEXT**: If "since" is set, this is a CHECK-IN UPDATE — only highlight what has CHANGED or is NEW since that timestamp. Frame it as "Since your last check-in at [time]..." and focus on deltas. If "is_first_briefing" is true, give a full overview.
@@ -3587,7 +3597,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
       const meetingToolNames = ["fetch_plaud_meetings", "list_meetings", "get_meeting", "analyze_meetings", "search_meeting_transcripts"];
       const azureDevOpsToolNames = ["list_azure_devops_projects", "query_azure_work_items", "get_azure_work_item", "search_synced_work_items"];
       const xeroToolNames = ["list_xero_invoices", "get_xero_invoice", "approve_xero_invoice_payment", "search_xero_contacts", "create_xero_invoice", "list_xero_bank_accounts", "create_xero_expense"];
-      const gmailToolNames = ["list_gmail_emails", "search_gmail", "read_gmail_email", "send_gmail_email"];
+      const gmailToolNames = ["list_gmail_emails", "search_gmail", "read_gmail_email", "send_gmail_email", "read_gmail_thread", "draft_gmail_reply", "draft_gmail_email"];
       const driveToolNames = ["drive_list_files", "drive_search", "drive_get_content"];
       const analyticsToolNames = ["get_workstream_analytics", "get_recruitment_analytics", "get_team_activity_analytics", "get_operational_summary"];
       const workstreamMgmtToolNames = ["list_team_members", "create_workstream_card", "add_tasks_to_card", "update_workstream_card", "check_team_availability"];
