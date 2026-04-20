@@ -151,7 +151,8 @@ async function processUser(
     return stats;
   }
   const headers = { Authorization: `Bearer ${tokenData.accessToken}` };
-  const myEmail = (tokenData.emailAddress || "").toLowerCase();
+  const myEmail = tokenData.emailAddress || "";
+  const myEmailLower = myEmail.toLowerCase();
 
   // Build query: unread inbox messages received after last run (or last 24h on first run)
   const sinceTs = profile.auto_draft_last_run_at
@@ -195,7 +196,7 @@ async function processUser(
       }
 
       // Skip self-sent
-      if (from.toLowerCase().includes(myEmail)) { stats.skipped++; continue; }
+      if (from.toLowerCase().includes(myEmailLower)) { stats.skipped++; continue; }
 
       // Skip automated senders
       if (DENY_SENDER_PATTERNS.some((re) => re.test(from))) { stats.skipped++; continue; }
@@ -246,28 +247,51 @@ async function processUser(
       }
 
       // Generate reply
-      const reply = await generateReply(profile.style_summary, threadCtx, myEmail);
+      const reply = await generateReply(profile.style_summary, threadCtx, myEmailLower);
       if (!reply) { stats.errors++; continue; }
 
       const draftBodyText = AUTO_DRAFT_PREFIX + reply;
-      const draftBodyHtml = draftBodyText.replace(/\n/g, "<br>");
+      const draftBodyHtml = draftBodyText
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\n/g, "<br>");
 
       const replySubject = subject.startsWith("Re:") ? subject : `Re: ${subject}`;
       const newRefs = referencesHeader
         ? `${referencesHeader} ${messageIdHeader}`.trim()
         : messageIdHeader;
 
-      const headerLines = [
+      const boundary = `=_duncan_${crypto.randomUUID().replace(/-/g, "")}`;
+      const mimeMessage = [
         `From: ${myEmail}`,
         `To: ${from}`,
         `Subject: ${replySubject}`,
         messageIdHeader ? `In-Reply-To: ${messageIdHeader}` : "",
         newRefs ? `References: ${newRefs}` : "",
         "MIME-Version: 1.0",
-        'Content-Type: text/html; charset="UTF-8"',
+        `Content-Type: multipart/alternative; boundary="${boundary}"`,
         "",
-        draftBodyHtml,
-      ].filter(Boolean).join("\r\n");
+        `--${boundary}`,
+        'Content-Type: text/plain; charset="UTF-8"',
+        "Content-Transfer-Encoding: 7bit",
+        "",
+        draftBodyText,
+        "",
+        `--${boundary}`,
+        'Content-Type: text/html; charset="UTF-8"',
+        "Content-Transfer-Encoding: 7bit",
+        "",
+        `<div>${draftBodyHtml}</div>`,
+        "",
+        `--${boundary}--`,
+        "",
+      ].filter((l, i, arr) => {
+        // keep all except blank header lines that came from missing optional headers
+        if (l !== "") return true;
+        // keep blank line after headers (before first boundary) and inside parts
+        return true;
+      }).join("\r\n");
 
       const draftRes = await fetch(
         "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
@@ -275,7 +299,7 @@ async function processUser(
           method: "POST",
           headers: { ...headers, "Content-Type": "application/json" },
           body: JSON.stringify({
-            message: { raw: base64url(headerLines), threadId: msg.threadId },
+            message: { raw: base64url(mimeMessage), threadId: msg.threadId },
           }),
         },
       );
