@@ -3685,6 +3685,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
               result = await executeWorkstreamTool(tc.function.name, args, supabaseAdmin, userId || "");
           } else if (execSummaryToolNames.includes(tc.function.name)) {
               result = await executeExecSummaryTool(tc.function.name, args, supabaseUrl, authHeader || "");
+          } else if (releaseToolNames.includes(tc.function.name)) {
+              result = await executeReleaseTool(tc.function.name, args, supabaseAdmin, userId || "");
           } else {
           }
           
