@@ -2091,13 +2091,22 @@ async function executeGmailTool(
     }
 
     case "send_gmail_email": {
-      // already handled above — keep this branch for fallthrough safety
-      break;
+      if (!args.confirmed) {
+        return { error: "Sending an email requires explicit user confirmation. Show the user the draft (to, subject, body) and ask them to confirm before calling with confirmed=true." };
+      }
+      const data = await callGmailApi("send", {
+        to: args.to,
+        cc: args.cc || "",
+        bcc: args.bcc || "",
+        subject: args.subject,
+        body: args.body,
+      });
+      return {
+        success: true,
+        message: `✅ Email sent successfully to ${args.to}.`,
+        messageId: data.messageId,
+      };
     }
-
-    default:
-      // handled below
-      break;
   }
 
   // Extra cases (drafts/threads) — declared after switch for cleanliness
