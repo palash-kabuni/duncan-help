@@ -973,6 +973,25 @@ const GOOGLE_DRIVE_TOOLS = [
   },
 ];
 
+const RELEASE_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "log_release_change",
+      description: "Append a user-facing change to the current rolling DRAFT release on /whats-new. Call this PROACTIVELY (without asking) whenever the user mentions they shipped a feature, fixed a bug, made an improvement, or completed any change end-users will notice. If no draft release exists, one is auto-created with an auto-incremented version. Do NOT ask for confirmation — just log it. Briefly confirm to the user it was added.",
+      parameters: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["feature", "improvement", "fix", "other"], description: "Category of the change" },
+          description: { type: "string", description: "One-line user-facing description of the change. Plain English, present tense (e.g. 'Gmail auto-drafts now scan the last 7 days of inbox')." },
+          version_bump: { type: "string", enum: ["patch", "minor", "major"], description: "Optional. How to bump the version when creating a new draft (defaults to patch)." },
+        },
+        required: ["type", "description"],
+      },
+    },
+  },
+];
+
 const EXEC_SUMMARY_TOOLS = [
   {
     type: "function",
