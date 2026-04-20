@@ -1,13 +1,15 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import {
   GitBranch, AlertTriangle,
-  Clock, RefreshCw, Loader2, Activity,
+  Clock, RefreshCw, Loader2, Activity, Search, X,
 } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { fastApi, withFastApi } from "@/lib/fastApiClient";
 import { toast } from "sonner";
@@ -54,6 +56,54 @@ const Operations = () => {
   const { data: workItems = [], isLoading: wiLoading } = useWorkItems();
   const { data: syncLogs = [], isLoading: slLoading } = useSyncLogs();
   const [syncing, setSyncing] = useState<string | null>(null);
+
+  // Filters
+  const [searchQuery, setSearchQuery] = useState("");
+  const [stateFilter, setStateFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [assigneeFilter, setAssigneeFilter] = useState<string>("all");
+  const [projectFilter, setProjectFilter] = useState<string>("all");
+
+  // Unique filter options
+  const filterOptions = useMemo(() => {
+    const states = new Set<string>();
+    const types = new Set<string>();
+    const assignees = new Set<string>();
+    const projects = new Set<string>();
+    workItems.forEach((w: any) => {
+      if (w.state) states.add(w.state);
+      if (w.work_item_type) types.add(w.work_item_type);
+      if (w.assigned_to) assignees.add(w.assigned_to);
+      if (w.project_name) projects.add(w.project_name);
+    });
+    return {
+      states: Array.from(states).sort(),
+      types: Array.from(types).sort(),
+      assignees: Array.from(assignees).sort(),
+      projects: Array.from(projects).sort(),
+    };
+  }, [workItems]);
+
+  const filteredItems = useMemo(() => {
+    return workItems.filter((w: any) => {
+      if (stateFilter !== "all" && w.state !== stateFilter) return false;
+      if (typeFilter !== "all" && w.work_item_type !== typeFilter) return false;
+      if (assigneeFilter !== "all") {
+        if (assigneeFilter === "__unassigned__" ? w.assigned_to : w.assigned_to !== assigneeFilter) return false;
+      }
+      if (projectFilter !== "all" && w.project_name !== projectFilter) return false;
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        if (!w.title?.toLowerCase().includes(q) && !String(w.external_id).includes(q)) return false;
+      }
+      return true;
+    });
+  }, [workItems, stateFilter, typeFilter, assigneeFilter, projectFilter, searchQuery]);
+
+  const hasActiveFilters = stateFilter !== "all" || typeFilter !== "all" || assigneeFilter !== "all" || projectFilter !== "all" || searchQuery !== "";
+  const clearFilters = () => {
+    setStateFilter("all"); setTypeFilter("all"); setAssigneeFilter("all"); setProjectFilter("all"); setSearchQuery("");
+  };
 
   const handleSync = async (type: "azure") => {
     setSyncing(type);
@@ -135,7 +185,7 @@ const Operations = () => {
             </TabsList>
 
             {/* Work Items */}
-            <TabsContent value="work-items">
+            <TabsContent value="work-items" className="space-y-3">
               {wiLoading ? (
                 <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
               ) : workItems.length === 0 ? (
@@ -144,34 +194,98 @@ const Operations = () => {
                   <p className="text-sm">No work items synced yet. Connect Azure DevOps and run a sync.</p>
                 </div>
               ) : (
-                <div className="rounded-xl border border-border bg-card overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border bg-secondary/30">
-                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">ID</th>
-                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Title</th>
-                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">State</th>
-                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Type</th>
-                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Assigned To</th>
-                        <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Project</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {workItems.map((item: any) => (
-                        <tr key={item.id} className="border-b border-border/50 hover:bg-secondary/20 transition-colors">
-                          <td className="px-4 py-3 font-mono text-xs text-muted-foreground">#{item.external_id}</td>
-                          <td className="px-4 py-3 font-medium text-foreground max-w-xs truncate">{item.title}</td>
-                          <td className="px-4 py-3">
-                            <Badge variant="outline" className={stateColors[item.state] || ""}>{item.state}</Badge>
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground">{item.work_item_type}</td>
-                          <td className="px-4 py-3 text-muted-foreground">{item.assigned_to || "—"}</td>
-                          <td className="px-4 py-3 text-xs font-mono text-muted-foreground">{item.project_name}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <>
+                  {/* Filter bar */}
+                  <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card p-3">
+                    <div className="relative flex-1 min-w-[180px]">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                      <Input
+                        placeholder="Search title or #ID…"
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        className="h-9 pl-8 text-xs"
+                      />
+                    </div>
+                    <Select value={stateFilter} onValueChange={setStateFilter}>
+                      <SelectTrigger className="h-9 w-[130px] text-xs"><SelectValue placeholder="State" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All states</SelectItem>
+                        {filterOptions.states.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Select value={typeFilter} onValueChange={setTypeFilter}>
+                      <SelectTrigger className="h-9 w-[130px] text-xs"><SelectValue placeholder="Type" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All types</SelectItem>
+                        {filterOptions.types.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+                      <SelectTrigger className="h-9 w-[160px] text-xs"><SelectValue placeholder="Assignee" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All assignees</SelectItem>
+                        <SelectItem value="__unassigned__">Unassigned</SelectItem>
+                        {filterOptions.assignees.map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    {filterOptions.projects.length > 1 && (
+                      <Select value={projectFilter} onValueChange={setProjectFilter}>
+                        <SelectTrigger className="h-9 w-[150px] text-xs"><SelectValue placeholder="Project" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All projects</SelectItem>
+                          {filterOptions.projects.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {hasActiveFilters && (
+                      <button
+                        onClick={clearFilters}
+                        className="flex items-center gap-1 h-9 px-2.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                      >
+                        <X className="h-3.5 w-3.5" /> Clear
+                      </button>
+                    )}
+                    <span className="ml-auto text-xs font-mono text-muted-foreground">
+                      {filteredItems.length} of {workItems.length}
+                    </span>
+                  </div>
+
+                  {filteredItems.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground rounded-xl border border-border bg-card">
+                      <Search className="h-8 w-8 mx-auto mb-3 opacity-30" />
+                      <p className="text-sm">No work items match these filters.</p>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-border bg-card overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border bg-secondary/30">
+                            <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">ID</th>
+                            <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Title</th>
+                            <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">State</th>
+                            <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Type</th>
+                            <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Assigned To</th>
+                            <th className="text-left px-4 py-3 text-xs font-mono uppercase text-muted-foreground">Project</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredItems.map((item: any) => (
+                            <tr key={item.id} className="border-b border-border/50 hover:bg-secondary/20 transition-colors">
+                              <td className="px-4 py-3 font-mono text-xs text-muted-foreground">#{item.external_id}</td>
+                              <td className="px-4 py-3 font-medium text-foreground max-w-xs truncate">{item.title}</td>
+                              <td className="px-4 py-3">
+                                <Badge variant="outline" className={stateColors[item.state] || ""}>{item.state}</Badge>
+                              </td>
+                              <td className="px-4 py-3 text-muted-foreground">{item.work_item_type}</td>
+                              <td className="px-4 py-3 text-muted-foreground">{item.assigned_to || "—"}</td>
+                              <td className="px-4 py-3 text-xs font-mono text-muted-foreground">{item.project_name}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
               )}
             </TabsContent>
 
