@@ -364,49 +364,16 @@ export default function CardDetailModal({ cardId, onClose }: CardDetailModalProp
                   {/* Tasks Tab */}
                   <TabsContent value="tasks" className="space-y-2">
                     {tasks.map(task => (
-                      <div key={task.id} className="flex items-start gap-2 group rounded-lg border border-border/60 bg-card/50 p-2.5">
-                        <button onClick={() => handleToggleTask(task)} className="mt-0.5 shrink-0">
-                          {task.completed ? (
-                            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                          ) : (
-                            <Circle className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors" />
-                          )}
-                        </button>
-                        <div className="flex-1 min-w-0">
-                          <span className={`text-sm ${task.completed ? "line-through text-muted-foreground" : "text-foreground"}`}>
-                            {task.title}
-                          </span>
-                          <div className="flex items-center gap-2 mt-1 flex-wrap">
-                            {(task.assignees || []).map(a => (
-                              <Badge key={a.user_id} variant="secondary" className="text-[10px] py-0 px-1.5">
-                                {(a.display_name || "?").split(" ")[0]}
-                              </Badge>
-                            ))}
-                            {task.due_date && (
-                              <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                                <CalendarDays className="h-2.5 w-2.5" /> {format(new Date(task.due_date), "MMM d")}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <div className="w-[120px]">
-                            <MultiAssigneeSelect
-                              users={users || []}
-                              selectedIds={(task.assignees || []).map(a => a.user_id)}
-                              onChange={(ids) => updateTaskAssignees.mutate({ taskId: task.id, cardId: task.card_id, userIds: ids })}
-                              compact
-                              placeholder="Assign"
-                            />
-                          </div>
-                          <button
-                            onClick={() => deleteTask.mutate({ id: task.id, card_id: task.card_id })}
-                            className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive transition-colors"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </div>
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        users={users || []}
+                        currentUserId={user?.id}
+                        onToggle={() => handleToggleTask(task)}
+                        onDelete={() => deleteTask.mutate({ id: task.id, card_id: task.card_id })}
+                        onUpdateAssignees={(ids) => updateTaskAssignees.mutate({ taskId: task.id, cardId: task.card_id, userIds: ids })}
+                        onUpdateDueDate={(d) => updateTask.mutate({ id: task.id, card_id: task.card_id, due_date: d })}
+                      />
                     ))}
 
                     {/* Add task input */}

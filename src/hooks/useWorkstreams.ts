@@ -528,6 +528,76 @@ export function useDeleteComment() {
   });
 }
 
+// Task comment types + hooks
+export interface WorkstreamTaskComment {
+  id: string;
+  task_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  user_name?: string;
+}
+
+export function useTaskComments(taskId: string | null) {
+  return useQuery({
+    queryKey: ["workstream-task-comments", taskId],
+    enabled: !!taskId,
+    queryFn: async () => {
+      if (!taskId) return [];
+      const { data, error } = await supabase
+        .from("workstream_task_comments")
+        .select("*")
+        .eq("task_id", taskId)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      const rows = data || [];
+      if (rows.length === 0) return [] as WorkstreamTaskComment[];
+      const userIds = [...new Set(rows.map(r => r.user_id))];
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("user_id, display_name")
+        .in("user_id", userIds);
+      const nameMap: Record<string, string> = (profiles || []).reduce(
+        (acc, p) => ({ ...acc, [p.user_id]: p.display_name || "Unknown" }),
+        {},
+      );
+      return rows.map(r => ({ ...r, user_name: nameMap[r.user_id] })) as WorkstreamTaskComment[];
+    },
+  });
+}
+
+export function useAddTaskComment() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  return useMutation({
+    mutationFn: async (input: { task_id: string; card_id: string; content: string }) => {
+      if (!user) throw new Error("Not authenticated");
+      const { error } = await supabase
+        .from("workstream_task_comments")
+        .insert({ task_id: input.task_id, content: input.content, user_id: user.id });
+      if (error) throw error;
+    },
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["workstream-task-comments", vars.task_id] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function useDeleteTaskComment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, task_id }: { id: string; task_id: string }) => {
+      const { error } = await supabase.from("workstream_task_comments").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["workstream-task-comments", vars.task_id] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
 // Accept or decline an assignment
 export function useRespondToAssignment() {
   const qc = useQueryClient();
