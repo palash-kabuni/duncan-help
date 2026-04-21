@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { isCEO } from "@/lib/ceoAccess";
 import AppLayout from "@/components/AppLayout";
@@ -13,6 +13,7 @@ import PulseBanner from "@/components/ceo/PulseBanner";
 import RiskRadar from "@/components/ceo/RiskRadar";
 import LeadershipGrid from "@/components/ceo/LeadershipGrid";
 import TldrPanel from "@/components/ceo/TldrPanel";
+import CoverageGaps from "@/components/ceo/CoverageGaps";
 
 const Section = ({ n, title, children }: { n: number; title: string; children: React.ReactNode }) => (
   <section className="space-y-3">
@@ -89,6 +90,20 @@ const CEOBriefing = () => {
 
             {type === "morning" && p.tldr && <TldrPanel tldr={p.tldr} />}
 
+            {type === "morning" && (
+              <CoverageGaps gaps={p.coverage_gaps} totalPriorities={6} />
+            )}
+
+            {type === "morning" && Array.isArray(briefing.workstream_scores) && briefing.workstream_scores.length === 0 && (
+              <div className="rounded-lg border border-dashed border-border bg-card p-6 text-center">
+                <p className="text-sm text-muted-foreground">
+                  No workstreams configured in Duncan — add cards under{" "}
+                  <Link to="/workstreams" className="text-primary underline">Workstreams</Link>{" "}
+                  to enable scoring.
+                </p>
+              </div>
+            )}
+
             {type === "morning" && Array.isArray(briefing.workstream_scores) && briefing.workstream_scores.length > 0 && (
               <Section n={0} title="Workstream Scorecard">
                 <div className="rounded-lg border border-border bg-card overflow-hidden">
@@ -148,7 +163,7 @@ const CEOBriefing = () => {
                   <div className="space-y-3">
                     {(p.what_changed || []).map((g: any, i: number) => (
                       <div key={i} className="rounded-lg border border-border bg-card p-4 space-y-2">
-                        <h4 className="text-sm font-semibold text-foreground">{g.function}</h4>
+                        <h4 className="text-sm font-semibold text-foreground">{g.function_area || g.function}</h4>
                         {g.moved && <p className="text-xs text-muted-foreground"><span className="text-green-500 font-mono">MOVED:</span> {g.moved}</p>}
                         {g.did_not_move && <p className="text-xs text-muted-foreground"><span className="text-yellow-500 font-mono">STALLED:</span> {g.did_not_move}</p>}
                         {g.needs_attention && <p className="text-xs text-muted-foreground"><span className="text-red-500 font-mono">ATTENTION:</span> {g.needs_attention}</p>}

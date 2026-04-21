@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Plus, Search, Filter, LayoutGrid, List, Loader2,
@@ -23,13 +24,29 @@ type ViewMode = "board" | "list";
 
 const Workstreams = () => {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [viewMode, setViewMode] = useState<ViewMode>("board");
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterPriority] = useState<string>("all");
   const [filterAssignee, setFilterAssignee] = useState<string>("all");
   const [showCreate, setShowCreate] = useState(false);
+  const [prefillTag, setPrefillTag] = useState<string | undefined>(undefined);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+
+  // Auto-open Create dialog when navigated from CEO Coverage Gap
+  useEffect(() => {
+    const tag = searchParams.get("prefill_tag");
+    if (tag) {
+      setPrefillTag(tag);
+      setShowCreate(true);
+      // clear params so reopening the dialog later doesn't auto-fill
+      const next = new URLSearchParams(searchParams);
+      next.delete("prefill_tag");
+      next.delete("prefill_priority");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const { data: users } = useUserProfiles();
 
@@ -194,7 +211,11 @@ const Workstreams = () => {
         </div>
 
         {/* Modals */}
-        <CreateCardDialog open={showCreate} onOpenChange={setShowCreate} />
+        <CreateCardDialog
+          open={showCreate}
+          onOpenChange={(v) => { setShowCreate(v); if (!v) setPrefillTag(undefined); }}
+          prefillTag={prefillTag}
+        />
         <CardDetailModal cardId={selectedCardId} onClose={() => setSelectedCardId(null)} />
       </main>
     </AppLayout>

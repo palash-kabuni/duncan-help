@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plus, CalendarDays, Tag, User, Flag } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useCreateCard, useUserProfiles, type CardStatus, type CardPriority } from "@/hooks/useWorkstreams";
 import MultiAssigneeSelect from "./MultiAssigneeSelect";
 
-export default function CreateCardDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+interface Props {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  prefillTag?: string;
+}
+
+export default function CreateCardDialog({ open, onOpenChange, prefillTag }: Props) {
   const createCard = useCreateCard();
   const { data: users } = useUserProfiles();
   const [title, setTitle] = useState("");
@@ -19,6 +25,14 @@ export default function CreateCardDialog({ open, onOpenChange }: { open: boolean
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState("");
   const [projectTag, setProjectTag] = useState("");
+
+  // Apply prefill when dialog opens with a suggested tag (from CEO Coverage Gaps)
+  useEffect(() => {
+    if (open && prefillTag) {
+      setProjectTag(prefillTag);
+      setTitle((t) => t || prefillTag);
+    }
+  }, [open, prefillTag]);
 
   const reset = () => {
     setTitle(""); setDescription(""); setStatus("amber");
