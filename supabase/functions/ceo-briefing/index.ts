@@ -444,14 +444,21 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       );
     }
     // 2. Ensure coverage_gaps reflects actual missing priorities (server-authoritative)
+    //    + enrich with meeting_priority_signals to flag implicit (untracked) work.
     parsed.payload = parsed.payload || {};
     const missing = coverage_report.filter((c) => c.status === "missing");
     const covered = coverage_report.filter((c) => c.status === "covered");
     const modelGaps = Array.isArray(parsed.payload.coverage_gaps) ? parsed.payload.coverage_gaps : [];
+    const signalsByPriority = new Map(
+      meeting_priority_signals.map((s) => [s.priority_id, s])
+    );
     parsed.payload.coverage_gaps = missing.map((m) => {
       const fromModel = modelGaps.find((g: any) =>
         (g?.priority || "").toLowerCase().includes(m.priority.toLowerCase().split("—")[0].trim().slice(0, 12))
       );
+      const sig = signalsByPriority.get(m.priority_id);
+      const hasSignal = !!(sig && sig.mentions.length > 0);
+      const signalSources = hasSignal ? sig!.mentions.map((x) => x.meeting_title).slice(0, 5) : [];
       return {
         priority_id: m.priority_id,
         priority: m.priority,
@@ -459,6 +466,15 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
         consequence_if_unowned: fromModel?.consequence_if_unowned || "No accountable owner means no progress and no escalation path — this priority will silently slip.",
         recommended_owner: fromModel?.recommended_owner || m.expected_owner,
         recommended_workstream_name: fromModel?.recommended_workstream_name || m.priority.split("—")[0].trim(),
+        // Implicit-coverage fields (server-authoritative)
+        current_signal: hasSignal
+          ? (fromModel?.current_signal || `Discussed in ${sig!.mentions.length} recent meeting${sig!.mentions.length === 1 ? "" : "s"} but no formal workstream exists.`)
+          : null,
+        signal_sources: signalSources,
+        signal_status: hasSignal ? ("active_but_untracked" as const) : ("silent" as const),
+        recommended_action: hasSignal
+          ? "Formalise into a workstream — work is already happening but invisible to Duncan."
+          : "No activity detected anywhere — assign owner immediately.",
       };
     });
 
