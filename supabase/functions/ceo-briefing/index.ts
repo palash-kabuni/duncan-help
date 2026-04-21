@@ -677,6 +677,7 @@ Deno.serve(async (req) => {
       xero_overdue_contacts: xeroContacts,
       integration_audit_24h: auditLogs,
       team_directory: profiles,
+      domain_file_review,
       previous_briefing: (prev as any)?.[0] ?? null,
     };
 
