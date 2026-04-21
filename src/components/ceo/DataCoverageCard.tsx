@@ -228,6 +228,73 @@ export default function DataCoverageCard({
           <p className="text-[11px] text-muted-foreground italic">{audit.cap_reason}</p>
         </div>
       )}
+
+      {sortedRecs.length > 0 && (
+        <div className="border-t border-border">
+          <div className="px-4 py-3 border-b border-border bg-muted/20 flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <ShoppingBag className="h-3.5 w-3.5 text-primary" />
+              <h4 className="text-sm font-semibold text-foreground">Files Duncan is asking for</h4>
+            </div>
+            {missingArtifactsSummary && (
+              <p className="text-[11px] font-mono text-muted-foreground">
+                {missingArtifactsSummary.total} files would unlock board-grade advice ·{" "}
+                <span className="text-red-600 dark:text-red-400">{missingArtifactsSummary.critical} critical</span> ·{" "}
+                <span className="text-orange-600 dark:text-orange-400">{missingArtifactsSummary.high} high</span> ·{" "}
+                <span className="text-yellow-600 dark:text-yellow-400">{missingArtifactsSummary.medium} medium</span>
+              </p>
+            )}
+          </div>
+          <div className="divide-y divide-border">
+            {sortedRecs.map((rec, gi) => (
+              <div key={gi} className="px-4 py-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className={`text-[9px] font-mono uppercase ${prioBadgeClass(rec.priority)}`}>
+                    {rec.priority}
+                  </Badge>
+                  <span className="text-[11px] font-mono uppercase text-muted-foreground">
+                    {domainLabelById.get(rec.domain) || rec.domain}
+                  </span>
+                </div>
+                <div className="space-y-2 ml-1">
+                  {rec.artifacts.map((a, ai) => {
+                    const tag = domainPrefillById.get(rec.domain) || rec.domain;
+                    const href = `/projects?prefill_tag=${encodeURIComponent(tag)}${a.suggested_filename_pattern ? `&suggested_name=${encodeURIComponent(a.suggested_filename_pattern)}` : ""}`;
+                    return (
+                      <div key={ai} className="rounded border border-border bg-muted/20 p-2.5 space-y-1.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-xs font-medium text-foreground">{a.name}</p>
+                          <Button asChild size="sm" variant="outline" className="h-6 text-[10px] shrink-0">
+                            <Link to={href}>
+                              <Upload className="h-3 w-3 mr-1" />
+                              Upload
+                            </Link>
+                          </Button>
+                        </div>
+                        {a.why_duncan_needs_it && (
+                          <p className="text-[11px] text-muted-foreground">{a.why_duncan_needs_it}</p>
+                        )}
+                        {a.what_it_unlocks && (
+                          <p className="text-[11px] text-foreground/80 flex items-start gap-1.5">
+                            <Zap className="h-3 w-3 text-primary shrink-0 mt-0.5" />
+                            <span><span className="font-mono uppercase text-[9px] text-foreground/60">Unlocks: </span>{a.what_it_unlocks}</span>
+                          </p>
+                        )}
+                        {a.where_to_find_it && (
+                          <p className="text-[11px] italic text-muted-foreground flex items-start gap-1.5">
+                            <MapPin className="h-3 w-3 shrink-0 mt-0.5" />
+                            <span>{a.where_to_find_it}</span>
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
