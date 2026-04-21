@@ -13,6 +13,7 @@ import { toast } from "sonner";
 export default function SettingsProfile() {
   const { user } = useAuth();
   const { profile, isLoading, updateProfile, isSaving } = useProfile();
+  const { data: departments = [] } = useDepartments();
 
   const [form, setForm] = useState<Partial<ProfileData>>({
     display_name: "",
