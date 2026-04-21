@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callLLMWithFallback } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -98,14 +99,10 @@ For risks, identify any concerns, blockers, or issues raised.
 For decisions, note any decisions that were made during the meeting.
 For key_topics, list the main subjects discussed.`;
 
-        const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "gpt-4.1",
+        let aiData: any;
+        try {
+          aiData = await callLLMWithFallback({
+            workflow: "analyze-meeting",
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: `Meeting: "${meeting.title}" (${meeting.meeting_date || "date unknown"})\n\nTRANSCRIPT:\n${meeting.transcript.slice(0, 60000)}` },

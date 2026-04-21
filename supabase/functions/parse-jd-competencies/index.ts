@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ZipReader, BlobReader, TextWriter } from "https://deno.land/x/zipjs@v2.7.32/index.js";
+import { callLLMWithFallback } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -91,14 +92,10 @@ serve(async (req) => {
       userContent = `Extract all required competencies from this job description:\n\n${text}`;
     }
 
-    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4.1",
+    let aiData: any;
+    try {
+      aiData = await callLLMWithFallback({
+        workflow: "parse-jd-competencies",
         messages: [
           {
             role: "system",
@@ -136,19 +133,15 @@ Call the extract_competencies function with your results.`,
           },
         }],
         tool_choice: { type: "function", function: { name: "extract_competencies" } },
-      }),
-    });
-
-    if (!aiResponse.ok) {
-      const errText = await aiResponse.text();
-      console.error("AI error:", aiResponse.status, errText);
+      });
+    } catch (err: any) {
+      console.error("AI error:", err?.status, err?.message);
+      const status = err?.status === 429 ? 429 : err?.status === 402 ? 402 : 500;
       return new Response(JSON.stringify({ error: "AI parsing failed" }), {
-        status: aiResponse.status === 429 ? 429 : aiResponse.status === 402 ? 402 : 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const aiData = await aiResponse.json();
     const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
     if (!toolCall?.function?.arguments) {
       return new Response(JSON.stringify({ error: "AI did not return competencies" }), {
