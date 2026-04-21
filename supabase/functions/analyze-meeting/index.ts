@@ -170,17 +170,15 @@ For key_topics, list the main subjects discussed.`;
             }],
             tool_choice: { type: "function", function: { name: "analyze_meeting" } },
             max_tokens: 8192,
-          }),
-        });
-
-        if (!aiResponse.ok) {
-          console.error(`AI error for meeting ${id}:`, aiResponse.status);
-          if (aiResponse.status === 429) {
+          });
+        } catch (err: any) {
+          console.error(`AI error for meeting ${id}:`, err?.status, err?.message);
+          if (err?.status === 429) {
             return new Response(JSON.stringify({ error: "Rate limited. Try again shortly.", analyzed, failed }), {
               status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
-          if (aiResponse.status === 402) {
+          if (err?.status === 402) {
             return new Response(JSON.stringify({ error: "AI credits exhausted." }), {
               status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
@@ -189,7 +187,6 @@ For key_topics, list the main subjects discussed.`;
           continue;
         }
 
-        const aiData = await aiResponse.json();
         const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
         if (!toolCall?.function?.arguments) { failed++; continue; }
 
