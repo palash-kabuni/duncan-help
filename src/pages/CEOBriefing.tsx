@@ -32,6 +32,14 @@ const CEOBriefing = () => {
   const { user, loading: authLoading } = useAuth();
   const [type, setType] = useState<BriefingType>("morning");
   const { briefing, previous, loading, generating, generate } = useCEOBriefing(type);
+  const [sendOpen, setSendOpen] = useState(false);
+  const [showRouting, setShowRouting] = useState(false);
+  const [lastSent, setLastSent] = useState<string | null>(null);
+
+  // Load most recent send timestamp for this briefing
+  useState(() => {});
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffectLastSent(briefing?.id, setLastSent);
 
   if (authLoading) return null;
   if (!isCEO(user?.email)) return <Navigate to="/" replace />;
