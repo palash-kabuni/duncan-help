@@ -56,10 +56,26 @@ const CEOBriefing = () => {
             <p className="text-sm text-muted-foreground font-mono">{dateLabel}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={generate} disabled={generating} size="sm">
-              {generating ? <RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-2" />}
-              {briefing ? "Regenerate" : "Generate"}
-            </Button>
+            {job ? (
+              <div className="flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2 min-w-[280px]">
+                <RefreshCw className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="font-medium text-foreground truncate">{job.phase || "Working"}</span>
+                    <span className="font-mono tabular-nums text-muted-foreground">{job.progress}%</span>
+                  </div>
+                  <Progress value={job.progress} className="h-1 mt-1.5" />
+                </div>
+                <Button onClick={cancelPolling} size="icon" variant="ghost" className="h-6 w-6 shrink-0">
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ) : (
+              <Button onClick={generate} disabled={generating} size="sm">
+                {generating ? <RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-2" />}
+                {briefing ? "Regenerate" : "Generate"}
+              </Button>
+            )}
           </div>
         </div>
 
