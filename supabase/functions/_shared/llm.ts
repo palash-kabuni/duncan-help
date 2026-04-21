@@ -69,7 +69,8 @@ const OPENAI_MODEL_DEGRADE = "gpt-5-mini";
 // prompt; the per-workflow override below is consulted at call time.
 const PROVIDER_TIMEOUT_MS_DEFAULT = 60_000;
 const PROVIDER_TIMEOUT_OVERRIDES: Partial<Record<WorkflowName, number>> = {
-  "ceo-briefing": 180_000,
+  // 240s headroom — Sonnet 4.5 with 8192-token output runs 100-200s on the briefing prompt.
+  "ceo-briefing": 240_000,
 };
 function timeoutFor(workflow: WorkflowName): number {
   return PROVIDER_TIMEOUT_OVERRIDES[workflow] ?? PROVIDER_TIMEOUT_MS_DEFAULT;
