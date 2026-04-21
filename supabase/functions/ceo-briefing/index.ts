@@ -1857,6 +1857,66 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
 - Limit strings to one clause each.
 - JSON only. No markdown fences. No commentary.`;
 
+    const buildDeterministicFallback = () => {
+      const coveredCount = coverage_report.filter((c) => c.status === "covered").length;
+      const totalPriorities = PRIORITY_DEFINITIONS.length;
+      const missingCount = Math.max(0, totalPriorities - coveredCount);
+      const coverageRatio = totalPriorities > 0 ? coveredCount / totalPriorities : 0;
+      const prevRow = (prev as any)?.[0] ?? null;
+      const priorProb = typeof prevRow?.outcome_probability === "number" ? prevRow.outcome_probability : null;
+      const outcomeProbability = coverageRatio < 0.5 ? 30 : coverageRatio < 0.8 ? 55 : 75;
+      const executionScore = coverageRatio < 0.5 ? 35 : coverageRatio < 0.8 ? 55 : 72;
+      const trend = priorProb === null
+        ? "No prior briefing to compare."
+        : outcomeProbability > priorProb
+        ? `Probability up ${outcomeProbability - priorProb} pts vs previous briefing.`
+        : outcomeProbability < priorProb
+        ? `Probability down ${priorProb - outcomeProbability} pts vs previous briefing.`
+        : "Probability unchanged vs previous briefing.";
+
+      return {
+        trajectory: coverageRatio < 0.34 ? "Off Track" : coverageRatio < 0.5 ? "At Risk" : "Slight Drift",
+        outcome_probability: outcomeProbability,
+        execution_score: executionScore,
+        workstream_scores: [],
+        payload: {
+          tldr: {
+            on_track: coverageRatio >= 0.8
+              ? "Core priorities are visible, but Duncan had to compact the report."
+              : `No — Duncan can only see ${coveredCount} of ${totalPriorities} priorities clearly.`,
+            what_will_break: missingCount > 0
+              ? `${missingCount} priorities still lack reliable ownership or evidence.`
+              : "Execution signal is present, but report detail was reduced to ensure delivery.",
+            where_to_act: missingCount > 0
+              ? "Create owners and workstreams for the missing priorities first."
+              : "Review the highest-risk workstreams and confirm owners today.",
+          },
+          probability_movement: trend,
+          execution_explanation: `Deterministic fallback generated after model truncation. Coverage is ${coveredCount}/${totalPriorities}, so Duncan is using conservative headline scores.`,
+          what_changed: [],
+          risks: [],
+          friction: [],
+          leadership: [],
+          decisions: [],
+          automation: {
+            percent: Math.min(25, Math.max(0, Math.round((Number(automation_leverage?.company_usage?.active_users || 0) / 8) * 25))),
+            working: "Adoption signal is present in Duncan usage logs.",
+            manual: "Operational reporting still depends on missing ownership and artifacts.",
+            next: "Improve tracked workstreams and evidence coverage.",
+            blockers: "Model output truncation required deterministic fallback generation.",
+          },
+          automation_progress: {
+            recommendations: [],
+          },
+          document_intelligence: [],
+          missing_artifacts_recommendations: [],
+          brutal_truth: missingCount > 0
+            ? `Duncan had to ship a reduced briefing because the AI response was too large, and ${missingCount} priorities are still under-evidenced.`
+            : "Duncan had to ship a reduced briefing because the AI response was too large, but core execution signal remains visible.",
+        },
+      };
+    };
+
     let aiData: any;
     let parsed: any;
     try {
@@ -1903,7 +1963,8 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
               parsed = parseBriefingJson(aiData);
             } catch (finalRetryErr: any) {
               console.error("LLM ultra-compact retry error:", finalRetryErr?.status, finalRetryErr?.message);
-              throw new Error(`AI generation failed: ${String(finalRetryErr?.message || "").slice(0, 300)}`);
+              await updateJob({ phase: "Building deterministic fallback", progress: 76 });
+              parsed = buildDeterministicFallback();
             }
           } else {
             console.error("LLM compact retry error:", retryErr?.status, retryErr?.message);
