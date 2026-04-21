@@ -105,7 +105,7 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
       "probability_impact_pts": number
     }],
     "friction": [{"issue": string, "teams": string[], "consequence": string, "evidence_source": "workstream_card"|"meeting"|"email"|"coverage_gap"|"silent_leader"|"doc_conflict", "recommended_resolver": string, "auto_injected": boolean}],
-    "leadership": [{"name": string, "role": string, "output_vs_expectation": string, "risk_level": "low"|"medium"|"high", "blocking": string, "needs_support": string, "ceo_intervention_required": boolean, "signal_status": "active"|"low_signal"|"silent", "evidence_sources": [string]}],
+    "leadership": [{"name": string, "role": string, "output_vs_expectation": string, "risk_level": "low"|"medium"|"high", "blocking": string, "needs_support": string, "ceo_intervention_required": boolean, "signal_status": "active"|"low_signal"|"silent", "evidence_sources": [("meetings"|"workstreams"|"azure"|"releases"|"calendar"|"email"|"transcript")]}],
     "watchlist": [{"workstream": string, "owner": string, "status": string, "good_looks_like": string, "missing": string, "data_blind_spot": string|null, "auto_injected": boolean}],
     "decisions": [{"decision": string, "why_it_matters": string, "consequence": string, "who_to_involve": string, "confidence": "high"|"medium"|"low", "blocked_by_missing_data": string|null, "evidence_source": "coverage_gap"|"silent_priority"|"risk"|"friction"|"email"|"silent_leader"|"data_blind_spot"|"workstream"|null, "auto_injected": boolean}],
     "automation": {"percent": number, "working": string, "manual": string, "next": string, "blockers": string},
@@ -432,12 +432,17 @@ const LEADERSHIP_ROSTER: Array<{
 ];
 
 // Per-leader signal tally — deterministic, server-authoritative.
+// Sources: meetings, workstream cards, azure work items, releases, meeting transcripts,
+// google calendar events (organiser/attendee), and gmail (sent counts from email pulse).
 function computeLeaderSignalMap(input: {
   meetings: Array<{ title: string | null; participants?: string[] | null; summary: string | null; meeting_date: string | null }>;
   cards: Array<{ title: string | null; owner_id?: string | null }>;
   workItems: Array<{ title: string | null; assigned_to?: string | null }>;
   releases: Array<{ title: string | null; version: string | null; published_at: string | null }>;
   profiles: Array<{ display_name: string | null }>;
+  transcripts?: Array<{ title: string | null; meeting_date: string | null; transcript: string | null }>;
+  calendarEvents?: Array<{ summary: string | null; start: string | null; organiser_alias?: string | null; attendee_aliases?: string[] }>;
+  emailPulsePerMailbox?: Array<{ mailbox: string | null; sent_count?: number; emails_scanned?: number }>;
 }) {
   const norm = (s: string) => s.toLowerCase().trim();
   return LEADERSHIP_ROSTER.map((leader) => {
@@ -459,14 +464,48 @@ function computeLeaderSignalMap(input: {
     const azureHits = (input.workItems || []).filter((w) => matchAny(w.assigned_to) || matchAny(w.title));
     const releaseHits = (input.releases || []).filter((r) => matchAny(r.title));
 
+    // NEW: transcripts — leader name appears anywhere in transcript text
+    const transcriptHits = (input.transcripts || []).filter((t) => {
+      if (!t.transcript) return false;
+      const s = norm(String(t.transcript).slice(0, 8000));
+      return aliases.some((a) => s.includes(a));
+    });
+
+    // NEW: calendar — events where leader is organiser or attendee, or name in summary
+    const calendarHits = (input.calendarEvents || []).filter((e) => {
+      if (e.organiser_alias && aliases.includes(norm(e.organiser_alias))) return true;
+      if (Array.isArray(e.attendee_aliases) && e.attendee_aliases.some((a) => aliases.includes(norm(a)))) return true;
+      return matchAny(e.summary);
+    });
+
+    // NEW: gmail — match by mailbox local-part / display matching alias
+    const emailHits = (input.emailPulsePerMailbox || []).filter((m) => {
+      if (!m.mailbox) return false;
+      const local = norm(String(m.mailbox).split("@")[0] || "");
+      return aliases.some((a) => local.includes(a.split(" ")[0])) && (m.sent_count ?? 0) > 0;
+    });
+    const totalSent = emailHits.reduce((acc, m) => acc + (m.sent_count ?? 0), 0);
+
     const sources: string[] = [];
     if (meetingHits.length) sources.push("meetings");
     if (cardHits.length) sources.push("workstreams");
     if (azureHits.length) sources.push("azure");
     if (releaseHits.length) sources.push("releases");
+    if (calendarHits.length) sources.push("calendar");
+    if (emailHits.length) sources.push("email");
+    if (transcriptHits.length) sources.push("transcript");
 
-    const signal_status: "active" | "low_signal" | "silent" =
-      sources.length >= 2 ? "active" : sources.length === 1 ? "low_signal" : "silent";
+    const executionSources = [
+      cardHits.length ? 1 : 0,
+      azureHits.length ? 1 : 0,
+      releaseHits.length ? 1 : 0,
+    ].reduce((a, b) => a + b, 0);
+
+    // active = ≥3 total OR ≥2 execution; low_signal = 1-2 non-execution; silent = 0
+    let signal_status: "active" | "low_signal" | "silent";
+    if (sources.length === 0) signal_status = "silent";
+    else if (sources.length >= 3 || executionSources >= 2) signal_status = "active";
+    else signal_status = "low_signal";
 
     return {
       name: leader.name,
@@ -479,12 +518,18 @@ function computeLeaderSignalMap(input: {
         workstreams: cardHits.length,
         azure: azureHits.length,
         releases: releaseHits.length,
+        calendar: calendarHits.length,
+        email: totalSent,
+        transcript: transcriptHits.length,
       },
       sources_detail: {
         meetings: meetingHits.slice(0, 3).map((m) => ({ title: m.title, date: m.meeting_date })),
         workstreams: cardHits.slice(0, 3).map((c) => ({ title: c.title })),
         azure: azureHits.slice(0, 3).map((w) => ({ title: w.title })),
         releases: releaseHits.slice(0, 3).map((r) => ({ title: r.title, version: r.version })),
+        calendar: calendarHits.slice(0, 5).map((e) => ({ summary: e.summary, start: e.start })),
+        email: emailHits.slice(0, 5).map((m) => ({ mailbox: m.mailbox, sent_count: m.sent_count ?? 0 })),
+        transcript: transcriptHits.slice(0, 3).map((t) => ({ title: t.title, date: t.meeting_date })),
       },
     };
   });
@@ -1100,6 +1145,70 @@ Deno.serve(async (req) => {
       console.warn("ceo-email-pulse invoke failed:", e);
     }
 
+    // ─── Calendar events for leaders (last 7d) — best-effort, opt-in via google_calendar_tokens ─
+    let leaderCalendarEvents: Array<{ summary: string | null; start: string | null; organiser_alias?: string | null; attendee_aliases?: string[] }> = [];
+    try {
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: calTokenRows } = await admin
+        .from("google_calendar_tokens")
+        .select("user_id, access_token, refresh_token, token_expiry");
+      const calOwnerProfiles = await admin
+        .from("profiles")
+        .select("user_id, display_name")
+        .in("user_id", (calTokenRows || []).map((t: any) => t.user_id).filter(Boolean) as string[]);
+      const userIdToName = new Map<string, string>(
+        ((calOwnerProfiles.data as any[]) || []).map((p) => [p.user_id, String(p.display_name || "")]),
+      );
+      for (const tok of (calTokenRows as any[]) || []) {
+        const ownerName = userIdToName.get(tok.user_id) || "";
+        if (!ownerName) continue;
+        // refresh if needed
+        let accessToken = tok.access_token;
+        if (new Date(tok.token_expiry) <= new Date()) {
+          try {
+            const refreshRes = await fetch("https://oauth2.googleapis.com/token", {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams({
+                client_id: Deno.env.get("GOOGLE_CALENDAR_CLIENT_ID") || "",
+                client_secret: Deno.env.get("GOOGLE_CALENDAR_CLIENT_SECRET") || "",
+                refresh_token: tok.refresh_token,
+                grant_type: "refresh_token",
+              }),
+            });
+            if (refreshRes.ok) {
+              const newTok = await refreshRes.json();
+              accessToken = newTok.access_token;
+            } else continue;
+          } catch { continue; }
+        }
+        try {
+          const url = new URL("https://www.googleapis.com/calendar/v3/calendars/primary/events");
+          url.searchParams.set("timeMin", sevenDaysAgo);
+          url.searchParams.set("timeMax", new Date().toISOString());
+          url.searchParams.set("singleEvents", "true");
+          url.searchParams.set("orderBy", "startTime");
+          url.searchParams.set("maxResults", "100");
+          const evRes = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+          if (!evRes.ok) continue;
+          const evJson = await evRes.json();
+          for (const ev of (evJson.items || [])) {
+            const attendeeAliases = (ev.attendees || [])
+              .map((a: any) => String(a.displayName || a.email || "").split("@")[0])
+              .filter(Boolean);
+            leaderCalendarEvents.push({
+              summary: ev.summary || null,
+              start: ev.start?.dateTime || ev.start?.date || null,
+              organiser_alias: ev.organizer?.displayName || ev.organizer?.email?.split("@")[0] || ownerName,
+              attendee_aliases: [ownerName, ...attendeeAliases],
+            });
+          }
+        } catch { /* ignore single-leader cal failure */ }
+      }
+    } catch (e) {
+      console.warn("leader calendar fetch failed:", e);
+    }
+
     // ─── Leadership signal map (deterministic, per-leader tally) ───
     const leader_signal_map = computeLeaderSignalMap({
       meetings: meetings as any[],
@@ -1107,6 +1216,9 @@ Deno.serve(async (req) => {
       workItems: workItems as any[],
       releases: releases as any[],
       profiles: profiles as any[],
+      transcripts: recentTranscripts as any[],
+      calendarEvents: leaderCalendarEvents,
+      emailPulsePerMailbox: (email_pulse?.per_mailbox as any[]) || [],
     });
 
 
