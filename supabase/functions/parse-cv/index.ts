@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callLLMWithFallback } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -106,14 +107,12 @@ Deno.serve(async (req) => {
           },
         ];
 
-    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4.1",
+    let aiData: any;
+    try {
+      // CV files use OpenAI file-content blocks; force OpenAI to avoid Claude shape mismatch.
+      aiData = await callLLMWithFallback({
+        workflow: "parse-cv",
+        force_provider: "openai",
         messages: [
           {
             role: "system",
@@ -151,27 +150,24 @@ Always return the result by calling the extract_candidate_info function.`,
           },
         ],
         tool_choice: { type: "function", function: { name: "extract_candidate_info" } },
-      }),
-    });
+      });
+    } catch (err: any) {
+      console.error("AI gateway error:", err?.status, err?.message);
 
-    if (!aiResponse.ok) {
-      const errText = await aiResponse.text();
-      console.error("AI gateway error:", aiResponse.status, errText);
-
-      const failureReason = `AI parse failed: HTTP ${aiResponse.status}`;
+      const failureReason = `AI parse failed: HTTP ${err?.status || "unknown"}`;
       const { error: updErr } = await supabaseAdmin
         .from("candidates")
         .update({ status: "parse_failed", failure_reason: failureReason })
         .eq("id", candidate_id);
       if (updErr) console.error("Failed to update parse_failed:", updErr);
 
-      if (aiResponse.status === 429) {
+      if (err?.status === 429) {
         return new Response(
           JSON.stringify({ error: "Rate limit exceeded, please try again later." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      if (aiResponse.status === 402) {
+      if (err?.status === 402) {
         return new Response(
           JSON.stringify({ error: "AI credits exhausted. Please add credits in workspace settings." }),
           { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -184,7 +180,6 @@ Always return the result by calling the extract_candidate_info function.`,
       );
     }
 
-    const aiData = await aiResponse.json();
     console.log("AI response:", JSON.stringify(aiData));
 
     let parsedName: string | null = null;

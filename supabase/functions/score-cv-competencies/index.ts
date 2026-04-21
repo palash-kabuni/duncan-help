@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import JSZip from "https://esm.sh/jszip@3.10.1";
+import { callLLMWithFallback } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -219,14 +220,13 @@ ${competencyList}
 
 Call score_competencies with your assessment. Use keys competency_0, competency_1, etc. matching the order above.`;
 
-        const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "gpt-4.1",
+        let aiData: any;
+        try {
+          // DOCX path produces plain-text user messages (Claude-safe); PDF path uses OpenAI file blocks.
+          // Force OpenAI to keep file-content compatibility consistent.
+          aiData = await callLLMWithFallback({
+            workflow: "score-cv-competencies",
+            force_provider: "openai",
             messages: [{ role: "system", content: systemPrompt }, ...cvMessages],
             tools: [{
               type: "function",
@@ -237,18 +237,15 @@ Call score_competencies with your assessment. Use keys competency_0, competency_
               },
             }],
             tool_choice: { type: "function", function: { name: "score_competencies" } },
-          }),
-        });
-
-        if (!aiResponse.ok) {
-          const errText = await aiResponse.text();
-          console.error(`AI error for ${candidate.id}:`, aiResponse.status, errText);
-          if (aiResponse.status === 429) {
+          });
+        } catch (err: any) {
+          console.error(`AI error for ${candidate.id}:`, err?.status, err?.message);
+          if (err?.status === 429) {
             return new Response(JSON.stringify({ error: "Rate limited. Try again shortly.", scored, failed }), {
               status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
-          if (aiResponse.status === 402) {
+          if (err?.status === 402) {
             return new Response(JSON.stringify({ error: "AI credits exhausted." }), {
               status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
@@ -257,7 +254,6 @@ Call score_competencies with your assessment. Use keys competency_0, competency_
           continue;
         }
 
-        const aiData = await aiResponse.json();
         const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
         if (!toolCall?.function?.arguments) {
           failed++;

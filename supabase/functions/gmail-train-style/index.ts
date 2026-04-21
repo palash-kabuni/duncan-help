@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callLLMWithFallback } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -121,25 +122,17 @@ Output STRICT JSON matching this schema:
 
 Respond with ONLY the JSON, no markdown fences.`;
 
-    const llmRes = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${openaiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o",
-        messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" },
-        temperature: 0.3,
-      }),
+    const llmData = await callLLMWithFallback({
+      workflow: "gmail-train-style",
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      temperature: 0.3,
+      max_tokens: 4096,
     });
-    if (!llmRes.ok) {
-      const err = await llmRes.text();
-      throw new Error(`LLM call failed: ${err}`);
-    }
-    const llmData = await llmRes.json();
-    const profileJson = JSON.parse(llmData.choices[0].message.content);
+    const rawContent = llmData.choices?.[0]?.message?.content || "{}";
+    // Strip optional markdown fences from Claude/OpenAI responses
+    const cleaned = rawContent.replace(/^```json\s*|\s*```$/g, "").trim();
+    const profileJson = JSON.parse(cleaned);
 
     // 4. Persist
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
