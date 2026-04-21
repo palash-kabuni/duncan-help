@@ -531,6 +531,98 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       }
     }
 
+    // 6. Server-authoritative Company Pulse (RYG) — deterministic, not AI-decided.
+    //    Inputs: coverage, implicit signals, execution evidence, blockers, prior trend.
+    if (briefing_type === "morning") {
+      const lightningCovered = covered.find(c =>
+        (c.priority || "").toLowerCase().includes("lightning strike")
+        || (c.matched_workstream || "").toLowerCase().includes("lightning strike")
+      );
+      const silentMissing = missing.filter(m => {
+        const sig = signalsByPriority.get(m.priority_id);
+        return !sig || sig.mentions.length === 0;
+      });
+      const untrackedActive = missing.filter(m => {
+        const sig = signalsByPriority.get(m.priority_id);
+        return !!(sig && sig.mentions.length > 0);
+      });
+
+      const recentCardActivity = (cards as any[]).length;
+      const recentAzureActivity = (workItems as any[]).length;
+      const failedSyncs = (syncLogs as any[]).filter((s: any) => (s.status || "").toLowerCase() === "failed").length;
+      const criticalIssues = (issues as any[]).filter((i: any) => ["critical", "high"].includes((i.severity || "").toLowerCase())).length;
+      const overdueFinance = (xeroContacts as any[]).length;
+      const prevRow = (prev as any[])[0] ?? null;
+
+      const evidence: string[] = [];
+      const blockers: string[] = [];
+      const positives: string[] = [];
+
+      evidence.push(`${covered.length} of ${totalPriorities} 2026 priorities have a tracked workstream (${Math.round(coverageRatio * 100)}%).`);
+      if (untrackedActive.length > 0) evidence.push(`${untrackedActive.length} priorit${untrackedActive.length === 1 ? "y is" : "ies are"} discussed in recent meetings but have no formal workstream.`);
+      if (silentMissing.length > 0) evidence.push(`${silentMissing.length} priorit${silentMissing.length === 1 ? "y has" : "ies have"} no visible activity anywhere (silent).`);
+      evidence.push(`Recent execution: ${recentCardActivity} workstream card update${recentCardActivity === 1 ? "" : "s"}, ${recentAzureActivity} Azure work item change${recentAzureActivity === 1 ? "" : "s"} in last 24h.`);
+
+      if (!lightningCovered) blockers.push("Lightning Strike Event has no tracked workstream — the flagship June 7 commitment is invisible to execution tracking.");
+      if (silentMissing.length >= 2) blockers.push(`${silentMissing.length} priorities are completely silent — no meetings, no workstreams, no owners.`);
+      if (failedSyncs > 0) blockers.push(`${failedSyncs} integration sync failure${failedSyncs === 1 ? "" : "s"} in last 24h — data freshness at risk.`);
+      if (criticalIssues > 0) blockers.push(`${criticalIssues} critical/high-severity issue${criticalIssues === 1 ? "" : "s"} logged in last 24h.`);
+      if (overdueFinance > 0) blockers.push(`${overdueFinance} customer${overdueFinance === 1 ? "" : "s"} with overdue balances.`);
+
+      if (lightningCovered) positives.push(`Lightning Strike Event is tracked via "${lightningCovered.matched_workstream}".`);
+      if (recentCardActivity + recentAzureActivity > 10) positives.push("Healthy execution velocity in last 24h.");
+      if (untrackedActive.length > 0) positives.push("Some untracked work IS happening — formalising it into workstreams will close visibility gaps fast.");
+
+      // Status decision
+      let status: "red" | "yellow" | "green" = "yellow";
+      let reason = "";
+
+      const fullCoverage = coverageRatio >= 1.0;
+      const halfOrLess = coverageRatio < 0.5;
+      const majorBlockerCount = blockers.length;
+
+      if (fullCoverage && majorBlockerCount === 0 && (recentCardActivity + recentAzureActivity) > 0) {
+        status = "green";
+        reason = `All ${totalPriorities} non-negotiable 2026 priorities have tracked workstreams, execution evidence is current, and no major blockers materially threaten June 7 readiness.`;
+      } else if (halfOrLess || !lightningCovered || silentMissing.length >= 2 || majorBlockerCount >= 2) {
+        status = "red";
+        const parts: string[] = [];
+        parts.push(`Only ${covered.length} of ${totalPriorities} non-negotiable 2026 priorities have a tracked workstream.`);
+        if (untrackedActive.length > 0) parts.push(`${untrackedActive.length} more ${untrackedActive.length === 1 ? "is" : "are"} being discussed in meetings but remain untracked.`);
+        if (silentMissing.length > 0) parts.push(`${silentMissing.length} have no visible activity at all.`);
+        if (!lightningCovered) parts.push("Lightning Strike Event itself is not tracked.");
+        parts.push("This means leadership has weak execution visibility and cannot honestly claim June 7 readiness.");
+        reason = parts.join(" ");
+      } else {
+        status = "yellow";
+        reason = `Coverage is partial (${covered.length}/${totalPriorities}). Meaningful momentum exists but ownership and tracking are incomplete — ${untrackedActive.length} priorit${untrackedActive.length === 1 ? "y is" : "ies are"} being worked on without a formal workstream, and ${blockers.length} blocker${blockers.length === 1 ? "" : "s"} need attention before status can move to Green.`;
+      }
+
+      // Trend hint (informational only)
+      if (prevRow && typeof prevRow.outcome_probability === "number" && typeof parsed.outcome_probability === "number") {
+        const delta = parsed.outcome_probability - prevRow.outcome_probability;
+        if (delta <= -5) evidence.push(`Probability down ${Math.abs(delta)} pts vs previous briefing.`);
+        else if (delta >= 5) positives.push(`Probability up ${delta} pts vs previous briefing.`);
+      }
+
+      const confidence: "high" | "medium" | "low" = coverageRatio >= 0.8 ? "high" : coverageRatio >= 0.4 ? "medium" : "low";
+      const label = status === "red" ? "Red" : status === "yellow" ? "Yellow" : "Green";
+
+      const company_pulse_status = {
+        status, label, reason,
+        evidence, blockers, positive_signals: positives, confidence,
+      };
+
+      parsed.payload.company_pulse_status = company_pulse_status;
+
+      // Force company_pulse prose to begin with the server status + reason.
+      const aiPulse = typeof parsed.payload.company_pulse === "string" ? parsed.payload.company_pulse.trim() : "";
+      const startsWithStatus = aiPulse.toUpperCase().startsWith(label.toUpperCase());
+      if (!aiPulse || !startsWithStatus) {
+        parsed.payload.company_pulse = `${label.toUpperCase()} — ${reason}`;
+      }
+    }
+
     const briefing_date = new Date().toISOString().slice(0, 10);
 
     const { data: saved, error: saveErr } = await admin
