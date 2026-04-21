@@ -153,6 +153,7 @@ const CEOBriefing = () => {
                     <thead className="bg-muted/50">
                       <tr className="text-left">
                         <th className="px-3 py-2 font-mono uppercase tracking-wider">Workstream</th>
+                        <th className="px-3 py-2 font-mono uppercase tracking-wider">Cards</th>
                         <th className="px-3 py-2 font-mono uppercase tracking-wider">Prog</th>
                         <th className="px-3 py-2 font-mono uppercase tracking-wider">Conf</th>
                         <th className="px-3 py-2 font-mono uppercase tracking-wider">Risk</th>
@@ -160,21 +161,37 @@ const CEOBriefing = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {(briefing.workstream_scores as any[]).map((w, i) => (
-                        <tr key={i} className="border-t border-border align-top">
-                          <td className="px-3 py-2 text-foreground font-medium">{w.name}</td>
-                          <td className="px-3 py-2 tabular-nums text-foreground">{w.progress ?? "—"}</td>
-                          <td className="px-3 py-2 tabular-nums text-foreground">{w.confidence ?? "—"}</td>
-                          <td className="px-3 py-2 tabular-nums text-foreground">{w.risk ?? "—"}</td>
-                          <td className="px-3 py-2 text-muted-foreground space-y-1">
-                            {w.progress_vs_goal && <div><span className="font-mono text-[10px] uppercase">Goal:</span> {w.progress_vs_goal}</div>}
-                            {w.execution_quality && <div><span className="font-mono text-[10px] uppercase">Exec:</span> {w.execution_quality}</div>}
-                            {w.commercial_impact && <div><span className="font-mono text-[10px] uppercase">$:</span> {w.commercial_impact}</div>}
-                            {w.dependency_strength && <div><span className="font-mono text-[10px] uppercase">Deps:</span> {w.dependency_strength}</div>}
-                            {w.evidence && <div className="text-[11px] italic">{w.evidence}</div>}
-                          </td>
-                        </tr>
-                      ))}
+                      {(briefing.workstream_scores as any[]).map((w, i) => {
+                        const rag = String(w?.rag || "").toLowerCase();
+                        const dotClass =
+                          rag === "red" ? "bg-red-500" :
+                          rag === "amber" || rag === "yellow" ? "bg-yellow-500" :
+                          rag === "green" ? "bg-green-500" :
+                          "bg-muted-foreground/40";
+                        return (
+                          <tr key={i} className="border-t border-border align-top">
+                            <td className="px-3 py-2 text-foreground font-medium">
+                              <span className="inline-flex items-center gap-2">
+                                <span className={`inline-block h-2 w-2 rounded-full ${dotClass}`} title={rag || "unknown"} />
+                                {w.name}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-muted-foreground tabular-nums whitespace-nowrap">
+                              {w.card_status_summary || "—"}
+                            </td>
+                            <td className="px-3 py-2 tabular-nums text-foreground">{w.progress ?? "—"}</td>
+                            <td className="px-3 py-2 tabular-nums text-foreground">{w.confidence ?? "—"}</td>
+                            <td className="px-3 py-2 tabular-nums text-foreground">{w.risk ?? "—"}</td>
+                            <td className="px-3 py-2 text-muted-foreground space-y-1">
+                              {w.progress_vs_goal && <div><span className="font-mono text-[10px] uppercase">Goal:</span> {w.progress_vs_goal}</div>}
+                              {w.execution_quality && <div><span className="font-mono text-[10px] uppercase">Exec:</span> {w.execution_quality}</div>}
+                              {w.commercial_impact && <div><span className="font-mono text-[10px] uppercase">$:</span> {w.commercial_impact}</div>}
+                              {w.dependency_strength && <div><span className="font-mono text-[10px] uppercase">Deps:</span> {w.dependency_strength}</div>}
+                              {w.evidence && <div className="text-[11px] italic">{w.evidence}</div>}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
