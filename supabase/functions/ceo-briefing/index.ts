@@ -107,6 +107,34 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
     "watchlist": [{"workstream": string, "owner": string, "status": string, "good_looks_like": string, "missing": string, "data_blind_spot": string|null, "auto_injected": boolean}],
     "decisions": [{"decision": string, "why_it_matters": string, "consequence": string, "who_to_involve": string, "confidence": "high"|"medium"|"low", "blocked_by_missing_data": string|null, "evidence_source": "coverage_gap"|"silent_priority"|"risk"|"friction"|"email"|"silent_leader"|"data_blind_spot"|"workstream"|null, "auto_injected": boolean}],
     "automation": {"percent": number, "working": string, "manual": string, "next": string, "blockers": string},
+    "automation_progress": {
+      "company_usage": {
+        "total_tokens": number,
+        "request_count": number,
+        "active_users": number,
+        "dow_change_pct": number,
+        "wow_change_pct": number,
+        "trend_label": "Adoption accelerating" | "Adoption steady" | "Flat" | "Declining" | "Insufficient data"
+      },
+      "top_users": [{
+        "rank": number,
+        "name": string,
+        "role": string,
+        "department": string,
+        "total_tokens": number,
+        "request_count": number,
+        "primary_use": string,
+        "est_hours_saved": number
+      }],
+      "recommendations": [{
+        "title": string,
+        "why_now": string,
+        "expected_leverage": "Low" | "Medium" | "High",
+        "effort": "S" | "M" | "L",
+        "auto_injected": boolean,
+        "evidence_source": "coverage_gap" | "silent_priority" | "friction" | "stuck_workstream" | "heavy_manual_surface" | "failed_tool_call" | "model"
+      }]
+    },
     "brutal_truth": string,
     "document_intelligence": [{
       "domain": string,
