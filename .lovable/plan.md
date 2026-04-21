@@ -1,85 +1,195 @@
 
 
-## Two Fixes: Honest Coverage Prose + Scan Meeting Transcripts
+## Fix Company Pulse: make it RYG and server-authoritative
 
-### Bug A — "3 out of 6" prose contradicts server data
+### What will change
 
-Server-truth: **1 of 6** priorities covered (only `Lightning Strike Event`). UI panel renders that correctly. But the AI's `company_pulse` / `brutal_truth` / `execution_explanation` strings still hallucinate "3 out of 6" because the prompt never tells the model the deterministic coverage counts — it only sees `coverage_report` and infers loosely.
+The current **Company Pulse** is still too narrative-led. It is mentioning coverage counts in prose and letting the model infer the overall state. That is why it can still feel wrong.
 
-**Fix:** Inject the server-computed `coverage_summary` directly into the user prompt as an authoritative pre-computed fact, and add a hard prompt rule:
+Instead, Duncan should output:
 
-> "`coverage_summary` is server-computed truth. You MUST use these exact numbers (`covered`/`total`/`ratio`) verbatim in `company_pulse`, `brutal_truth`, and `execution_explanation`. Do NOT recompute, infer, or estimate coverage in prose. Do NOT claim a priority is covered unless it appears in `coverage_summary.covered_priorities`."
+- **Red / Yellow / Green**
+- **why it is that status**
+- **the evidence behind it**
+- **what is driving the status up or down**
 
-Plus a server-side post-check: scan `company_pulse`, `brutal_truth`, `execution_explanation` for digit patterns like `\d\s*(of|out of|/)\s*6` — if the digit doesn't match `coverage_summary.covered`, append a corrective sentence: *"(Server correction: only X of 6 priorities have an active workstream.)"*
+Coverage remains an input, but not the headline by itself.
 
-### Bug B — Meeting transcripts ignored
+### New behaviour
 
-Current `meetings` query selects `title, meeting_date, summary, action_items, participants` only. The `transcript` field (45 meetings, mostly Lightning Strike standups, some 100k+ chars) is never sent to the model, so Duncan can't see what's *actually being discussed* about KPL registrations, trials, pre-orders, automation — the missing priorities the CEO is asking about.
+**Company Pulse becomes a deterministic status, not an AI opinion.**
 
-**Fix:** add a transcript-scanning pass before the AI call:
+For the morning CEO briefing, Duncan will compute an overall company pulse from the facts already being collected:
 
-1. Pull `transcript` from last 10 meetings (cap each at ~6k chars to control token cost).
-2. For each `PRIORITY_DEFINITIONS` entry, run a lightweight keyword scan over each transcript using its aliases (case-insensitive). Build:
-   ```text
-   meeting_priority_signals = [
-     {
-       priority_id, priority_title,
-       mentions: [
-         { meeting_title, meeting_date, snippet (±200 chars around hit), alias_matched }
-       ]
-     }
-   ]
-   ```
-3. Inject `meeting_priority_signals` into the AI context.
-4. Add prompt rule:
-   > "Use `meeting_priority_signals` to detect *implicit* coverage — work happening on a 2026 priority WITHOUT a formal workstream. For any priority that has signals but no workstream, the corresponding `coverage_gaps` entry MUST add a `current_signal` field summarising what's being discussed and a `recommended_action` like 'Formalise into a workstream — work is already happening but untracked.' This is more urgent than priorities with zero signal."
+- priority coverage
+- whether Lightning Strike has a real tracked workstream
+- how many priorities are silent vs discussed but untracked
+- recent workstream / Azure execution evidence
+- major blockers from issues, sync failures, overdue finance signals, and missing ownership
+- previous briefing trend
 
-5. UI surfaces this in `CoverageGaps.tsx`: gaps with `current_signal` get a yellow "⚠ Work in progress but untracked" tag; truly silent gaps get a red "🔴 No activity detected anywhere" tag. Two different CEO actions.
+Then the UI will show something like:
 
-### Token-cost guard
+```text
+COMPANY PULSE: RED
+Why: Only 1 of 6 priorities has an active workstream. Two priorities are being discussed but remain untracked. Three have no visible activity. This means leadership has weak execution visibility and cannot claim readiness with confidence.
+```
 
-Transcript payload could balloon. Cap rules:
-- Last 10 meetings only (most recent).
-- Per-transcript: keep only the **first 6,000 chars** of each.
-- If total transcript bytes > 60k, switch to "snippet-only" mode — drop full transcripts and send only the 200-char windows around alias hits.
+### Status rules
 
-GPT-4o handles 128k context comfortably even at maximum.
+Duncan will use clear guardrails:
 
-### Files
+```text
+RED
+- fewer than half of the 6 priorities have active workstreams, OR
+- Lightning Strike itself is not properly tracked, OR
+- multiple priorities are silent/unowned, OR
+- major blockers are present across critical systems
+
+YELLOW
+- more work is visible, but ownership / tracking / execution is incomplete
+- meaningful momentum exists, but there are still material gaps or elevated risk
+
+GREEN
+- all 6 priorities are covered by tracked workstreams
+- execution evidence is current
+- no major blockers materially threaten June 7 readiness
+```
+
+Important rule:
+- **Green is impossible unless full priority coverage and healthy execution evidence exist**
+- **1 of 6 coverage should always resolve to Red**
+
+### Implementation
+
+#### 1) Edge function: compute pulse status on the server
+**File:** `supabase/functions/ceo-briefing/index.ts`
+
+Add a new helper such as `computeCompanyPulse()` that returns:
+
+```ts
+{
+  status: "red" | "yellow" | "green",
+  label: "Red" | "Yellow" | "Green",
+  reason: string,
+  evidence: string[],
+  blockers: string[],
+  positive_signals: string[],
+  confidence: "high" | "medium" | "low"
+}
+```
+
+This will be computed from server-side facts before/after the AI call using:
+- `coverage_summary`
+- `coverage_gaps`
+- `meeting_priority_signals`
+- `available_workstreams`
+- recent card / Azure activity
+- recent issues / sync failures / overdue finance signals
+- previous briefing trend
+
+#### 2) Make AI explain the pulse, not invent it
+Update the prompt so the model must treat `company_pulse_status` as authoritative.
+
+New rule:
+- `payload.company_pulse` must begin with the exact server status (`RED`, `YELLOW`, or `GREEN`)
+- it must explain the server-computed reason
+- it must not restate incorrect coverage counts
+- it must not override the server status
+
+Add a post-check:
+- if the generated `company_pulse` does not align with `company_pulse_status`, overwrite it with a server-built sentence
+
+That removes the hallucination path entirely.
+
+#### 3) Add explicit pulse object to the saved payload
+Persist a new field like:
+
+```ts
+payload.company_pulse_status
+```
+
+So the UI can render the status directly instead of relying on free text.
+
+#### 4) UI: show an actual RYG company pulse card
+**Files:**
+- `src/pages/CEOBriefing.tsx`
+- `src/components/ceo/PulseBanner.tsx`
+- `src/components/ceo/CompanyPulseCard.tsx` (new)
+
+Update the page so it clearly separates:
+
+- **Company Pulse** = overall Red / Yellow / Green across the business
+- **Trajectory** = readiness trajectory for June 7 / Lightning Strike
+
+That avoids the current confusion where one badge is doing too many jobs.
+
+Recommended layout:
+
+```text
+PulseBanner
+  - Lightning Strike trajectory
+  - Probability / Execution gauges
+
+CompanyPulseCard
+  - RED / YELLOW / GREEN badge
+  - one-line reason
+  - evidence bullets
+  - blockers / action note
+```
+
+#### 5) Replace “3 out of 6” style headline prose
+Coverage counts should stay in supporting evidence, not as the main pulse label.
+
+So instead of:
+- “3 out of 6 priorities…”
+
+It becomes:
+- “RED — execution visibility is weak because only 1 of 6 priorities has a formal workstream…”
+
+### Expected result for your current state
+
+Based on what you described, the next regenerated briefing should read as **Red**, not a loose coverage sentence.
+
+Example:
+
+```text
+Company Pulse: RED
+
+Why:
+Only 1 of 6 non-negotiable priorities has a tracked workstream. Some related work may be happening in meetings, but it is not organised into owned execution tracks. That means the business is operating with weak visibility, fragmented accountability, and low confidence in June 7 readiness.
+```
+
+### Files to update
 
 ```text
 EDIT supabase/functions/ceo-briefing/index.ts
-       - Fetch transcripts (cap 6k per, last 10)
-       - scanTranscriptsForPriorities() helper → meeting_priority_signals
-       - Inject coverage_summary + meeting_priority_signals into userPrompt
-       - Prompt rule: use server numbers verbatim; flag implicit coverage
-       - Post-check: regex scan prose for "X of 6" mismatches, append correction
-EDIT src/components/ceo/CoverageGaps.tsx
-       - Render current_signal badge ("Work in progress but untracked")
-       - Distinguish silent vs active-but-untracked gaps visually
+  - add computeCompanyPulse()
+  - inject company_pulse_status into prompt
+  - enforce server-authoritative company_pulse text
+  - save payload.company_pulse_status
+
+NEW src/components/ceo/CompanyPulseCard.tsx
+  - render RYG badge, reason, evidence, blockers
+
+EDIT src/pages/CEOBriefing.tsx
+  - render CompanyPulseCard
+  - separate overall Company Pulse from June 7 trajectory
+
+EDIT src/components/ceo/PulseBanner.tsx
+  - keep trajectory focused on Lightning Strike readiness only
+  - avoid mixing overall company-health semantics into this badge
+
 EDIT mem://features/ceo-operating-system.md
-       - Note transcript-scanning + server-verbatim coverage rule
+  - document server-authoritative RYG company pulse rules
 ```
 
-### Result on next regenerate
+### Outcome
 
-```text
-Coverage Gaps — 1 of 6 priorities have an active workstream (17% covered)
-
-🔴 1M KPL Registrations           — no signal anywhere · suggest Alex (CMO)
-🔴 100k Pre-orders                — no signal anywhere · suggest Alex (CMO) + Patrick (CFO)
-⚠  Trials Oct/Nov 2026            — discussed in 3 recent Lightning Strike standups
-                                    but no workstream → formalise · suggest Simon
-⚠  10-team Dec selection          — referenced in All Hands 20 Apr · suggest Simon + Matt
-🔴 Duncan automates 25%           — no signal · suggest Palash
-
-Brutal truth: "Only 1 of 6 priorities has a tracked workstream. Two others are
-being actively worked on in standups but invisible to Duncan. Three have no
-trace of work at all. Probability remains capped at 35%."
-```
-
-### Out of scope
-
-- Embedding-based semantic transcript search (regex aliases sufficient at current scale).
-- Automatically creating workstreams from detected signals (still requires CEO click).
+After this change:
+- Company Pulse will no longer be vague prose
+- Duncan will say **Red / Yellow / Green** clearly
+- the reason will be grounded in facts
+- coverage counts become evidence, not the headline
+- trajectory and overall business pulse will no longer be conflated
 
