@@ -65,10 +65,10 @@ const CEOBriefing = () => {
 
   return (
     <AppLayout>
-      <div className="mx-auto max-w-5xl px-4 md:px-8 py-6 space-y-6">
+      <div className="mx-auto max-w-5xl w-full px-4 md:px-8 py-6 space-y-6 min-w-0 overflow-x-hidden">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 min-w-0">
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold tracking-tight text-foreground">CEO Briefing</h1>
             <p className="text-sm text-muted-foreground font-mono">{dateLabel}</p>
           </div>
@@ -86,7 +86,8 @@ const CEOBriefing = () => {
             {briefing && type === "morning" && (
               <Button onClick={() => setSendOpen(true)} disabled={generating} size="sm" variant="outline">
                 <Send className="h-3.5 w-3.5 mr-2" />
-                Send team actions
+                <span className="hidden sm:inline">Send team actions</span>
+                <span className="sm:hidden">Send</span>
               </Button>
             )}
             {lastSent && (
@@ -148,8 +149,8 @@ const CEOBriefing = () => {
                 <h2 className="text-sm font-mono uppercase tracking-widest text-muted-foreground">
                   Workstream Scorecard
                 </h2>
-                <div className="rounded-lg border border-border bg-card overflow-hidden">
-                  <table className="w-full text-xs">
+                <div className="rounded-lg border border-border bg-card overflow-x-auto">
+                  <table className="w-full text-xs min-w-[720px]">
                     <thead className="bg-muted/50">
                       <tr className="text-left">
                         <th className="px-3 py-2 font-mono uppercase tracking-wider">Workstream</th>
@@ -413,21 +414,21 @@ const CEOBriefing = () => {
                             : "rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-2";
                           return (
                             <div key={i} className={cardClass}>
-                              <div className="flex items-start justify-between gap-3 flex-wrap">
-                                <h4 className="text-sm font-semibold text-foreground flex-1 min-w-0">{i + 1}. {d.decision}</h4>
-                                <div className="flex items-center gap-1.5 shrink-0">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                                <h4 className="text-sm font-semibold text-foreground sm:flex-1 min-w-0 break-words">{i + 1}. {d.decision}</h4>
+                                <div className="flex items-center gap-1.5 flex-wrap sm:shrink-0 sm:justify-end">
                                   {isAuto && (
-                                    <Badge variant="outline" className="text-[10px] font-mono uppercase border-amber-500/40 text-amber-600 dark:text-amber-400">
+                                    <Badge variant="outline" className="text-[10px] font-mono uppercase border-amber-500/40 text-amber-600 dark:text-amber-400 whitespace-nowrap">
                                       Auto-flagged
                                     </Badge>
                                   )}
                                   {d.evidence_source && (
-                                    <Badge variant="outline" className="text-[10px] font-mono uppercase border-border text-muted-foreground">
+                                    <Badge variant="outline" className="text-[10px] font-mono uppercase border-border text-muted-foreground whitespace-nowrap">
                                       {String(d.evidence_source).replace(/_/g, " ")}
                                     </Badge>
                                   )}
                                   {conf && (
-                                    <Badge variant="outline" className={`text-[10px] font-mono uppercase ${confClass}`}>
+                                    <Badge variant="outline" className={`text-[10px] font-mono uppercase whitespace-nowrap ${confClass}`}>
                                       {conf} confidence
                                     </Badge>
                                   )}
