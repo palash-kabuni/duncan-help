@@ -57,11 +57,11 @@ const PulseBanner = ({
       )}
       <div className="flex flex-col md:flex-row items-stretch gap-6 rounded-lg border border-border bg-card p-6">
         <div className="flex-1 flex flex-col justify-center gap-3">
-          <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Trajectory</span>
+          <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">June 7 Trajectory</span>
           <Badge variant="outline" className={cn("w-fit text-base px-4 py-1.5 font-semibold", trajectoryStyle(trajectory))}>
             {trajectory || "—"}
           </Badge>
-          <p className="text-sm text-muted-foreground">June 7 India Lightning Strike readiness</p>
+          <p className="text-sm text-muted-foreground">India Lightning Strike readiness only — overall company health shown in Company Pulse above.</p>
         </div>
         <div className={cn(
           "flex items-center justify-around gap-6 md:border-l md:border-border md:pl-6 transition-opacity",

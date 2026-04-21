@@ -14,6 +14,7 @@ import RiskRadar from "@/components/ceo/RiskRadar";
 import LeadershipGrid from "@/components/ceo/LeadershipGrid";
 import TldrPanel from "@/components/ceo/TldrPanel";
 import CoverageGaps from "@/components/ceo/CoverageGaps";
+import CompanyPulseCard, { type CompanyPulseStatus } from "@/components/ceo/CompanyPulseCard";
 
 const Section = ({ n, title, children }: { n: number; title: string; children: React.ReactNode }) => (
   <section className="space-y-3">
@@ -145,7 +146,11 @@ const CEOBriefing = () => {
 
             {type === "morning" ? (
               <>
-                <Section n={1} title="Company Pulse">
+                {p.company_pulse_status && (
+                  <CompanyPulseCard pulse={p.company_pulse_status as CompanyPulseStatus} />
+                )}
+
+                <Section n={1} title="Company Pulse — Narrative">
                   <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">{p.company_pulse || "—"}</p>
                 </Section>
 
