@@ -102,7 +102,7 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
       "confidence": number,
       "probability_impact_pts": number
     }],
-    "friction": [{"issue": string, "teams": string[], "consequence": string}],
+    "friction": [{"issue": string, "teams": string[], "consequence": string, "evidence_source": "workstream_card"|"meeting"|"email"|"coverage_gap"|"silent_leader"|"doc_conflict", "recommended_resolver": string, "auto_injected": boolean}],
     "leadership": [{"name": string, "role": string, "output_vs_expectation": string, "risk_level": "low"|"medium"|"high", "blocking": string, "needs_support": string, "ceo_intervention_required": boolean, "signal_status": "active"|"low_signal"|"silent", "evidence_sources": [string]}],
     "watchlist": [{"workstream": string, "owner": string, "status": string, "good_looks_like": string, "missing": string, "data_blind_spot": string|null}],
     "decisions": [{"decision": string, "why_it_matters": string, "consequence": string, "who_to_involve": string, "confidence": "high"|"medium"|"low", "blocked_by_missing_data": string|null}],
@@ -152,7 +152,22 @@ CRITICAL RULES:
 - payload.document_intelligence: For EVERY domain in domain_file_review with files_inspected.length > 0, produce one entry. Ground "what_it_covers" in the actual content_excerpt (do NOT invent). Cross-reference the excerpt against xero_invoices, workstream_cards, azure_work_items, meetings, recent_releases — if a number, date, owner, or commitment in the doc disagrees with another data source, list it in contradicted_by with a specific quote (e.g. "Plan assumes £180k Q2 burn but Xero shows £241k actual"). Mark verdict="weak" if the doc is thin, generic, or stale; "strong" only when current, specific, and corroborated by ≥1 other system.
 - payload.missing_artifacts_recommendations: THINK LIKE A CHIEF OF STAFF, NOT A CEO. Recommend artifacts the CEO would NEVER think to upload, drawn from the operating_system_checklist in context. Cover ALL 7 knowledge domains (not just Red ones — even Green domains have depth gaps). For each artifact: (a) "what_it_unlocks" MUST tie to a specific briefing section (e.g. "Risk Radar accuracy on India launch", "Decisions §9 confidence cap → high", "Investor advisory grounding"); (b) "where_to_find_it" MUST be grounded in inferred_artifact_signals where a hint exists (e.g. "Heard mentioned in Patrick's 14 Apr meeting — likely in his Drive/email"), otherwise plausible owner+location ("DocuSign — Patrick"); (c) cross-reference meetings, xero_invoices, azure_work_items, recent_releases to INFER artifacts that should exist but haven't been uploaded (AWS invoices in Xero → infer infrastructure cost map; "India launch" in meetings → infer signed vendor MoU; security tags on Azure tickets → infer pen-test report). Maximum 15 artifacts TOTAL across all domains, ranked by unlock-value. Priority levels: "critical" = blocks a §9 decision or board commitment; "high" = caps a major section confidence; "medium"/"low" = depth improvements.
 - payload.leadership: You MUST return EXACTLY ONE entry per name in leadership_roster (provided in context). Never omit a leader, never invent extras. For each leader, set "signal_status" from leader_signal_map: "active" (≥2 sources), "low_signal" (1 source), "silent" (0 sources). "evidence_sources" MUST be the array from leader_signal_map.sources for that leader. For SILENT leaders: set ceo_intervention_required=true, risk_level="medium" (or "high" if they own a 2026 priority), output_vs_expectation="No operational signal in 7 days — confirm engagement, blocked status, or capacity issue.", blocking="Invisible to Duncan — unknown.", needs_support="CEO check-in to surface what they are actually working on." For LOW_SIGNAL leaders: flag if their single source is non-execution (only meetings, no cards/Azure/releases). For ACTIVE leaders: ground output_vs_expectation in the SPECIFIC source items in leader_signal_map.sources_detail. Silence from a direct report IS a finding, not a gap to hide.
-- payload.risks RECONCILIATION: The risks array MUST collectively explain why outcome_probability is what it is. The "probability gap" = 100 − outcome_probability. The SUM of probability_impact_pts across all risks MUST be within ±10 of that gap. Each risk's probability_impact_pts represents how many points of probability that single risk accounts for (must be a positive integer). At least one risk MUST be tagged severity:"critical" or "high" whenever outcome_probability < 50 OR execution_score < 60. Every silent_priority listed in headline_context.silent_priorities MUST appear as its own dedicated risk with severity:"high" minimum and probability_impact_pts ≥ 12. If you cannot honestly justify the gap with the listed risks, ADD MORE RISKS until you do — do not under-report. Sort risks DESC by probability_impact_pts (biggest contributors first).`;
+- payload.risks RECONCILIATION: The risks array MUST collectively explain why outcome_probability is what it is. The "probability gap" = 100 − outcome_probability. The SUM of probability_impact_pts across all risks MUST be within ±10 of that gap. Each risk's probability_impact_pts represents how many points of probability that single risk accounts for (must be a positive integer). At least one risk MUST be tagged severity:"critical" or "high" whenever outcome_probability < 50 OR execution_score < 60. Every silent_priority listed in headline_context.silent_priorities MUST appear as its own dedicated risk with severity:"high" minimum and probability_impact_pts ≥ 12. If you cannot honestly justify the gap with the listed risks, ADD MORE RISKS until you do — do not under-report. Sort risks DESC by probability_impact_pts (biggest contributors first).
+- payload.friction RULES: Cross-functional friction is a STRUCTURAL BLOCKER between ≥2 functions/teams that NO single owner can unblock alone. You MUST scan for friction in:
+    a. workstream_cards where the owner's function ≠ the function of the blocker mentioned in card.title/notes (e.g. CMO-owned card blocked by tech delivery).
+    b. meetings_recent where transcript_summary mentions a decision spanning two functions but no single owner is named.
+    c. email_pulse_signals.escalations where from.function ≠ to.function (cross-function escalations are friction).
+    d. data_coverage_audit.strategic_coverage where a 2026 priority has artifacts in one domain (e.g. Marketing) but is Red in another (e.g. Operations) — that handoff IS friction.
+    e. leader_signal_map where a 2026 priority has active cards but the expected_owner is "silent" — friction between active doers and absent owner.
+    f. document_intelligence.contradicted_by entries that span functions (e.g. CFO budget contradicts CMO spend plan).
+  For EACH friction:
+    - "issue": one sentence naming the structural blocker (NOT a task).
+    - "teams": EXACTLY the function names involved (≥2), e.g. ["Marketing","Operations"] or ["CFO","CMO"].
+    - "consequence": which 2026 priority this puts at risk + by when.
+    - "evidence_source": one of "workstream_card"|"meeting"|"email"|"coverage_gap"|"silent_leader"|"doc_conflict".
+    - "recommended_resolver": "CEO" if cross-divisional; otherwise the most senior shared manager.
+    - "auto_injected": false (only the post-processor sets true).
+  MINIMUM: If outcome_probability < 50 OR any 2026 priority has coverage_pct < 40, friction[] MUST contain ≥3 entries. An empty friction[] on a Red briefing is a reporting failure, not an honest signal of harmony.`;
 
 const EVENING_SCHEMA_HINT = `Return STRICT JSON:
 {
@@ -1866,7 +1881,97 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       };
     }
 
-    // ─── Persist email pulse summary on payload (counts only, no raw content) ──
+    // ─── 8. Cross-Functional Friction post-processor (deterministic floor) ──
+    if (briefing_type === "morning") {
+      parsed.payload = parsed.payload || {};
+      let friction: any[] = Array.isArray(parsed.payload.friction) ? [...parsed.payload.friction] : [];
+      let frictionAutoInjected = 0;
+
+      const frictionMentions = (needle: string): boolean => {
+        if (!needle) return false;
+        const n = needle.toLowerCase();
+        return friction.some((f: any) => {
+          const blob = `${f?.issue || ""} ${f?.consequence || ""} ${(Array.isArray(f?.teams) ? f.teams.join(" ") : f?.teams) || ""}`.toLowerCase();
+          return blob.includes(n);
+        });
+      };
+
+      // 8a. Inject friction for every silent priority not already covered.
+      for (const sm of silentMissing) {
+        const priorityName = sm.priority || "";
+        const firstWord = priorityName.toLowerCase().split(/[\s—-]+/)[0] || "";
+        if (firstWord && frictionMentions(firstWord)) continue;
+        const ownerName = sm.expected_owner || "Unassigned";
+        friction.push({
+          issue: `${priorityName} has no visible activity, yet remains a 2026 non-negotiable — handoff between strategy and execution is broken`,
+          teams: [ownerName, "Cross-functional"],
+          consequence: `${priorityName} target at risk; no team is structurally accountable.`,
+          evidence_source: "silent_leader",
+          recommended_resolver: "CEO",
+          auto_injected: true,
+          auto_injected_reason: "silent_priority",
+        });
+        frictionAutoInjected++;
+      }
+
+      // 8b. Inject friction for cross-function email escalations not already covered.
+      try {
+        const escalations = email_pulse?.signals?.escalations;
+        if (Array.isArray(escalations)) {
+          for (const esc of escalations) {
+            const fromFn = String(esc?.from_function || esc?.from || "").trim();
+            const toFn = String(esc?.to_function || esc?.to || "").trim();
+            const topic = String(esc?.topic || "").trim();
+            if (!fromFn || !toFn || fromFn.toLowerCase() === toFn.toLowerCase()) continue;
+            if (topic && frictionMentions(topic)) continue;
+            friction.push({
+              issue: `Email escalation crossing functions: ${fromFn} → ${toFn}${topic ? ` re "${topic}"` : ""} — no shared owner has resolved it`,
+              teams: [fromFn, toFn],
+              consequence: topic ? `Unresolved cross-team item: ${topic}` : "Cross-functional escalation pending resolution.",
+              evidence_source: "email",
+              recommended_resolver: "CEO",
+              auto_injected: true,
+              auto_injected_reason: "cross_function_email_escalation",
+            });
+            frictionAutoInjected++;
+          }
+        }
+      } catch (_) { /* non-fatal */ }
+
+      // 8c. Red briefing fallback — empty friction on a red briefing is itself a finding.
+      const _outcomeProb = typeof parsed.outcome_probability === "number" ? parsed.outcome_probability : 50;
+      if (_outcomeProb < 50 && friction.length === 0) {
+        friction.push({
+          issue: "Friction detection ran but found no cross-functional blockers — this is unusual on a Red briefing",
+          teams: ["Duncan", "Leadership"],
+          consequence: "Verify Duncan has visibility into cross-team blockers (workstream notes, meeting transcripts, email pulse opt-ins) before trusting harmony as real.",
+          evidence_source: "coverage_gap",
+          recommended_resolver: "CEO",
+          auto_injected: true,
+          auto_injected_reason: "red_briefing_empty_friction",
+        });
+        frictionAutoInjected++;
+      }
+
+      // Normalise: ensure required fields on every entry.
+      friction = friction.map((f: any) => ({
+        issue: String(f?.issue || "").trim() || "Unspecified friction",
+        teams: Array.isArray(f?.teams) ? f.teams.filter(Boolean).map((t: any) => String(t)) : (f?.teams ? [String(f.teams)] : []),
+        consequence: String(f?.consequence || "").trim(),
+        evidence_source: ["workstream_card", "meeting", "email", "coverage_gap", "silent_leader", "doc_conflict"].includes(String(f?.evidence_source))
+          ? f.evidence_source
+          : "workstream_card",
+        recommended_resolver: String(f?.recommended_resolver || "CEO").trim() || "CEO",
+        auto_injected: !!f?.auto_injected,
+        ...(f?.auto_injected_reason ? { auto_injected_reason: f.auto_injected_reason } : {}),
+      }));
+
+      parsed.payload.friction = friction;
+      parsed.payload.friction_meta = {
+        total: friction.length,
+        auto_injected: frictionAutoInjected,
+      };
+    }
     if (email_pulse) {
       const sigs = email_pulse.signals || {};
       const commitments = Array.isArray(sigs.commitments) ? sigs.commitments : [];

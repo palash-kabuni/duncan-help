@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { RefreshCw, Sparkles, Send, Settings2, AlertTriangle } from "lucide-react";
+import { RefreshCw, Sparkles, Send, Settings2, AlertTriangle, ShieldCheck } from "lucide-react";
 import { useCEOBriefing, type BriefingType } from "@/hooks/useCEOBriefing";
 import PulseBanner from "@/components/ceo/PulseBanner";
 import RiskRadar from "@/components/ceo/RiskRadar";
@@ -229,15 +229,76 @@ const CEOBriefing = () => {
                 </Section>
 
                 <Section n={6} title="Cross-Functional Friction">
-                  <div className="space-y-2">
-                    {(p.friction || []).map((f: any, i: number) => (
-                      <div key={i} className="rounded-lg border border-border bg-card p-4 space-y-1">
-                        <h4 className="text-sm font-semibold text-foreground">{f.issue}</h4>
-                        {f.teams && <p className="text-[11px] font-mono text-muted-foreground">Teams: {Array.isArray(f.teams) ? f.teams.join(", ") : f.teams}</p>}
-                        {f.consequence && <p className="text-xs text-muted-foreground">{f.consequence}</p>}
+                  {(() => {
+                    const frictionList: any[] = Array.isArray(p.friction) ? p.friction : [];
+                    const trajectory = String(briefing.trajectory || "").toLowerCase();
+                    const isGreen = trajectory.includes("on track");
+                    const sourceLabel: Record<string, string> = {
+                      workstream_card: "Workstream",
+                      meeting: "Meeting",
+                      email: "Email pulse",
+                      coverage_gap: "Coverage gap",
+                      silent_leader: "Silent leader",
+                      doc_conflict: "Doc conflict",
+                    };
+                    if (frictionList.length === 0) {
+                      return (
+                        <div className="rounded-lg border border-border bg-card p-4 flex items-center gap-3">
+                          <ShieldCheck className={`w-5 h-5 ${isGreen ? "text-emerald-500" : "text-muted-foreground"}`} />
+                          <p className="text-sm text-muted-foreground">
+                            {isGreen
+                              ? "No structural friction detected. Cross-functional handoffs are clean."
+                              : "No friction surfaced — but headline isn't green. Review whether Duncan has visibility into cross-team blockers."}
+                          </p>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="space-y-2">
+                        {frictionList.map((f: any, i: number) => {
+                          const teams: string[] = Array.isArray(f.teams) ? f.teams : (f.teams ? [String(f.teams)] : []);
+                          const auto = !!f.auto_injected;
+                          const evSrc = sourceLabel[String(f.evidence_source)] || "Source";
+                          return (
+                            <div
+                              key={i}
+                              className={`rounded-lg p-4 space-y-2 bg-card ${auto ? "border border-dashed border-amber-500/60" : "border border-border"}`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <h4 className="text-sm font-semibold text-foreground leading-snug">{f.issue}</h4>
+                                {auto && (
+                                  <Badge variant="outline" className="shrink-0 text-[10px] font-mono uppercase border-amber-500/60 text-amber-600 dark:text-amber-400">
+                                    Auto-flagged
+                                  </Badge>
+                                )}
+                              </div>
+                              {teams.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {teams.map((t, ti) => (
+                                    <span
+                                      key={ti}
+                                      className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-muted text-foreground border border-border"
+                                    >
+                                      {t}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {f.consequence && <p className="text-xs text-muted-foreground">{f.consequence}</p>}
+                              <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px] font-mono text-muted-foreground">
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-muted/50 border border-border">
+                                  Evidence: {evSrc}
+                                </span>
+                                {f.recommended_resolver && (
+                                  <span>Resolver: <span className="text-foreground">{f.recommended_resolver}</span></span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })()}
                 </Section>
 
                 <Section n={7} title="Leadership Performance">
