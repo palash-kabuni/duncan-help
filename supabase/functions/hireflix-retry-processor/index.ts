@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callLLMWithFallback } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -43,26 +44,19 @@ async function createHireflixPosition(apiKey: string, title: string, competencie
   // Generate competency question
   let competencyQuestion = "Based on your experience in this role, describe how you've demonstrated relevant technical or professional competencies in a real-world scenario.";
 
-  const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-  if (OPENAI_API_KEY && competencies && competencies.length > 0) {
+  if (competencies && competencies.length > 0) {
     try {
       const competencyNames = competencies.map((c: any) => typeof c === "string" ? c : c.name || c.title).join(", ");
-      const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "gpt-4.1-mini",
-          messages: [
-            { role: "system", content: "You are an expert interviewer at Kabuni. Generate exactly ONE behavioural interview question that tests a candidate's competency in the given areas. The question should probe real behaviour and past experience, not hypotheticals. Keep it under 50 words. Return ONLY the question text, nothing else." },
-            { role: "user", content: `Role: ${title}\nKey competencies: ${competencyNames}\n\nGenerate one behavioural interview question.` },
-          ],
-        }),
+      const aiData = await callLLMWithFallback({
+        workflow: "hireflix-retry-processor",
+        max_tokens: 200,
+        messages: [
+          { role: "system", content: "You are an expert interviewer at Kabuni. Generate exactly ONE behavioural interview question that tests a candidate's competency in the given areas. The question should probe real behaviour and past experience, not hypotheticals. Keep it under 50 words. Return ONLY the question text, nothing else." },
+          { role: "user", content: `Role: ${title}\nKey competencies: ${competencyNames}\n\nGenerate one behavioural interview question.` },
+        ],
       });
-      if (aiRes.ok) {
-        const aiData = await aiRes.json();
-        const generated = aiData.choices?.[0]?.message?.content?.trim();
-        if (generated && generated.length > 10) competencyQuestion = generated;
-      }
+      const generated = aiData.choices?.[0]?.message?.content?.trim();
+      if (generated && generated.length > 10) competencyQuestion = generated;
     } catch (err) {
       console.error("Failed to generate competency question:", err);
     }
