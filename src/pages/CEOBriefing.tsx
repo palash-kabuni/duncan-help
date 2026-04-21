@@ -414,21 +414,21 @@ const CEOBriefing = () => {
                             : "rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-2";
                           return (
                             <div key={i} className={cardClass}>
-                              <div className="flex items-start justify-between gap-3 flex-wrap">
-                                <h4 className="text-sm font-semibold text-foreground flex-1 min-w-0">{i + 1}. {d.decision}</h4>
-                                <div className="flex items-center gap-1.5 shrink-0">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                                <h4 className="text-sm font-semibold text-foreground sm:flex-1 min-w-0 break-words">{i + 1}. {d.decision}</h4>
+                                <div className="flex items-center gap-1.5 flex-wrap sm:shrink-0 sm:justify-end">
                                   {isAuto && (
-                                    <Badge variant="outline" className="text-[10px] font-mono uppercase border-amber-500/40 text-amber-600 dark:text-amber-400">
+                                    <Badge variant="outline" className="text-[10px] font-mono uppercase border-amber-500/40 text-amber-600 dark:text-amber-400 whitespace-nowrap">
                                       Auto-flagged
                                     </Badge>
                                   )}
                                   {d.evidence_source && (
-                                    <Badge variant="outline" className="text-[10px] font-mono uppercase border-border text-muted-foreground">
+                                    <Badge variant="outline" className="text-[10px] font-mono uppercase border-border text-muted-foreground whitespace-nowrap">
                                       {String(d.evidence_source).replace(/_/g, " ")}
                                     </Badge>
                                   )}
                                   {conf && (
-                                    <Badge variant="outline" className={`text-[10px] font-mono uppercase ${confClass}`}>
+                                    <Badge variant="outline" className={`text-[10px] font-mono uppercase whitespace-nowrap ${confClass}`}>
                                       {conf} confidence
                                     </Badge>
                                   )}
