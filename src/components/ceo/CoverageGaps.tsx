@@ -1,4 +1,4 @@
-import { AlertTriangle, ShieldCheck, Plus } from "lucide-react";
+import { AlertTriangle, ShieldCheck, Plus, Activity, CircleOff } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 
@@ -9,6 +9,10 @@ interface CoverageGap {
   consequence_if_unowned?: string;
   recommended_owner?: string;
   recommended_workstream_name?: string;
+  current_signal?: string | null;
+  signal_sources?: string[];
+  signal_status?: "active_but_untracked" | "silent";
+  recommended_action?: string;
 }
 
 interface CoverageSummary {
