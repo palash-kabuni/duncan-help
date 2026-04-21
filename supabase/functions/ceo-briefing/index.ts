@@ -480,33 +480,6 @@ Deno.serve(async (req) => {
       safe(admin.from("project_files").select("file_name").limit(1000)),
       safe(admin.from("meetings").select("title").order("meeting_date", { ascending: false }).limit(200)),
     ]);
-      safe(admin.from("meetings").select("title,meeting_date,summary,action_items,participants").gte("meeting_date", since).limit(20)),
-      safe(admin.from("workstream_cards").select("title,status,priority,project_tag,owner_id,due_date,updated_at").gte("updated_at", since).limit(50)),
-      safe(admin.from("workstream_activity").select("action,details,created_at,card_id").gte("created_at", since).limit(100)),
-      safe(admin.from("azure_work_items").select("title,state,assigned_to,project_name,changed_date,priority").gte("changed_date", since).limit(50)),
-      safe(admin.from("releases").select("version,title,summary,status,created_at,published_at").order("created_at", { ascending: false }).limit(5)),
-      safe(admin.from("candidates").select("name,status,total_score,job_role_id,updated_at").gte("updated_at", since).limit(30)),
-      safe(admin.from("purchase_orders").select("po_number,vendor_name,total_amount,status,category,created_at").gte("created_at", since).limit(20)),
-      safe(admin.from("issues").select("title,severity,issue_type,created_at").gte("created_at", since).limit(20)),
-      safe(admin.from("sync_logs").select("integration,status,sync_type,started_at,error_message").gte("started_at", since).limit(30)),
-      safe(admin.from("profiles").select("display_name,role_title,department")),
-      safe(admin.from("ceo_briefings").select("briefing_date,outcome_probability,execution_score,trajectory")
-        .eq("briefing_type", briefing_type).order("briefing_date", { ascending: false }).limit(1)),
-      safe(admin.from("slack_notification_logs").select("event_key,status,sent_at,payload").gte("created_at", since).limit(40)),
-      safe(admin.from("token_usage").select("user_id,total_tokens,request_count,usage_date").gte("usage_date", new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)).limit(100)),
-      safe(admin.from("xero_invoices").select("invoice_number,contact_name,total,amount_due,amount_paid,status,type,due_date,date").gte("synced_at", since).order("date", { ascending: false }).limit(40)),
-      safe(admin.from("xero_contacts").select("name,outstanding_balance,overdue_balance").gt("overdue_balance", 0).order("overdue_balance", { ascending: false }).limit(15)),
-      safe(admin.from("integration_audit_logs").select("integration,action,details,created_at").gte("created_at", since).limit(40)),
-      safe(admin.from("workstream_cards").select("title,project_tag").is("archived_at", null).limit(500)),
-      safe(admin.from("azure_work_items").select("title,project_name").limit(500)),
-      safe(admin.from("meetings").select("title,meeting_date,transcript").not("transcript", "is", null).order("meeting_date", { ascending: false }).limit(10)),
-      safe(admin.from("project_files").select("file_name").limit(1000)),
-      safe(admin.from("meetings").select("title").order("meeting_date", { ascending: false }).limit(200)),
-    ]) as unknown as [
-      any, any, any, any, any, any, any, any, any, any, any, any, any, any, any, any, any, any, any,
-      Array<{ file_name: string | null }>,
-      Array<{ title: string | null }>,
-    ];
 
     // ─── Scan recent meeting transcripts for priority signals ─────
     // Detects implicit coverage — work happening on a 2026 priority WITHOUT a workstream.
