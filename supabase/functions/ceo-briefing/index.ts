@@ -110,7 +110,7 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
     "leadership": [{"name": string, "role": string, "output_vs_expectation": string, "risk_level": "low"|"medium"|"high", "blocking": string, "needs_support": string, "ceo_intervention_required": boolean, "signal_status": "active"|"low_signal"|"silent", "evidence_sources": [("meetings"|"workstreams"|"azure"|"releases"|"calendar"|"email"|"transcript")]}],
     "watchlist": [{"workstream": string, "owner": string, "status": string, "good_looks_like": string, "missing": string, "data_blind_spot": string|null, "auto_injected": boolean}],
     "decisions": [{"decision": string, "why_it_matters": string, "consequence": string, "who_to_involve": string, "confidence": "high"|"medium"|"low", "blocked_by_missing_data": string|null, "evidence_source": "coverage_gap"|"silent_priority"|"risk"|"friction"|"email"|"silent_leader"|"data_blind_spot"|"workstream"|null, "auto_injected": boolean}],
-    "automation": {"percent": number, "working": string, "manual": string, "next": string, "blockers": string},
+    "automation": {"working": string, "manual": string, "next": string, "blockers": string},
     "automation_progress": {
       "company_usage": {
         "total_tokens": number,
@@ -1727,7 +1727,6 @@ Deno.serve(async (req) => {
       "evidence_source": "coverage_gap"|"silent_priority"|"risk"|"friction"|"email"|"silent_leader"|"data_blind_spot"|"workstream"|null
     }],
     "automation": {
-      "percent": number,
       "working": string,
       "manual": string,
       "next": string,
@@ -1900,7 +1899,6 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
           leadership: [],
           decisions: [],
           automation: {
-            percent: Math.min(25, Math.max(0, Math.round((Number(automation_leverage?.company_usage?.active_users || 0) / 8) * 25))),
             working: "Adoption signal is present in Duncan usage logs.",
             manual: "Operational reporting still depends on missing ownership and artifacts.",
             next: "Improve tracked workstreams and evidence coverage.",
@@ -3186,6 +3184,29 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
       // Force company_usage and top_users to server-computed truth.
       ap.company_usage = automation_leverage.company_usage;
       ap.top_users = automation_leverage.top_users;
+
+      // ─── Compute adoption_pct = active_users_30d / approved Kabuni headcount ──
+      // This replaces the old misleading `automation.percent` (which falsely
+      // implied "% of company workflows automated"). What we can actually
+      // measure is *team adoption* of Duncan.
+      let headcount = 12; // fallback if profiles query fails
+      try {
+        const { count } = await admin
+          .from("profiles")
+          .select("id", { count: "exact", head: true })
+          .eq("approval_status", "approved");
+        if (typeof count === "number" && count > 0) headcount = count;
+      } catch (_e) { /* keep fallback */ }
+      const activeUsers30d = Number(automation_leverage?.company_usage?.active_users || 0);
+      const adoption_pct = Math.max(0, Math.min(100, Math.round((activeUsers30d / Math.max(1, headcount)) * 100)));
+
+      // Overwrite any LLM-authored automation.percent with the grounded adoption metric.
+      const autoObj = (parsed.payload.automation && typeof parsed.payload.automation === "object")
+        ? parsed.payload.automation : {};
+      autoObj.percent = adoption_pct;
+      autoObj.adoption_active_users = activeUsers30d;
+      autoObj.adoption_headcount = headcount;
+      parsed.payload.automation = autoObj;
 
       const modelRecs: any[] = Array.isArray(ap.recommendations) ? ap.recommendations.filter((r) => r && typeof r === "object" && r.title) : [];
       const isGreen = String(parsed.trajectory || "").toLowerCase() === "on track";
