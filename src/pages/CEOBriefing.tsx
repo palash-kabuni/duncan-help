@@ -144,7 +144,10 @@ const CEOBriefing = () => {
             )}
 
             {type === "morning" && Array.isArray(briefing.workstream_scores) && briefing.workstream_scores.length > 0 && (
-              <Section n={0} title="Workstream Scorecard">
+              <section className="space-y-3">
+                <h2 className="text-sm font-mono uppercase tracking-widest text-muted-foreground">
+                  Workstream Scorecard
+                </h2>
                 <div className="rounded-lg border border-border bg-card overflow-hidden">
                   <table className="w-full text-xs">
                     <thead className="bg-muted/50">
@@ -175,7 +178,7 @@ const CEOBriefing = () => {
                     </tbody>
                   </table>
                 </div>
-              </Section>
+              </section>
             )}
 
             {type === "morning" ? (
