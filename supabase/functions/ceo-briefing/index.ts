@@ -99,7 +99,8 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
       "impact_90d": { "window": "90d", "impact": string, "mitigation": string },
       "owner": string,
       "severity": "low"|"medium"|"high"|"critical",
-      "confidence": number
+      "confidence": number,
+      "probability_impact_pts": number
     }],
     "friction": [{"issue": string, "teams": string[], "consequence": string}],
     "leadership": [{"name": string, "role": string, "output_vs_expectation": string, "risk_level": "low"|"medium"|"high", "blocking": string, "needs_support": string, "ceo_intervention_required": boolean, "signal_status": "active"|"low_signal"|"silent", "evidence_sources": [string]}],
@@ -150,7 +151,8 @@ CRITICAL RULES:
 - decisions[].blocked_by_missing_data MUST name the Red domain whenever the decision cannot be honestly judged without that evidence. Format: "{domain_label}: {what specifically is missing}". Set null ONLY when fully grounded. When missing_artifacts_recommendations contains specific artifact names that would unblock this decision, prepend: "Needs: {artifact_name_1}, {artifact_name_2} — {domain_label} blind spot."
 - payload.document_intelligence: For EVERY domain in domain_file_review with files_inspected.length > 0, produce one entry. Ground "what_it_covers" in the actual content_excerpt (do NOT invent). Cross-reference the excerpt against xero_invoices, workstream_cards, azure_work_items, meetings, recent_releases — if a number, date, owner, or commitment in the doc disagrees with another data source, list it in contradicted_by with a specific quote (e.g. "Plan assumes £180k Q2 burn but Xero shows £241k actual"). Mark verdict="weak" if the doc is thin, generic, or stale; "strong" only when current, specific, and corroborated by ≥1 other system.
 - payload.missing_artifacts_recommendations: THINK LIKE A CHIEF OF STAFF, NOT A CEO. Recommend artifacts the CEO would NEVER think to upload, drawn from the operating_system_checklist in context. Cover ALL 7 knowledge domains (not just Red ones — even Green domains have depth gaps). For each artifact: (a) "what_it_unlocks" MUST tie to a specific briefing section (e.g. "Risk Radar accuracy on India launch", "Decisions §9 confidence cap → high", "Investor advisory grounding"); (b) "where_to_find_it" MUST be grounded in inferred_artifact_signals where a hint exists (e.g. "Heard mentioned in Patrick's 14 Apr meeting — likely in his Drive/email"), otherwise plausible owner+location ("DocuSign — Patrick"); (c) cross-reference meetings, xero_invoices, azure_work_items, recent_releases to INFER artifacts that should exist but haven't been uploaded (AWS invoices in Xero → infer infrastructure cost map; "India launch" in meetings → infer signed vendor MoU; security tags on Azure tickets → infer pen-test report). Maximum 15 artifacts TOTAL across all domains, ranked by unlock-value. Priority levels: "critical" = blocks a §9 decision or board commitment; "high" = caps a major section confidence; "medium"/"low" = depth improvements.
-- payload.leadership: You MUST return EXACTLY ONE entry per name in leadership_roster (provided in context). Never omit a leader, never invent extras. For each leader, set "signal_status" from leader_signal_map: "active" (≥2 sources), "low_signal" (1 source), "silent" (0 sources). "evidence_sources" MUST be the array from leader_signal_map.sources for that leader. For SILENT leaders: set ceo_intervention_required=true, risk_level="medium" (or "high" if they own a 2026 priority), output_vs_expectation="No operational signal in 7 days — confirm engagement, blocked status, or capacity issue.", blocking="Invisible to Duncan — unknown.", needs_support="CEO check-in to surface what they are actually working on." For LOW_SIGNAL leaders: flag if their single source is non-execution (only meetings, no cards/Azure/releases). For ACTIVE leaders: ground output_vs_expectation in the SPECIFIC source items in leader_signal_map.sources_detail. Silence from a direct report IS a finding, not a gap to hide.`;
+- payload.leadership: You MUST return EXACTLY ONE entry per name in leadership_roster (provided in context). Never omit a leader, never invent extras. For each leader, set "signal_status" from leader_signal_map: "active" (≥2 sources), "low_signal" (1 source), "silent" (0 sources). "evidence_sources" MUST be the array from leader_signal_map.sources for that leader. For SILENT leaders: set ceo_intervention_required=true, risk_level="medium" (or "high" if they own a 2026 priority), output_vs_expectation="No operational signal in 7 days — confirm engagement, blocked status, or capacity issue.", blocking="Invisible to Duncan — unknown.", needs_support="CEO check-in to surface what they are actually working on." For LOW_SIGNAL leaders: flag if their single source is non-execution (only meetings, no cards/Azure/releases). For ACTIVE leaders: ground output_vs_expectation in the SPECIFIC source items in leader_signal_map.sources_detail. Silence from a direct report IS a finding, not a gap to hide.
+- payload.risks RECONCILIATION: The risks array MUST collectively explain why outcome_probability is what it is. The "probability gap" = 100 − outcome_probability. The SUM of probability_impact_pts across all risks MUST be within ±10 of that gap. Each risk's probability_impact_pts represents how many points of probability that single risk accounts for (must be a positive integer). At least one risk MUST be tagged severity:"critical" or "high" whenever outcome_probability < 50 OR execution_score < 60. Every silent_priority listed in headline_context.silent_priorities MUST appear as its own dedicated risk with severity:"high" minimum and probability_impact_pts ≥ 12. If you cannot honestly justify the gap with the listed risks, ADD MORE RISKS until you do — do not under-report. Sort risks DESC by probability_impact_pts (biggest contributors first).`;
 
 const EVENING_SCHEMA_HINT = `Return STRICT JSON:
 {
@@ -1696,6 +1698,117 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
           parsed.payload.tldr.where_to_act = `${wta ? wta + " " : ""}${worst.recommendation || `Upload ${worst.label} documents to /projects to remove this blind spot.`}`;
         }
       }
+
+      // 7. Risk Radar reconciliation — risks must explain the headline.
+      const outcomeProb = typeof parsed.outcome_probability === "number" ? parsed.outcome_probability : 50;
+      const execScore = typeof parsed.execution_score === "number" ? parsed.execution_score : 60;
+      const probabilityGap = Math.max(0, 100 - outcomeProb);
+      const headlineIsRed = outcomeProb < 50 || execScore < 60;
+
+      let risks: any[] = Array.isArray(parsed.payload.risks) ? [...parsed.payload.risks] : [];
+      let autoInjectedCount = 0;
+
+      // 7a. Inject synthetic risk for every silent priority not already named in risks.
+      for (const sm of silentMissing) {
+        const priorityName = sm.priority || "";
+        const firstWord = priorityName.toLowerCase().split(/[\s—-]+/)[0] || "";
+        const alreadyNamed = risks.some((r: any) =>
+          typeof r?.risk === "string" && firstWord && r.risk.toLowerCase().includes(firstWord)
+        );
+        if (alreadyNamed) continue;
+        risks.push({
+          risk: `${priorityName} is silent — no meetings, no workstreams, no owner activity in the last 7 days`,
+          why_it_matters: "A 2026 non-negotiable priority with zero signal cannot be tracked, evaluated, or de-risked. Invisible work = unmanaged work.",
+          impact_7d: { window: "7d", impact: "Status unknown — Duncan cannot judge readiness.", mitigation: "CEO assigns a named owner this week." },
+          impact_30d: { window: "30d", impact: "Slip risk compounds — dependent priorities start to drift.", mitigation: "Stand up a formal workstream with weekly check-ins." },
+          impact_90d: { window: "90d", impact: "June 7 readiness materially impaired if still unowned.", mitigation: "Escalate to board if no owner accepts." },
+          owner: "Unassigned — CEO to allocate",
+          severity: "high",
+          confidence: 90,
+          probability_impact_pts: 15,
+          auto_injected: true,
+          auto_injected_reason: "silent_priority",
+        });
+        autoInjectedCount++;
+      }
+
+      // 7b. If headline is red but no critical/high risk exists, upgrade top + add system note.
+      if (headlineIsRed) {
+        const hasHighSev = risks.some((r: any) => {
+          const s = String(r?.severity || "").toLowerCase();
+          return s === "critical" || s === "high";
+        });
+        if (!hasHighSev && risks.length > 0) {
+          // Upgrade the risk with the largest probability_impact_pts (or first one).
+          let topIdx = 0;
+          let topPts = -1;
+          risks.forEach((r: any, i: number) => {
+            const pts = typeof r?.probability_impact_pts === "number" ? r.probability_impact_pts : 0;
+            if (pts > topPts) { topPts = pts; topIdx = i; }
+          });
+          risks[topIdx] = { ...risks[topIdx], severity: "high", auto_upgraded: true };
+        }
+        if (!hasHighSev) {
+          risks.push({
+            risk: `Outcome probability is ${outcomeProb}% and execution is ${execScore}/100 — the listed risks under-explain the gap`,
+            why_it_matters: "When the headline says red but the radar shows nothing critical, Duncan is missing risks. Verify with owners before any board sign-off.",
+            impact_7d: { window: "7d", impact: "Decisions based on this briefing may be premature.", mitigation: "Walk through risks live with each direct report." },
+            impact_30d: { window: "30d", impact: "Risk model drifts further from reality.", mitigation: "Force a structured risk review per workstream." },
+            impact_90d: { window: "90d", impact: "Material surprise risk by June 7.", mitigation: "Independent review of the risk register." },
+            owner: "CEO",
+            severity: "high",
+            confidence: 80,
+            probability_impact_pts: Math.max(10, probabilityGap - risks.reduce((s: number, r: any) => s + (Number(r?.probability_impact_pts) || 0), 0)),
+            auto_injected: true,
+            auto_injected_reason: "headline_under_explained",
+          });
+          autoInjectedCount++;
+        }
+      }
+
+      // 7c. Normalize probability_impact_pts. Ensure each is a positive int and sum is within ±10 of gap.
+      // First, default missing values: estimate from severity.
+      const sevToPts: Record<string, number> = { critical: 25, high: 15, medium: 8, low: 3 };
+      for (const r of risks) {
+        const pts = Number(r?.probability_impact_pts);
+        if (!Number.isFinite(pts) || pts <= 0) {
+          const sev = String(r?.severity || "medium").toLowerCase();
+          r.probability_impact_pts = sevToPts[sev] ?? 8;
+        } else {
+          r.probability_impact_pts = Math.max(1, Math.round(pts));
+        }
+      }
+
+      const rawSum = risks.reduce((s: number, r: any) => s + (r.probability_impact_pts || 0), 0);
+      // Scale toward the gap if we're significantly off and have risks to scale.
+      if (probabilityGap > 0 && rawSum > 0 && Math.abs(rawSum - probabilityGap) > 10 && risks.length > 0) {
+        const scale = probabilityGap / rawSum;
+        // Only scale DOWN if over-attributed; if under-attributed, leave to surface unexplained_pts.
+        if (rawSum > probabilityGap) {
+          for (const r of risks) {
+            r.probability_impact_pts = Math.max(1, Math.round((r.probability_impact_pts || 0) * scale));
+          }
+        }
+      }
+
+      // 7d. Sort by probability_impact_pts DESC.
+      risks.sort((a: any, b: any) => (b.probability_impact_pts || 0) - (a.probability_impact_pts || 0));
+
+      const accountedForPts = risks.reduce((s: number, r: any) => s + (r.probability_impact_pts || 0), 0);
+      const unexplainedPts = Math.max(0, probabilityGap - accountedForPts);
+
+      parsed.payload.risks = risks;
+      parsed.payload.risk_reconciliation = {
+        outcome_probability: outcomeProb,
+        execution_score: execScore,
+        probability_gap: probabilityGap,
+        accounted_for_pts: accountedForPts,
+        unexplained_pts: unexplainedPts,
+        auto_injected_count: autoInjectedCount,
+        warning: unexplainedPts > 10
+          ? `${unexplainedPts} pts of probability loss not explained by listed risks — Duncan may be missing a risk.`
+          : null,
+      };
     }
 
     const briefing_date = new Date().toISOString().slice(0, 10);
