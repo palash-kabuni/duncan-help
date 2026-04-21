@@ -31,7 +31,7 @@ const Section = ({ n, title, children }: { n: number; title: string; children: R
 const CEOBriefing = () => {
   const { user, loading: authLoading } = useAuth();
   const type = "morning" as const;
-  const { briefing, previous, loading, generating, generate } = useCEOBriefing(type);
+  const { briefing, previous, loading, generating, generate, job, cancelPolling } = useCEOBriefing(type);
   const [showRouting, setShowRouting] = useState(false);
 
   if (authLoading) return null;
