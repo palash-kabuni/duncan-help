@@ -443,7 +443,7 @@ const CEOBriefing = () => {
                   })()}
                 </Section>
 
-                <Section n={10} title="Automation Progress">
+                <Section n={7} title="Automation Progress">
                   <div className="rounded-lg border border-border bg-card p-4 space-y-2">
                     {typeof p.automation?.percent === "number" && (
                       <div className="flex items-center gap-3">
