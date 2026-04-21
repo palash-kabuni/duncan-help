@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Upload, AlertTriangle, CheckCircle2, MinusCircle, FileText, ShoppingBag, MapPin, Zap } from "lucide-react";
+import { Upload, AlertTriangle, CheckCircle2, MinusCircle, FileText, ShoppingBag, MapPin, Zap, Target, Activity } from "lucide-react";
 import { useState } from "react";
 
 export type DocumentIntelligenceEntry = {
@@ -48,6 +48,31 @@ export type DataCoverageDomain = {
   matched_signals?: string[];
   recommendation: string | null;
   prefill_tag: string;
+  // Strategic-coverage fields (new)
+  strategic_required?: number;
+  strategic_supplied?: number;
+  strategic_pct?: number;
+  blind_priorities?: string[];
+  missing_artifacts?: string[];
+  live_signal?: "active" | "quiet";
+};
+
+export type StrategicCoverageDomainRow = {
+  domain: string;
+  domain_label: string;
+  required: string[];
+  supplied: Array<{ name: string; likely_supplied_as: string; source: string }>;
+  missing: string[];
+};
+
+export type StrategicCoveragePriority = {
+  priority_id: string;
+  priority_title: string;
+  coverage_pct: number;
+  status: "green" | "yellow" | "red";
+  by_domain: StrategicCoverageDomainRow[];
+  total_required: number;
+  total_supplied: number;
 };
 
 export type DataCoverageAudit = {
@@ -58,6 +83,8 @@ export type DataCoverageAudit = {
   worst_red_domain: { id: string; label: string; recommendation: string | null } | null;
   critical_reds: Array<{ id: string; label: string; recommendation: string | null }>;
   document_review_summary?: { documents_reviewed: number; weak: number; adequate: number; strong: number };
+  strategic_coverage?: StrategicCoveragePriority[];
+  overall_strategic_pct?: number;
 };
 
 const dotClass = (s: DataCoverageDomain["status"]) =>
