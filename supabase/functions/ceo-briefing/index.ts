@@ -65,6 +65,8 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
   "execution_score": number (0-100),
   "workstream_scores": [{
     "name": string,                  // MUST be drawn verbatim from available_workstreams. NEVER invented.
+    "rag": "red" | "amber" | "green" | "silent",   // MUST equal workstream_baseline[name].derived_rag — server overwrites if you deviate.
+    "card_status_summary": string,   // MUST equal workstream_baseline[name].card_status_summary verbatim, e.g. "3 cards · 0 red / 3 amber / 0 green".
     "progress": number,
     "confidence": number,
     "risk": number,
@@ -72,7 +74,7 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
     "execution_quality": string,
     "commercial_impact": string,
     "dependency_strength": string,
-    "evidence": string               // MUST cite a real card title, Azure work item, or release. No generic prose.
+    "evidence": string               // MUST cite a real card title, Azure work item, or release. For silent workstreams, write "Silent — no cards in the last 7 days".
   }],
   "payload": {
     "tldr": {
