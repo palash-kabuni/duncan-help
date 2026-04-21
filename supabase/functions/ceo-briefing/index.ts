@@ -1382,7 +1382,7 @@ Deno.serve(async (req) => {
       };
     })();
 
-
+    const context = {
       now_utc: new Date().toISOString(),
       window: "last 24h",
       available_workstreams,
