@@ -1,10 +1,11 @@
-import { Mail, Loader2, Sparkles, Trash2, RefreshCw, CheckCircle2, Wand2 } from "lucide-react";
+import { Mail, Loader2, Sparkles, Trash2, RefreshCw, CheckCircle2, Wand2, Eye } from "lucide-react";
 import {
   useGmailWritingProfile,
   useGmailTrainStyle,
   useGmailDeleteWritingProfile,
   useGmailStatus,
   useGmailAutoDraftToggle,
+  useGmailCEOBriefingOptinToggle,
 } from "@/hooks/useGmailIntegration";
 import { Switch } from "@/components/ui/switch";
 import { formatDistanceToNow } from "date-fns";
@@ -15,9 +16,11 @@ export default function SettingsGmail() {
   const trainMutation = useGmailTrainStyle();
   const deleteMutation = useGmailDeleteWritingProfile();
   const autoDraftToggle = useGmailAutoDraftToggle();
+  const ceoOptinToggle = useGmailCEOBriefingOptinToggle();
 
   const trained = profile?.last_trained_at;
   const autoDraftEnabled = profile?.auto_draft_enabled ?? false;
+  const ceoOptinEnabled = profile?.ceo_briefing_optin ?? false;
   const lastRun = profile?.auto_draft_last_run_at;
   const today = new Date().toISOString().slice(0, 10);
   const draftsToday = profile?.auto_drafts_counter_date === today
@@ -174,6 +177,39 @@ export default function SettingsGmail() {
               </div>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* CEO Briefing inbox opt-in */}
+      <div className="border-t border-border pt-6">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Eye className="h-4 w-4 text-primary" />
+            Include my inbox in the CEO briefing
+          </h3>
+          <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+            When enabled, Duncan scans the last 24h of your inbox for commitments, risks, escalations,
+            board mentions, and customer/vendor signals — and feeds them into the CEO briefing. Raw
+            email content is never stored; only the structured signals are persisted on each briefing.
+          </p>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-border bg-card/50 p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <div className="text-xs font-medium text-foreground">
+                Allow Duncan to include signals from my inbox
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+                Off by default. Only the CEO sees the briefing. Turn off any time.
+              </p>
+            </div>
+            <Switch
+              checked={ceoOptinEnabled}
+              disabled={ceoOptinToggle.isPending}
+              onCheckedChange={(v) => ceoOptinToggle.mutate(v)}
+            />
+          </div>
         </div>
       </div>
 

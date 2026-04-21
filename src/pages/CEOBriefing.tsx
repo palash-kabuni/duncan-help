@@ -16,6 +16,7 @@ import TldrPanel from "@/components/ceo/TldrPanel";
 import CoverageGaps from "@/components/ceo/CoverageGaps";
 import CompanyPulseCard, { type CompanyPulseStatus } from "@/components/ceo/CompanyPulseCard";
 import DataCoverageCard, { type DataCoverageAudit } from "@/components/ceo/DataCoverageCard";
+import EmailPulseCard from "@/components/ceo/EmailPulseCard";
 import SendActionsDialog from "@/components/ceo/SendActionsDialog";
 import CEORoutingPanel from "@/components/ceo/CEORoutingPanel";
 import { supabase } from "@/integrations/supabase/client";
@@ -180,6 +181,8 @@ const CEOBriefing = () => {
                 {p.company_pulse_status && (
                   <CompanyPulseCard pulse={p.company_pulse_status as CompanyPulseStatus} />
                 )}
+
+                <EmailPulseCard pulse={p.email_pulse} />
 
                 {p.data_coverage_audit && (
                   <DataCoverageCard
