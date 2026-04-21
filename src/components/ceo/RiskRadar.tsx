@@ -2,12 +2,18 @@ import { Badge } from "@/components/ui/badge";
 import { AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+interface ImpactWindow {
+  window?: string;
+  impact?: string;
+  mitigation?: string;
+}
+
 export interface Risk {
   risk: string;
   why_it_matters?: string;
-  impact_7d?: string;
-  impact_30d?: string;
-  impact_90d?: string;
+  impact_7d?: ImpactWindow | string;
+  impact_30d?: ImpactWindow | string;
+  impact_90d?: ImpactWindow | string;
   owner?: string;
   severity?: "low" | "medium" | "high" | "critical";
   confidence?: number;
@@ -20,6 +26,34 @@ const sevStyle = (s?: string) => {
     case "medium": return "bg-yellow-500/15 text-yellow-500 border-yellow-500/40";
     default: return "bg-muted text-muted-foreground";
   }
+};
+
+const ImpactCell = ({ label, w }: { label: string; w?: ImpactWindow | string }) => {
+  if (!w) return (
+    <div className="rounded border border-border/60 p-2 space-y-1">
+      <p className="text-[10px] font-mono uppercase text-muted-foreground">{label}</p>
+      <p className="text-xs text-muted-foreground">—</p>
+    </div>
+  );
+  if (typeof w === "string") {
+    return (
+      <div className="rounded border border-border/60 p-2 space-y-1">
+        <p className="text-[10px] font-mono uppercase text-muted-foreground">{label}</p>
+        <p className="text-xs text-foreground">{w}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded border border-border/60 p-2 space-y-1">
+      <p className="text-[10px] font-mono uppercase text-muted-foreground">{label}</p>
+      <p className="text-xs text-foreground leading-snug">{w.impact || "—"}</p>
+      {w.mitigation && (
+        <p className="text-[11px] text-muted-foreground leading-snug">
+          <span className="font-mono text-primary/80">→</span> {w.mitigation}
+        </p>
+      )}
+    </div>
+  );
 };
 
 const RiskRadar = ({ risks }: { risks: Risk[] }) => (
@@ -41,10 +75,10 @@ const RiskRadar = ({ risks }: { risks: Risk[] }) => (
           </div>
         </div>
         {r.why_it_matters && <p className="text-xs text-muted-foreground">{r.why_it_matters}</p>}
-        <div className="grid grid-cols-3 gap-3 text-xs">
-          <div><span className="font-mono text-muted-foreground">7d:</span> <span className="text-foreground">{r.impact_7d || "—"}</span></div>
-          <div><span className="font-mono text-muted-foreground">30d:</span> <span className="text-foreground">{r.impact_30d || "—"}</span></div>
-          <div><span className="font-mono text-muted-foreground">90d:</span> <span className="text-foreground">{r.impact_90d || "—"}</span></div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <ImpactCell label="7 days" w={r.impact_7d} />
+          <ImpactCell label="30 days" w={r.impact_30d} />
+          <ImpactCell label="90 days" w={r.impact_90d} />
         </div>
         {r.owner && <p className="text-[11px] font-mono text-muted-foreground">Owner: <span className="text-foreground">{r.owner}</span></p>}
       </div>
