@@ -13,6 +13,8 @@ interface PulseBannerProps {
   coverageCovered?: number | null;
   coverageTotal?: number | null;
   confidenceWarning?: string | null;
+  probabilityMovement?: string | null;
+  executionExplanation?: string | null;
 }
 
 const trajectoryStyle = (t?: string) => {
