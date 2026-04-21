@@ -1,116 +1,110 @@
 
 
-## Fix: Risk Radar must reconcile with the headline 35% / 49% scores
+## Add company-wide email scanning to the CEO Briefing
 
-### What's wrong
+### What you're asking for
 
-Headline scores and the Risk Radar are computed by two unrelated paths:
+Right now the CEO briefing reads meetings (Plaud + Google Meet) and workstreams, but **zero emails**. You want Duncan to scan inboxes across the leadership team plus any Duncan user with Gmail connected, so the briefing reflects what's actually being said in writing — commitments, escalations, board mentions, customer issues, vendor risk.
 
-- **Headline** — `outcome_probability` (35%) and `execution_score` (49%) are produced from deterministic inputs: workstream coverage, silent priorities, integration health, confidence cap.
-- **Risk Radar (Section 5)** — `payload.risks[]` is free-form AI output with its own `severity` and `confidence` per risk. The prompt never tells the model: *"these risks must be the reasons probability is 35% and execution is 49%."*
+### What gets built
 
-Result: the headline says *"India launch is at 35% probability — that's red"* but the Risk Radar shows two yellow medium-severity risks. They look like they belong to different briefings.
+**1. New "Company Email Pulse" data source for `ceo-briefing`**
 
-### The fix — Make Risk Radar a forced explanation of the headline
+The function will iterate over every row in `gmail_tokens` (currently treated as a single shared inbox) and pull the **last 24h of mail** from each connected mailbox using each user's own OAuth tokens.
 
-**1. Inject the headline into the Risk Radar prompt as a hard constraint**
+For each mailbox, fetch ~50 most recent inbox + sent messages and extract:
+- Sender / recipient / subject / snippet / timestamp
+- Thread participants (to detect cross-leadership conversations)
+- Whether it's a reply, an external sender, or internal
 
-Before risks are generated, the function already knows `outcome_probability`, `execution_score`, `silentMissing`, `failedSyncs`, `criticalIssues`, `overdueFinance`. Inject these as `HEADLINE_CONTEXT` and require:
+**2. AI extraction layer (per-mailbox, parallel)**
 
-```text
-HEADLINE_CONTEXT (June 7 readiness)
-  outcome_probability: 35   (RED — anything <50 is red)
-  execution_score:     49   (RED — anything <60 is red)
-  silent_priorities:   ["Trials Ops", "Team Selection"]
-  failed_syncs_24h:    1
-  critical_issues:     2
-  overdue_finance:     0
-
-RULES for risks[]:
-  • The risks array MUST collectively explain why probability=35 and
-    execution=49. If you cannot justify the gap from 100 to 35 (i.e.
-    65 points of probability lost) with the listed risks, you have
-    missed risks — add them.
-  • At least one risk MUST be tagged severity:"critical" or "high"
-    whenever outcome_probability < 50 OR execution_score < 60.
-  • Every silent_priority MUST appear as its own risk with
-    severity:"high" minimum.
-  • Each risk gets a new field:
-        probability_impact_pts: number   // how many pts of the 65-pt
-                                         // gap this risk accounts for
-    Sum of probability_impact_pts across all risks must be within
-    ±10 of (100 - outcome_probability).
-```
-
-**2. Deterministic floor — don't trust the model alone**
-
-Post-process the AI output:
-
-- If `outcome_probability < 50` and no risk has `severity ∈ {critical, high}`, **upgrade the top risk** to `high` and append a system-generated risk: *"Outcome probability is 35% — the listed risks under-explain the gap. Verify with owners before board sign-off."*
-- For every entry in `silentMissing`, if no risk mentions that priority by name, **inject a synthetic risk**: `severity: "high"`, `risk: "<priority> is silent — no meetings, no workstreams, no owner activity in 7d"`, `probability_impact_pts: 15`.
-- Normalize `probability_impact_pts` so the visible total matches the headline gap.
-
-**3. UI: show the reconciliation explicitly**
+Each batch of emails goes through a lightweight `gpt-4o-mini` pass that returns structured JSON only — no raw email content stored:
 
 ```text
-EDIT src/components/ceo/RiskRadar.tsx
-  - New header strip above the risk list:
-      "Probability 35% · Execution 49%
-       The risks below account for 62 of the 65 lost probability points."
-  - Each risk card shows a small chip:
-      "−15 pts probability"   (from probability_impact_pts)
-  - If the post-processor injected a synthetic risk, render it with
-    a dashed border and a "Auto-flagged from headline" tag so the CEO
-    knows it's a system insertion, not model judgement.
-  - Sort risks by probability_impact_pts DESC (biggest contributors first).
-```
-
-**4. Schema additions**
-
-```text
-Risk += probability_impact_pts: number
-payload += risk_reconciliation: {
-  probability_gap: number,         // 100 - outcome_probability
-  accounted_for_pts: number,       // sum of probability_impact_pts
-  unexplained_pts: number,         // gap - accounted_for_pts
-  auto_injected_count: number
+{
+  commitments:   [{ owner, what, due, source_email_id }]
+  risks:         [{ severity, summary, who_flagged, priority_match }]
+  escalations:   [{ from, to, topic, urgency }]
+  board_mentions:[{ topic, sender }]
+  customer_issues:[{ company, issue, severity }]
+  vendor_signals:[{ vendor, signal, amount? }]
+  silent_leaders:[{ leader, no_outbound_24h: true }]
 }
 ```
 
-`unexplained_pts > 10` triggers a visible amber warning in the header strip — *"3 pts of risk not explained — Duncan may be missing a risk."*
+Personal data (full body, attachments, non-work threads) is **never persisted** — only the structured signals above are.
 
-### Files to edit
+**3. Feeding the briefing**
+
+The structured email signals are merged into the existing context the briefing already builds:
+
+- `commitments` → Decisions §9 (cross-checked against workstream owners)
+- `risks` + `escalations` → Risk Radar (with new `source: "email"` tag and `probability_impact_pts`)
+- `board_mentions` → TLDR + Investor section
+- `customer_issues` / `vendor_signals` → Operations + Finance domains in Data Coverage
+- `silent_leaders` → cross-checked against meeting silence; if a leader has no email AND no meeting in 7d, they get auto-flagged in Risk Radar
+
+This means a partner email saying *"we need the India MoU signed by Friday"* will now appear in §9 even if no one logged a workstream card.
+
+**4. Privacy & consent model**
+
+- Only mailboxes already connected via the existing per-user Gmail OAuth flow are scanned. Nothing new to authorise for users who are already connected.
+- A new toggle in **Settings → Gmail**: *"Allow Duncan to include signals from my inbox in the CEO briefing"* — defaults to **OFF** for everyone except the CEO (Nimesh) on first run, so leaders explicitly opt in.
+- A new admin view at `/ceo` shows which mailboxes contributed to the briefing (count of emails scanned, signals extracted) so consent is auditable.
+- Raw email bodies are sent to OpenAI for one-time extraction only and are never written to Supabase. Only the JSON output is stored on `ceo_briefings.payload.email_pulse`.
+
+**5. UI surface**
+
+New compact card on `/ceo` between **Company Pulse** and **Data Coverage**:
 
 ```text
-EDIT supabase/functions/ceo-briefing/index.ts
-  - Compute HEADLINE_CONTEXT before the AI call and inject into prompt
-  - Add probability_impact_pts to risks[] schema + reconciliation rules
-  - Post-processor:
-      • Upgrade top risk severity if headline is red but risks aren't
-      • Inject synthetic risks for silent priorities
-      • Compute risk_reconciliation summary
-      • Normalize probability_impact_pts to match headline gap
-
-EDIT src/components/ceo/RiskRadar.tsx
-  - Accept new reconciliation prop
-  - Render header reconciliation strip
-  - Per-risk "−N pts" chip
-  - Dashed border + "Auto-flagged" tag for synthetic risks
-  - Sort by probability_impact_pts DESC
-
-EDIT src/pages/CEOBriefing.tsx
-  - Pass p.risk_reconciliation into <RiskRadar />
+Company Email Pulse — last 24h
+  Mailboxes scanned: 7 of 9 leaders (2 not connected)
+  Emails analysed:   428
+  New commitments:   12  (3 unowned — see §9)
+  Risks raised:      4   (1 critical — fed into Risk Radar)
+  Silent leaders:    Patrick (0 outbound), Simon (0 outbound)
+  [View full breakdown]
 ```
 
-### Outcome
+The "silent leaders" line is the part you specifically asked for — *total clarity* on who is actually communicating vs who's gone dark.
 
-- The Risk Radar can no longer drift from the headline. If probability is 35%, the radar will show risks whose combined `probability_impact_pts` add up to ~65, with at least one critical/high severity entry.
-- Silent priorities (the biggest cause of low scores) will always appear as risks — currently they're invisible in Section 5.
-- The CEO sees one coherent story: *"Probability 35% because of these 5 risks worth 62 pts; 3 pts unexplained — investigate."*
+### Files to change
+
+```text
+NEW    supabase/functions/ceo-email-pulse/index.ts
+         - Iterates gmail_tokens, refreshes per-user, fetches 24h messages,
+           runs gpt-4o-mini extraction, returns structured signals
+         - Called by ceo-briefing in parallel with existing data fetches
+
+EDIT   supabase/functions/ceo-briefing/index.ts
+         - Invoke ceo-email-pulse, merge signals into:
+             • commitments → §9 Decisions
+             • risks → Risk Radar (with probability_impact_pts)
+             • silent_leaders → cross-ref with meeting silence
+             • board_mentions → TLDR + Investor section
+         - Persist email_pulse summary on payload (counts only, no content)
+
+EDIT   src/components/settings/SettingsGmail.tsx
+         - Add "Include my inbox in CEO briefing" toggle
+         - Persist on gmail_writing_profiles (new column ceo_briefing_optin)
+
+NEW    src/components/ceo/EmailPulseCard.tsx
+         - Renders mailboxes scanned, signals extracted, silent leaders
+
+EDIT   src/pages/CEOBriefing.tsx
+         - Mount <EmailPulseCard /> between CompanyPulse and DataCoverage
+         - Pass payload.email_pulse through
+
+DB MIGRATION
+         - ALTER TABLE gmail_writing_profiles
+             ADD COLUMN ceo_briefing_optin boolean NOT NULL DEFAULT false;
+```
 
 ### Out of scope (ask if you want)
 
-- Same reconciliation applied to `execution_score` (e.g. each Leadership Performance card contributes execution-impact-pts that must sum to 100 − execution_score)
-- Per-risk one-click "Send to owner" using the existing `send-ceo-briefing-actions` function
-- Trend chart of `unexplained_pts` over the last 14 briefings to spot when Duncan's risk model starts diverging from the data
+- Scanning Slack DMs the same way (different OAuth flow, separate plan)
+- Pulling Outlook/M365 mailboxes for non-Google users
+- Auto-creating workstream cards from unowned commitments found in email
 
