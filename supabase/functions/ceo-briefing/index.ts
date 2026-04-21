@@ -1443,6 +1443,7 @@ Deno.serve(async (req) => {
       available_workstreams,
       workstream_baseline,
       priority_definitions: PRIORITY_DEFINITIONS.map((p) => ({
+        id: p.id,
         title: p.title,
         why_it_matters: p.why_it_matters,
         expected_owner: p.expected_owner,
