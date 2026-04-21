@@ -512,6 +512,25 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       };
     }
 
+    // 5. Prose post-check — scan key narrative fields for "X of 6" digit mismatches
+    //    against server-truth coverage count and append a corrective sentence.
+    const trueCovered = covered.length;
+    const proseFields = ["company_pulse", "brutal_truth", "execution_explanation", "probability_movement"] as const;
+    for (const field of proseFields) {
+      const val = parsed.payload?.[field];
+      if (typeof val !== "string" || !val) continue;
+      const re = /\b(\d{1,2})\s*(?:of|out of|\/)\s*6\b/gi;
+      let mismatch = false;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(val)) !== null) {
+        const claimed = parseInt(m[1], 10);
+        if (!Number.isNaN(claimed) && claimed !== trueCovered) { mismatch = true; break; }
+      }
+      if (mismatch) {
+        parsed.payload[field] = `${val.trim()} (Server correction: only ${trueCovered} of ${totalPriorities} 2026 priorities have an active workstream.)`;
+      }
+    }
+
     const briefing_date = new Date().toISOString().slice(0, 10);
 
     const { data: saved, error: saveErr } = await admin
