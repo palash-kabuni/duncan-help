@@ -770,8 +770,16 @@ Deno.serve(async (req) => {
       releases: releases as any[],
     });
 
+    // ─── Leadership signal map (deterministic, per-leader tally) ───
+    const leader_signal_map = computeLeaderSignalMap({
+      meetings: meetings as any[],
+      cards: cards as any[],
+      workItems: workItems as any[],
+      releases: releases as any[],
+      profiles: profiles as any[],
+    });
 
-    // ─── Data Coverage Audit (deterministic, server-side) ─────────
+
     const data_coverage_audit = computeDataCoverage(
       (projectFiles as any[]) || [],
       (allMeetingTitles as any[]) || [],
