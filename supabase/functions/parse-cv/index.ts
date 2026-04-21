@@ -31,7 +31,7 @@ function isValidName(name: string): boolean {
   return name.length >= 2 && name.length <= 200 && !/^\d+$/.test(name);
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
