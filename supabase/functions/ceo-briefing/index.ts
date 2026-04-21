@@ -1071,8 +1071,29 @@ Deno.serve(async (req) => {
       return json({ error: "Failed to create briefing job", details: jobErr?.message }, 500);
     }
     const jobId = jobRow.id as string;
+    let heartbeatStatus = "queued";
+    let heartbeatPhase = "Queued";
+    let heartbeatProgress = 0;
+    const heartbeatTimer = setInterval(async () => {
+      try {
+        await admin
+          .from("ceo_briefing_jobs")
+          .update({
+            status: heartbeatStatus,
+            phase: heartbeatPhase,
+            progress: heartbeatProgress,
+          })
+          .eq("id", jobId)
+          .in("status", ["queued", "gathering", "synthesising"]);
+      } catch (e) {
+        console.error("briefing heartbeat failed:", e);
+      }
+    }, 25_000);
 
     const updateJob = async (patch: Record<string, unknown>) => {
+      if (typeof patch.status === "string") heartbeatStatus = patch.status;
+      if (typeof patch.phase === "string") heartbeatPhase = patch.phase;
+      if (typeof patch.progress === "number") heartbeatProgress = patch.progress;
       try {
         await admin.from("ceo_briefing_jobs").update(patch).eq("id", jobId);
       } catch (e) {
@@ -1701,10 +1722,20 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
 
 COMPACT MODE (MANDATORY FOR THIS RUN):
 - Keep all required keys, but minimise prose aggressively.
-- Return at most 4 workstream_scores if available_workstreams exceeds 4: prioritise non-green workstreams first, then the most strategic remaining ones.
-- Return at most 4 risks, 4 friction items, 5 leadership rows, 6 watchlist rows, 5 decisions, 3 document_intelligence rows, and 3 missing_artifacts_recommendations domains with max 2 artifacts each.
+- Every prose field must be 4-12 words max.
+- Prefer [] or "" for non-critical optional sections.
+- Return at most 3 workstream_scores, 2 risks, 2 friction items, 3 leadership rows, 3 watchlist rows, 3 decisions, 2 document_intelligence rows, and 2 missing_artifacts_recommendations domains with 1 artifact each.
 - For low-value narrative fields, use a single short sentence.
 - Do not use markdown fences.`;
+
+    const ultraCompactPromptSuffix = `
+
+ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
+- Keep the exact JSON shape only.
+- Use the shortest valid answer possible for every field.
+- Use [] for secondary arrays unless absolutely required.
+- Limit strings to one clause each.
+- JSON only. No markdown fences. No commentary.`;
 
     let aiData: any;
     let parsed: any;
@@ -1734,8 +1765,27 @@ COMPACT MODE (MANDATORY FOR THIS RUN):
           });
           parsed = parseBriefingJson(aiData);
         } catch (retryErr: any) {
-          console.error("LLM compact retry error:", retryErr?.status, retryErr?.message);
-          throw new Error(`AI generation failed: ${String(retryErr?.message || "").slice(0, 300)}`);
+          if (retryErr?.code === "MODEL_TRUNCATED" || String(retryErr?.message || "").includes("Model output truncated")) {
+            await updateJob({ phase: "Retrying ultra-compact briefing", progress: 72 });
+            try {
+              aiData = await callLLMWithFallback({
+                workflow: "ceo-briefing",
+                response_format: { type: "json_object" },
+                messages: [
+                  { role: "system", content: SYSTEM_PROMPT },
+                  { role: "user", content: `${userPrompt}${compactPromptSuffix}${ultraCompactPromptSuffix}` },
+                ],
+                max_tokens: 4096,
+              });
+              parsed = parseBriefingJson(aiData);
+            } catch (finalRetryErr: any) {
+              console.error("LLM ultra-compact retry error:", finalRetryErr?.status, finalRetryErr?.message);
+              throw new Error(`AI generation failed: ${String(finalRetryErr?.message || "").slice(0, 300)}`);
+            }
+          } else {
+            console.error("LLM compact retry error:", retryErr?.status, retryErr?.message);
+            throw new Error(`AI generation failed: ${String(retryErr?.message || "").slice(0, 300)}`);
+          }
         }
       } else {
         console.error("LLM error:", err?.status, err?.message);
@@ -3092,6 +3142,8 @@ COMPACT MODE (MANDATORY FOR THIS RUN):
           phase: "Failed",
           error: String(workerErr?.message || workerErr || "Unknown error").slice(0, 1000),
         });
+      } finally {
+        clearInterval(heartbeatTimer);
       }
     };
 
