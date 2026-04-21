@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { RefreshCw, Sparkles, Send, Settings2 } from "lucide-react";
+import { RefreshCw, Sparkles, Send, Settings2, AlertTriangle } from "lucide-react";
 import { useCEOBriefing, type BriefingType } from "@/hooks/useCEOBriefing";
 import PulseBanner from "@/components/ceo/PulseBanner";
 import RiskRadar from "@/components/ceo/RiskRadar";
@@ -237,23 +237,36 @@ const CEOBriefing = () => {
                 </Section>
 
                 <Section n={8} title="Accountability Watchlist">
-                  <div className="rounded-lg border border-border bg-card overflow-hidden">
-                    <table className="w-full text-xs">
+                  <div className="rounded-lg border border-border bg-card overflow-x-auto">
+                    <table className="w-full text-xs min-w-[720px]">
                       <thead className="bg-muted/50">
                         <tr className="text-left">
                           <th className="px-3 py-2 font-mono uppercase tracking-wider">Workstream</th>
                           <th className="px-3 py-2 font-mono uppercase tracking-wider">Owner</th>
                           <th className="px-3 py-2 font-mono uppercase tracking-wider">Status</th>
+                          <th className="px-3 py-2 font-mono uppercase tracking-wider">What Good Looks Like</th>
                           <th className="px-3 py-2 font-mono uppercase tracking-wider">Missing</th>
+                          <th className="px-3 py-2 font-mono uppercase tracking-wider">Blind Spot</th>
                         </tr>
                       </thead>
                       <tbody>
                         {(p.watchlist || []).map((w: any, i: number) => (
-                          <tr key={i} className="border-t border-border">
+                          <tr key={i} className="border-t border-border align-top">
                             <td className="px-3 py-2 text-foreground font-medium">{w.workstream}</td>
                             <td className="px-3 py-2 text-muted-foreground">{w.owner}</td>
                             <td className="px-3 py-2 text-muted-foreground">{w.status}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{w.good_looks_like || "—"}</td>
                             <td className="px-3 py-2 text-muted-foreground">{w.missing}</td>
+                            <td className="px-3 py-2">
+                              {w.data_blind_spot ? (
+                                <div className="flex items-start gap-1.5 text-amber-600 dark:text-amber-400">
+                                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                                  <span className="text-[11px]">{w.data_blind_spot}</span>
+                                </div>
+                              ) : (
+                                <span className="text-[11px] text-muted-foreground/60">—</span>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -263,14 +276,48 @@ const CEOBriefing = () => {
 
                 <Section n={9} title="Decisions the CEO Must Make">
                   <div className="space-y-3">
-                    {(p.decisions || []).slice(0, 3).map((d: any, i: number) => (
-                      <div key={i} className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-2">
-                        <h4 className="text-sm font-semibold text-foreground">{i + 1}. {d.decision}</h4>
-                        <p className="text-xs text-muted-foreground">{d.why_it_matters}</p>
-                        {d.consequence && <p className="text-xs text-red-500">If ignored 7d: {d.consequence}</p>}
-                        {d.who_to_involve && <p className="text-[11px] font-mono text-muted-foreground">Involve: {d.who_to_involve}</p>}
-                      </div>
-                    ))}
+                    {(p.decisions || []).slice(0, 3).map((d: any, i: number) => {
+                      const conf = (d.confidence || "").toLowerCase();
+                      const confClass =
+                        conf === "high"
+                          ? "border-green-500/40 text-green-600 dark:text-green-400"
+                          : conf === "medium"
+                          ? "border-yellow-500/40 text-yellow-600 dark:text-yellow-400"
+                          : conf === "low"
+                          ? "border-red-500/40 text-red-600 dark:text-red-400"
+                          : "border-border text-muted-foreground";
+                      return (
+                        <div key={i} className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-2">
+                          <div className="flex items-start justify-between gap-3">
+                            <h4 className="text-sm font-semibold text-foreground">{i + 1}. {d.decision}</h4>
+                            {conf && (
+                              <Badge variant="outline" className={`text-[10px] font-mono uppercase shrink-0 ${confClass}`}>
+                                {conf} confidence
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">{d.why_it_matters}</p>
+                          {d.consequence && <p className="text-xs text-red-500">If ignored 7d: {d.consequence}</p>}
+                          {d.who_to_involve && <p className="text-[11px] font-mono text-muted-foreground">Involve: {d.who_to_involve}</p>}
+                          {d.blocked_by_missing_data && (
+                            <div className="mt-2 rounded border border-amber-500/40 bg-amber-500/5 p-2.5 flex items-start gap-2">
+                              <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                              <div className="flex-1 space-y-1.5">
+                                <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                                  <span className="font-semibold">Decide blind?</span> {d.blocked_by_missing_data}
+                                </p>
+                                <Link
+                                  to="/projects"
+                                  className="text-[11px] font-mono text-primary hover:underline inline-flex items-center gap-1"
+                                >
+                                  Upload to fix →
+                                </Link>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </Section>
 

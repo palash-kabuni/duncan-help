@@ -103,8 +103,8 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
     }],
     "friction": [{"issue": string, "teams": string[], "consequence": string}],
     "leadership": [{"name": string, "role": string, "output_vs_expectation": string, "risk_level": "low"|"medium"|"high", "blocking": string, "needs_support": string, "ceo_intervention_required": boolean}],
-    "watchlist": [{"workstream": string, "owner": string, "status": string, "missing": string}],
-    "decisions": [{"decision": string, "why_it_matters": string, "consequence": string, "who_to_involve": string}],
+    "watchlist": [{"workstream": string, "owner": string, "status": string, "good_looks_like": string, "missing": string, "data_blind_spot": string|null}],
+    "decisions": [{"decision": string, "why_it_matters": string, "consequence": string, "who_to_involve": string, "confidence": "high"|"medium"|"low", "blocked_by_missing_data": string|null}],
     "automation": {"percent": number, "working": string, "manual": string, "next": string, "blockers": string},
     "brutal_truth": string
   }
@@ -119,7 +119,11 @@ CRITICAL RULES:
 - "tldr" must directly answer the three Final Instruction questions in 1-2 sentences each.
 - For each workstream score, all six analytical-framework axes are MANDATORY (progress_vs_goal, execution_quality, commercial_impact, dependency_strength + scores).
 - Risk windows (7d/30d/90d) must be structured objects, never loose strings.
-- Every workstream "evidence" string MUST quote a real card title, Azure work item, or release from the source data.`;
+- Every workstream "evidence" string MUST quote a real card title, Azure work item, or release from the source data.
+- watchlist[].good_looks_like MUST be a concrete, observable definition of done for that workstream (e.g. "India launch comms locked, vendor contracts signed, 400 schools confirmed by 1 May"). Never vague. Never "progress made".
+- watchlist[].data_blind_spot MUST be set (non-null) whenever the workstream's function area maps to a Red or Yellow domain in payload.data_coverage_audit. Name the missing document/signal explicitly (e.g. "No signed vendor contract on file — Legal domain Red", "No financial plan to verify burn against — Finance Planning domain Red"). Set null ONLY when the workstream is fully evidenced by Green domains.
+- decisions[].confidence MUST NEVER exceed payload.data_coverage_audit.confidence_cap. If the cap is "medium", no decision can be "high". If the cap is "low", no decision can be "high" or "medium".
+- decisions[].blocked_by_missing_data MUST name the Red domain (legal / finance_planning / technology_direction / investor_board / product_strategy) whenever the decision cannot be honestly judged without that evidence. Format: "{domain_label}: {what specifically is missing}". Set null ONLY when the decision is fully grounded in available data.`;
 
 const EVENING_SCHEMA_HINT = `Return STRICT JSON:
 {
