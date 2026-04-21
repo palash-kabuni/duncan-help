@@ -306,48 +306,75 @@ const CEOBriefing = () => {
                 </Section>
 
                 <Section n={8} title="Accountability Watchlist">
-                  <div className="rounded-lg border border-border bg-card overflow-x-auto">
-                    <table className="w-full text-xs min-w-[720px]">
-                      <thead className="bg-muted/50">
-                        <tr className="text-left">
-                          <th className="px-3 py-2 font-mono uppercase tracking-wider">Workstream</th>
-                          <th className="px-3 py-2 font-mono uppercase tracking-wider">Owner</th>
-                          <th className="px-3 py-2 font-mono uppercase tracking-wider">Status</th>
-                          <th className="px-3 py-2 font-mono uppercase tracking-wider">What Good Looks Like</th>
-                          <th className="px-3 py-2 font-mono uppercase tracking-wider">Missing</th>
-                          <th className="px-3 py-2 font-mono uppercase tracking-wider">Blind Spot</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(p.watchlist || []).map((w: any, i: number) => (
-                          <tr key={i} className="border-t border-border align-top">
-                            <td className="px-3 py-2 text-foreground font-medium">{w.workstream}</td>
-                            <td className="px-3 py-2 text-muted-foreground">
-                              <div>{w.owner}</div>
-                              {w.reassignment_reason && (
-                                <Badge variant="outline" className="mt-1 text-[9px] font-mono uppercase border-amber-500/40 text-amber-600 dark:text-amber-400">
-                                  Reassigned — single-owner cap
-                                </Badge>
-                              )}
-                            </td>
-                            <td className="px-3 py-2 text-muted-foreground">{w.status}</td>
-                            <td className="px-3 py-2 text-muted-foreground">{w.good_looks_like || "—"}</td>
-                            <td className="px-3 py-2 text-muted-foreground">{w.missing}</td>
-                            <td className="px-3 py-2">
-                              {w.data_blind_spot ? (
-                                <div className="flex items-start gap-1.5 text-amber-600 dark:text-amber-400">
-                                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                                  <span className="text-[11px]">{w.data_blind_spot}</span>
-                                </div>
-                              ) : (
-                                <span className="text-[11px] text-muted-foreground/60">—</span>
-                              )}
-                            </td>
+                  {(p.watchlist || []).length === 0 ? (
+                    <div className="rounded-lg border border-border bg-card p-6 flex items-start gap-3">
+                      <ShieldCheck className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-medium text-foreground">All workstreams green and fully evidenced</p>
+                        <p className="text-xs text-muted-foreground mt-1">No accountability gaps detected — every 2026 priority has a tracked workstream, a named owner, and current execution signal.</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-border bg-card overflow-x-auto">
+                      <table className="w-full text-xs min-w-[820px]">
+                        <thead className="bg-muted/50">
+                          <tr className="text-left">
+                            <th className="px-3 py-2 font-mono uppercase tracking-wider">Workstream</th>
+                            <th className="px-3 py-2 font-mono uppercase tracking-wider">Owner</th>
+                            <th className="px-3 py-2 font-mono uppercase tracking-wider">Status</th>
+                            <th className="px-3 py-2 font-mono uppercase tracking-wider">What Good Looks Like</th>
+                            <th className="px-3 py-2 font-mono uppercase tracking-wider">Missing</th>
+                            <th className="px-3 py-2 font-mono uppercase tracking-wider">Blind Spot</th>
+                            <th className="px-3 py-2 font-mono uppercase tracking-wider">Source</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody>
+                          {(p.watchlist || []).map((w: any, i: number) => (
+                            <tr
+                              key={i}
+                              className={`border-t border-border align-top ${
+                                w.auto_injected ? "border-l-2 border-l-amber-500/60 border-l-dashed bg-amber-500/[0.02]" : ""
+                              }`}
+                            >
+                              <td className="px-3 py-2 text-foreground font-medium">{w.workstream}</td>
+                              <td className="px-3 py-2 text-muted-foreground">
+                                <div>{w.owner}</div>
+                                {w.reassignment_reason && (
+                                  <Badge variant="outline" className="mt-1 text-[9px] font-mono uppercase border-amber-500/40 text-amber-600 dark:text-amber-400">
+                                    Reassigned — single-owner cap
+                                  </Badge>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-muted-foreground">{w.status}</td>
+                              <td className="px-3 py-2 text-muted-foreground">{w.good_looks_like || "—"}</td>
+                              <td className="px-3 py-2 text-muted-foreground">{w.missing}</td>
+                              <td className="px-3 py-2">
+                                {w.data_blind_spot ? (
+                                  <div className="flex items-start gap-1.5 text-amber-600 dark:text-amber-400">
+                                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                                    <span className="text-[11px]">{w.data_blind_spot}</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-[11px] text-muted-foreground/60">—</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2">
+                                {w.auto_injected ? (
+                                  <Badge variant="outline" className="text-[9px] font-mono uppercase border-amber-500/40 text-amber-600 dark:text-amber-400">
+                                    Auto-flagged
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-[9px] font-mono uppercase border-border text-muted-foreground">
+                                    AI
+                                  </Badge>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </Section>
 
                 <Section n={9} title="Decisions the CEO Must Make">
