@@ -325,8 +325,39 @@ const CEOBriefing = () => {
             <p className="text-[10px] font-mono text-muted-foreground/60 text-center pt-4">
               Generated {new Date(briefing.created_at).toLocaleString("en-GB")} · Locked to CEO
             </p>
+
+            <div className="pt-4 border-t border-border">
+              <button
+                onClick={() => setShowRouting((v) => !v)}
+                className="text-xs font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground flex items-center gap-1.5"
+              >
+                <Settings2 className="h-3 w-3" />
+                {showRouting ? "Hide" : "Show"} action routing
+              </button>
+              {showRouting && <div className="mt-3"><CEORoutingPanel /></div>}
+            </div>
           </>
         )}
+
+        <SendActionsDialog
+          open={sendOpen}
+          onOpenChange={setSendOpen}
+          briefingId={briefing?.id ?? null}
+          briefingDate={briefing?.briefing_date}
+          onSent={() => {
+            if (briefing?.id) {
+              supabase
+                .from("ceo_briefing_email_logs")
+                .select("sent_at")
+                .eq("briefing_id", briefing.id)
+                .eq("status", "sent")
+                .order("sent_at", { ascending: false })
+                .limit(1)
+                .maybeSingle()
+                .then(({ data }) => setLastSent(data?.sent_at ?? null));
+            }
+          }}
+        />
       </div>
     </AppLayout>
   );
