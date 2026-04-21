@@ -90,6 +90,20 @@ const CEOBriefing = () => {
 
             {type === "morning" && p.tldr && <TldrPanel tldr={p.tldr} />}
 
+            {type === "morning" && (
+              <CoverageGaps gaps={p.coverage_gaps} totalPriorities={6} />
+            )}
+
+            {type === "morning" && Array.isArray(briefing.workstream_scores) && briefing.workstream_scores.length === 0 && (
+              <div className="rounded-lg border border-dashed border-border bg-card p-6 text-center">
+                <p className="text-sm text-muted-foreground">
+                  No workstreams configured in Duncan — add cards under{" "}
+                  <Link to="/workstreams" className="text-primary underline">Workstreams</Link>{" "}
+                  to enable scoring.
+                </p>
+              </div>
+            )}
+
             {type === "morning" && Array.isArray(briefing.workstream_scores) && briefing.workstream_scores.length > 0 && (
               <Section n={0} title="Workstream Scorecard">
                 <div className="rounded-lg border border-border bg-card overflow-hidden">
