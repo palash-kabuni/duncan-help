@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, EyeOff, Activity, MessageSquare, Kanban, GitBranch, Rocket } from "lucide-react";
+import { AlertTriangle, EyeOff, Activity, MessageSquare, Kanban, GitBranch, Rocket, Calendar, Mail, FileText } from "lucide-react";
 
 export type SignalStatus = "active" | "low_signal" | "silent";
 
