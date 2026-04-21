@@ -1825,7 +1825,7 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
         if (!rag || rag === "green") continue;
         const name = String(ws?.name || "").trim();
         if (!name || hasRowFor(name)) continue;
-        const statusLabel = rag === "red" ? "Red" : rag === "yellow" ? "Yellow" : "At Risk";
+        const statusLabel = rag === "red" ? "Red" : (rag === "yellow" || rag === "amber") ? "Yellow" : "At Risk";
         wlIn.push({
           workstream: name,
           owner: ws?.owner || "Unassigned — CEO to allocate",
@@ -2783,7 +2783,7 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       const wsScores: any[] = Array.isArray(parsed.workstream_scores) ? parsed.workstream_scores : [];
       const stuck = wsScores.filter((w) => {
         const r = String(w?.rag || "").toLowerCase();
-        return r === "red" || r === "yellow";
+        return r === "red" || r === "yellow" || r === "amber";
       });
       for (const w of stuck.slice(0, 2)) {
         pushRec({
