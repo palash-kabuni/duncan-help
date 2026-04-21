@@ -116,6 +116,18 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
       "contradicted_by": [string],
       "reinforced_by": [string],
       "critical_gaps_to_fix": [string]
+    }],
+    "missing_artifacts_recommendations": [{
+      "domain": string,
+      "priority": "critical"|"high"|"medium"|"low",
+      "artifacts": [{
+        "name": string,
+        "why_duncan_needs_it": string,
+        "what_it_unlocks": string,
+        "where_to_find_it": string,
+        "suggested_filename_pattern": string,
+        "blast_radius": [string]
+      }]
     }]
   }
 }
@@ -134,8 +146,9 @@ CRITICAL RULES:
 - watchlist[].data_blind_spot MUST be set (non-null) whenever the workstream's function area maps to a Red or Yellow domain in payload.data_coverage_audit. Name the missing document/signal explicitly. Set null ONLY when fully evidenced.
 - watchlist[].owner MUST be the person actually accountable for the SPECIFIC blocker — derived from workstream_cards.owner_id (resolved via team_directory display_name), azure_work_items.assigned_to, or the function area. Use PRIORITY_DEFINITIONS.expected_owner ONLY as a tie-breaker, NEVER as the default. NO single owner may appear on more than 40% of watchlist rows. Split concentrated rows into sub-issues attributed to the actual contributors (CMO for marketing blockers, CFO for funding gates, CTO for tech readiness, COO for execution gaps), or escalate to "Cross-functional — escalate to CEO".
 - decisions[].confidence MUST NEVER exceed payload.data_coverage_audit.confidence_cap.
-- decisions[].blocked_by_missing_data MUST name the Red domain whenever the decision cannot be honestly judged without that evidence. Format: "{domain_label}: {what specifically is missing}". Set null ONLY when fully grounded.
-- payload.document_intelligence: For EVERY domain in domain_file_review with files_inspected.length > 0, produce one entry. Ground "what_it_covers" in the actual content_excerpt (do NOT invent). Cross-reference the excerpt against xero_invoices, workstream_cards, azure_work_items, meetings, recent_releases — if a number, date, owner, or commitment in the doc disagrees with another data source, list it in contradicted_by with a specific quote (e.g. "Plan assumes £180k Q2 burn but Xero shows £241k actual"). Mark verdict="weak" if the doc is thin, generic, or stale; "strong" only when current, specific, and corroborated by ≥1 other system.`;
+- decisions[].blocked_by_missing_data MUST name the Red domain whenever the decision cannot be honestly judged without that evidence. Format: "{domain_label}: {what specifically is missing}". Set null ONLY when fully grounded. When missing_artifacts_recommendations contains specific artifact names that would unblock this decision, prepend: "Needs: {artifact_name_1}, {artifact_name_2} — {domain_label} blind spot."
+- payload.document_intelligence: For EVERY domain in domain_file_review with files_inspected.length > 0, produce one entry. Ground "what_it_covers" in the actual content_excerpt (do NOT invent). Cross-reference the excerpt against xero_invoices, workstream_cards, azure_work_items, meetings, recent_releases — if a number, date, owner, or commitment in the doc disagrees with another data source, list it in contradicted_by with a specific quote (e.g. "Plan assumes £180k Q2 burn but Xero shows £241k actual"). Mark verdict="weak" if the doc is thin, generic, or stale; "strong" only when current, specific, and corroborated by ≥1 other system.
+- payload.missing_artifacts_recommendations: THINK LIKE A CHIEF OF STAFF, NOT A CEO. Recommend artifacts the CEO would NEVER think to upload, drawn from the operating_system_checklist in context. Cover ALL 7 knowledge domains (not just Red ones — even Green domains have depth gaps). For each artifact: (a) "what_it_unlocks" MUST tie to a specific briefing section (e.g. "Risk Radar accuracy on India launch", "Decisions §9 confidence cap → high", "Investor advisory grounding"); (b) "where_to_find_it" MUST be grounded in inferred_artifact_signals where a hint exists (e.g. "Heard mentioned in Patrick's 14 Apr meeting — likely in his Drive/email"), otherwise plausible owner+location ("DocuSign — Patrick"); (c) cross-reference meetings, xero_invoices, azure_work_items, recent_releases to INFER artifacts that should exist but haven't been uploaded (AWS invoices in Xero → infer infrastructure cost map; "India launch" in meetings → infer signed vendor MoU; security tags on Azure tickets → infer pen-test report). Maximum 15 artifacts TOTAL across all domains, ranked by unlock-value. Priority levels: "critical" = blocks a §9 decision or board commitment; "high" = caps a major section confidence; "medium"/"low" = depth improvements.`;
 
 const EVENING_SCHEMA_HINT = `Return STRICT JSON:
 {
@@ -283,6 +296,145 @@ const KNOWLEDGE_DOMAINS = [
     prefill_tag: "board",
   },
 ] as const;
+
+// ─── Operating-system checklist — what a Chief of Staff would expect to exist ─
+// Per-domain baseline of artifacts the CEO would NOT naturally think to upload.
+// Used by the AI to prescribe a shopping list, not just grade what's present.
+const OPERATING_SYSTEM_CHECKLIST: Record<string, string[]> = {
+  finance_planning: [
+    "13-week rolling cash forecast", "Runway model (base/bull/bear)",
+    "Unit economics by SKU/segment", "CAC / LTV trend report",
+    "AR aging schedule", "12-month payroll forecast", "FX exposure snapshot",
+  ],
+  finance_transactions: [
+    "Reconciled monthly P&L", "Bank-to-Xero reconciliation log",
+    "Vendor concentration report (top 10 spend)",
+  ],
+  legal: [
+    "Cap table (current)", "Shareholder agreement", "IP assignment register",
+    "Employment contracts (signed)", "Supplier MSAs",
+    "Active NDAs (signed register)", "Data Processing Agreements (DPAs)",
+    "Regulatory licences (India launch)", "Insurance certificates (current)",
+    "Lightning Strike vendor MoU (signed)",
+  ],
+  technology_direction: [
+    "Architecture Decision Records (ADRs)", "Latest security audit",
+    "Penetration test report (last 12mo)", "SLA register (uptime targets)",
+    "Vendor risk register", "Incident post-mortems (last 90d)",
+    "API contracts (external + internal)", "Infrastructure cost map (AWS/GCP)",
+  ],
+  product_strategy: [
+    "Roadmap with dated milestones", "Customer-research synthesis (last quarter)",
+    "Churn / retention analysis", "Feature-usage telemetry export",
+    "NPS / CSAT report", "Live PRDs (current sprint)",
+  ],
+  investor_board: [
+    "Latest board deck (final)", "Investor update emails (last 3)",
+    "KPI dashboard snapshots (monthly)", "Capital strategy memo",
+    "Term sheet (latest round)", "409A valuation (if US)",
+    "Board minutes (last 2 meetings)",
+  ],
+  operations: [
+    "Org chart with comp bands", "Succession plan (top 10 roles)",
+    "Performance calibration grid", "Hiring plan vs actual",
+    "Attrition log (rolling 12mo)", "Operations runbook",
+  ],
+  recruitment: [
+    "Hiring funnel conversion report", "Interviewer scorecards",
+    "Comp benchmarking data",
+  ],
+};
+
+// ─── Cross-system signal inference — what evidence in OTHER systems implies a doc should exist ──
+function inferArtifactSignals(input: {
+  meetings: Array<{ title: string | null; meeting_date: string | null; summary: string | null }>;
+  recentTranscripts: Array<{ title: string; meeting_date: string | null; transcript: string | null }>;
+  xeroInvoices: Array<{ contact_name: string | null; total: number | null; date: string | null }>;
+  workItems: Array<{ title: string | null; tags?: string | null }>;
+  releases: Array<{ title: string | null; version: string | null; published_at: string | null }>;
+}) {
+  const signals: Array<{ inferred_artifact: string; domain: string; source: string; hint: string }> = [];
+  const seen = new Set<string>();
+  const push = (s: { inferred_artifact: string; domain: string; source: string; hint: string }) => {
+    const k = `${s.domain}::${s.inferred_artifact}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    signals.push(s);
+  };
+
+  // Meetings — keyword → artifact
+  const meetingHaystack = [...input.meetings, ...input.recentTranscripts].map((m: any) => ({
+    title: String(m.title || ""),
+    date: m.meeting_date || null,
+    text: `${m.title || ""} ${m.summary || ""} ${m.transcript ? String(m.transcript).slice(0, 4000) : ""}`.toLowerCase(),
+  }));
+  const meetingRules: Array<{ kw: string[]; domain: string; artifact: string }> = [
+    { kw: ["india launch", "lightning strike", "vendor mou"], domain: "legal", artifact: "Signed Lightning Strike India vendor MoU" },
+    { kw: ["board", "investor update", "investor call"], domain: "investor_board", artifact: "Latest board deck / investor update" },
+    { kw: ["fundraise", "round", "term sheet"], domain: "investor_board", artifact: "Active term sheet + capital strategy memo" },
+    { kw: ["security", "pentest", "pen test", "vulnerability"], domain: "technology_direction", artifact: "Penetration test report + remediation plan" },
+    { kw: ["architecture", "platform redesign", "rearchitect"], domain: "technology_direction", artifact: "Architecture Decision Record (ADR)" },
+    { kw: ["customer research", "user interview", "discovery call"], domain: "product_strategy", artifact: "Customer-research synthesis" },
+    { kw: ["budget", "burn", "runway", "cash"], domain: "finance_planning", artifact: "13-week cash forecast + runway model" },
+    { kw: ["nda", "non-disclosure"], domain: "legal", artifact: "Signed NDAs register" },
+    { kw: ["hire", "headcount", "comp band"], domain: "operations", artifact: "Hiring plan vs actual + comp bands" },
+  ];
+  for (const m of meetingHaystack) {
+    for (const r of meetingRules) {
+      if (r.kw.some((k) => m.text.includes(k))) {
+        push({
+          inferred_artifact: r.artifact,
+          domain: r.domain,
+          source: `meeting:${m.title.slice(0, 60)}`,
+          hint: `Mentioned in "${m.title.slice(0, 60)}"${m.date ? ` (${m.date.slice(0, 10)})` : ""} — likely with the participants of that meeting.`,
+        });
+      }
+    }
+  }
+
+  // Xero — large/recurring vendor payments → vendor contracts should exist
+  const vendorTotals = new Map<string, number>();
+  for (const inv of input.xeroInvoices) {
+    if (!inv.contact_name || typeof inv.total !== "number") continue;
+    vendorTotals.set(inv.contact_name, (vendorTotals.get(inv.contact_name) || 0) + Math.abs(inv.total));
+  }
+  for (const [vendor, total] of vendorTotals.entries()) {
+    if (total < 1000) continue;
+    const lower = vendor.toLowerCase();
+    if (/aws|amazon web|gcp|google cloud|azure/.test(lower)) {
+      push({ inferred_artifact: `Infrastructure contract + cost map (${vendor})`, domain: "technology_direction", source: `xero:${vendor}`, hint: `Recurring spend with ${vendor} (~£${Math.round(total)} in window) — vendor contract should be on file.` });
+    } else if (/lawyer|legal|solicitor/.test(lower)) {
+      push({ inferred_artifact: `Legal engagement letter (${vendor})`, domain: "legal", source: `xero:${vendor}`, hint: `Active legal spend with ${vendor} — engagement letter should be uploaded.` });
+    } else if (total > 10000) {
+      push({ inferred_artifact: `Vendor MSA / contract (${vendor})`, domain: "legal", source: `xero:${vendor}`, hint: `Material spend with ${vendor} (~£${Math.round(total)}) — supplier MSA expected.` });
+    }
+  }
+
+  // Azure work items — security/compliance tags
+  for (const w of input.workItems) {
+    const blob = `${w.title || ""} ${w.tags || ""}`.toLowerCase();
+    if (/security|pentest|vuln|cve/.test(blob)) {
+      push({ inferred_artifact: "Latest security audit + pen-test report", domain: "technology_direction", source: `azure:${(w.title || "").slice(0, 60)}`, hint: `Security work in flight — audit/pen-test artefacts should back this up.` });
+    }
+    if (/compliance|gdpr|dpa|iso/.test(blob)) {
+      push({ inferred_artifact: "Compliance evidence pack (GDPR/DPA/ISO)", domain: "legal", source: `azure:${(w.title || "").slice(0, 60)}`, hint: `Compliance work in flight — DPAs and audit evidence should be uploaded.` });
+    }
+  }
+
+  // Releases — customer-facing → research synthesis expected
+  for (const r of input.releases) {
+    if (r.title) {
+      push({
+        inferred_artifact: `Customer-research synthesis behind "${r.title}"`,
+        domain: "product_strategy",
+        source: `release:${r.version || r.title}`,
+        hint: `Released "${r.title}"${r.published_at ? ` on ${r.published_at.slice(0, 10)}` : ""} — discovery research should justify it.`,
+      });
+    }
+  }
+
+  return signals.slice(0, 40);
+}
 
 type DomainStatus = "green" | "yellow" | "red";
 
@@ -532,6 +684,16 @@ Deno.serve(async (req) => {
 
     const meeting_priority_signals = scanTranscriptsForPriorities(recentTranscripts as any[]);
 
+    // ─── Cross-system inferred-artifact signals (Chief-of-Staff reasoning) ─
+    const inferred_artifact_signals = inferArtifactSignals({
+      meetings: meetings as any[],
+      recentTranscripts: recentTranscripts as any[],
+      xeroInvoices: xeroInvoices as any[],
+      workItems: workItems as any[],
+      releases: releases as any[],
+    });
+
+
     // ─── Data Coverage Audit (deterministic, server-side) ─────────
     const data_coverage_audit = computeDataCoverage(
       (projectFiles as any[]) || [],
@@ -678,6 +840,8 @@ Deno.serve(async (req) => {
       integration_audit_24h: auditLogs,
       team_directory: profiles,
       domain_file_review,
+      operating_system_checklist: OPERATING_SYSTEM_CHECKLIST,
+      inferred_artifact_signals,
       previous_briefing: (prev as any)?.[0] ?? null,
     };
 
@@ -933,7 +1097,69 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       }
     }
 
-    //    against server-truth coverage count and append a corrective sentence.
+    // 4e. Missing artifacts recommendations — clean, cap at 15, link to decisions §9.
+    if (briefing_type === "morning") {
+      const validDomainIds = new Set(KNOWLEDGE_DOMAINS.map((d) => d.id));
+      const validPrio = new Set(["critical", "high", "medium", "low"]);
+      const rawRec = Array.isArray(parsed.payload?.missing_artifacts_recommendations)
+        ? parsed.payload.missing_artifacts_recommendations : [];
+      const cleanedRec = rawRec
+        .filter((r: any) => r && validDomainIds.has(r.domain) && validPrio.has((r.priority || "").toLowerCase()))
+        .map((r: any) => ({
+          domain: r.domain,
+          priority: String(r.priority).toLowerCase(),
+          artifacts: Array.isArray(r.artifacts) ? r.artifacts.filter((a: any) => a && typeof a.name === "string").slice(0, 6) : [],
+        }))
+        .filter((r: any) => r.artifacts.length > 0);
+
+      // Cap at 15 artifacts total, ranked by priority.
+      const prioRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+      const flat: Array<{ domain: string; priority: string; artifact: any }> = [];
+      for (const r of cleanedRec) for (const a of r.artifacts) flat.push({ domain: r.domain, priority: r.priority, artifact: a });
+      flat.sort((a, b) => (prioRank[a.priority] ?? 9) - (prioRank[b.priority] ?? 9));
+      const capped = flat.slice(0, 15);
+      const regrouped = new Map<string, { domain: string; priority: string; artifacts: any[] }>();
+      for (const f of capped) {
+        const key = `${f.domain}::${f.priority}`;
+        if (!regrouped.has(key)) regrouped.set(key, { domain: f.domain, priority: f.priority, artifacts: [] });
+        regrouped.get(key)!.artifacts.push(f.artifact);
+      }
+      parsed.payload.missing_artifacts_recommendations = Array.from(regrouped.values());
+
+      // Counter for the UI.
+      const counter = { total: capped.length, critical: 0, high: 0, medium: 0, low: 0 };
+      for (const f of capped) (counter as any)[f.priority]++;
+      parsed.payload.missing_artifacts_summary = counter;
+
+      // Decisions §9 — enrich blocked_by_missing_data with specific artifact names.
+      if (Array.isArray(parsed.payload.decisions) && capped.length > 0) {
+        const domainLabelById = new Map(KNOWLEDGE_DOMAINS.map((d) => [d.id, d.label]));
+        const criticalByDomain = new Map<string, string[]>();
+        for (const f of capped) {
+          if (f.priority !== "critical" && f.priority !== "high") continue;
+          const arr = criticalByDomain.get(f.domain) || [];
+          if (arr.length < 3) arr.push(f.artifact.name);
+          criticalByDomain.set(f.domain, arr);
+        }
+        for (const dec of parsed.payload.decisions) {
+          if (!dec?.blocked_by_missing_data || typeof dec.blocked_by_missing_data !== "string") continue;
+          const txt = dec.blocked_by_missing_data.toLowerCase();
+          // Already includes "needs:" prefix — leave alone.
+          if (txt.startsWith("needs:")) continue;
+          // Find which domain this decision references.
+          for (const [domId, label] of domainLabelById.entries()) {
+            if (!txt.includes(label.toLowerCase())) continue;
+            const artNames = criticalByDomain.get(domId);
+            if (!artNames || artNames.length === 0) break;
+            const blockedArtifacts = artNames.map((n) => n).join(", ");
+            dec.blocked_artifact_names = artNames;
+            dec.blocked_by_missing_data = `Needs: ${blockedArtifacts} — ${dec.blocked_by_missing_data}`;
+            break;
+          }
+        }
+      }
+    }
+
     const trueCovered = covered.length;
     const proseFields = ["company_pulse", "brutal_truth", "execution_explanation", "probability_movement"] as const;
     for (const field of proseFields) {

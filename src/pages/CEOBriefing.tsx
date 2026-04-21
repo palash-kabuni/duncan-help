@@ -185,6 +185,8 @@ const CEOBriefing = () => {
                   <DataCoverageCard
                     audit={p.data_coverage_audit as DataCoverageAudit}
                     documentIntelligence={Array.isArray(p.document_intelligence) ? p.document_intelligence : []}
+                    missingArtifacts={Array.isArray(p.missing_artifacts_recommendations) ? p.missing_artifacts_recommendations : []}
+                    missingArtifactsSummary={p.missing_artifacts_summary}
                   />
                 )}
 
