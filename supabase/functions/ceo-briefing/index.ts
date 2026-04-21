@@ -105,7 +105,7 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
     "friction": [{"issue": string, "teams": string[], "consequence": string, "evidence_source": "workstream_card"|"meeting"|"email"|"coverage_gap"|"silent_leader"|"doc_conflict", "recommended_resolver": string, "auto_injected": boolean}],
     "leadership": [{"name": string, "role": string, "output_vs_expectation": string, "risk_level": "low"|"medium"|"high", "blocking": string, "needs_support": string, "ceo_intervention_required": boolean, "signal_status": "active"|"low_signal"|"silent", "evidence_sources": [string]}],
     "watchlist": [{"workstream": string, "owner": string, "status": string, "good_looks_like": string, "missing": string, "data_blind_spot": string|null, "auto_injected": boolean}],
-    "decisions": [{"decision": string, "why_it_matters": string, "consequence": string, "who_to_involve": string, "confidence": "high"|"medium"|"low", "blocked_by_missing_data": string|null}],
+    "decisions": [{"decision": string, "why_it_matters": string, "consequence": string, "who_to_involve": string, "confidence": "high"|"medium"|"low", "blocked_by_missing_data": string|null, "evidence_source": "coverage_gap"|"silent_priority"|"risk"|"friction"|"email"|"silent_leader"|"data_blind_spot"|"workstream"|null, "auto_injected": boolean}],
     "automation": {"percent": number, "working": string, "manual": string, "next": string, "blockers": string},
     "brutal_truth": string,
     "document_intelligence": [{
@@ -156,6 +156,16 @@ CRITICAL RULES:
 - decisions[].confidence MUST NEVER exceed payload.data_coverage_audit.confidence_cap.
 - payload.data_coverage_audit.strategic_coverage is the SERVER-AUTHORITATIVE per-priority artifact gap list (required vs supplied per knowledge domain). When citing coverage, ground numbers in this structure — never invent a "% covered". When a 2026 priority has coverage_pct < 40 in payload.data_coverage_audit.strategic_coverage, payload.brutal_truth MUST name it explicitly with its % and the top 2 missing artifact names. decisions[].blocked_by_missing_data MUST cite specific missing artifact names from strategic_coverage when applicable, e.g. "Lightning Strike: missing India launch runbook + vendor MoU — operations blind spot".
 - decisions[].blocked_by_missing_data MUST name the Red domain whenever the decision cannot be honestly judged without that evidence. Format: "{domain_label}: {what specifically is missing}". Set null ONLY when fully grounded. When missing_artifacts_recommendations contains specific artifact names that would unblock this decision, prepend: "Needs: {artifact_name_1}, {artifact_name_2} — {domain_label} blind spot."
+- payload.decisions POPULATION RULES: decisions[] is the CEO-grade call list — only items that ONLY Nimesh can make or unblock. NOT operational tasks. It MUST draw from, with NO duplicates:
+    a. Every entry in payload.coverage_gaps (decision = "Assign accountable owner and stand up workstream for {priority}").
+    b. Every entry in headline_context.silent_priorities (same shape as a).
+    c. Every payload.risks entry where severity ∈ {"high","critical"} (decision = "Decide mitigation path for {risk_title} or accept the {probability_impact_pts}-pt probability hit").
+    d. Every payload.friction entry where recommended_resolver = "CEO" (decision = "Break {teams.join('/')} deadlock on {issue}").
+    e. Every email_pulse_signals.escalations item with no clear owner, every board_mention, and every unowned commitment (decision = "Decide owner + response for {topic} surfaced in inbox").
+    f. Every leader_signal_map entry with signal_status="silent" AND owns_priorities.length > 0 (decision = "Intervene with {leader} — silent owner of {priority}").
+    g. When data_coverage_audit.confidence_cap ∈ {"medium","low"}: at least ONE decision of the form "Pause {board/launch/investor} commitment OR proceed despite {worst_red_domain.label} blind spot" with blocked_by_missing_data populated.
+  MINIMUM count = 3 whenever trajectory ≠ "On Track" OR outcome_probability < 70 OR coverage_gaps non-empty OR confidence_cap ≠ "high". An empty decisions[] on a non-green briefing is a reporting failure.
+  For each row: "decision" = a binary call only the CEO can make (assign / approve / pause / escalate / overrule); "why_it_matters" = the specific 2026 priority or commitment at stake; "consequence" = what slips in 7 days if the decision is not made; "who_to_involve" = real names from team_directory / leader_signal_map; "confidence" ≤ data_coverage_audit.confidence_cap; "blocked_by_missing_data" populated whenever evidence is insufficient; "evidence_source" tagged to the source list above; "auto_injected" = false (only the post-processor sets true).
 - payload.document_intelligence: For EVERY domain in domain_file_review with files_inspected.length > 0, produce one entry. Ground "what_it_covers" in the actual content_excerpt (do NOT invent). Cross-reference the excerpt against xero_invoices, workstream_cards, azure_work_items, meetings, recent_releases — if a number, date, owner, or commitment in the doc disagrees with another data source, list it in contradicted_by with a specific quote (e.g. "Plan assumes £180k Q2 burn but Xero shows £241k actual"). Mark verdict="weak" if the doc is thin, generic, or stale; "strong" only when current, specific, and corroborated by ≥1 other system.
 - payload.missing_artifacts_recommendations: THINK LIKE A CHIEF OF STAFF, NOT A CEO. Recommend artifacts the CEO would NEVER think to upload, drawn from the operating_system_checklist in context. Cover ALL 7 knowledge domains (not just Red ones — even Green domains have depth gaps). For each artifact: (a) "what_it_unlocks" MUST tie to a specific briefing section (e.g. "Risk Radar accuracy on India launch", "Decisions §9 confidence cap → high", "Investor advisory grounding"); (b) "where_to_find_it" MUST be grounded in inferred_artifact_signals where a hint exists (e.g. "Heard mentioned in Patrick's 14 Apr meeting — likely in his Drive/email"), otherwise plausible owner+location ("DocuSign — Patrick"); (c) cross-reference meetings, xero_invoices, azure_work_items, recent_releases to INFER artifacts that should exist but haven't been uploaded (AWS invoices in Xero → infer infrastructure cost map; "India launch" in meetings → infer signed vendor MoU; security tags on Azure tickets → infer pen-test report). Maximum 15 artifacts TOTAL across all domains, ranked by unlock-value. Priority levels: "critical" = blocks a §9 decision or board commitment; "high" = caps a major section confidence; "medium"/"low" = depth improvements.
 - payload.leadership: You MUST return EXACTLY ONE entry per name in leadership_roster (provided in context). Never omit a leader, never invent extras. For each leader, set "signal_status" from leader_signal_map: "active" (≥2 sources), "low_signal" (1 source), "silent" (0 sources). "evidence_sources" MUST be the array from leader_signal_map.sources for that leader. For SILENT leaders: set ceo_intervention_required=true, risk_level="medium" (or "high" if they own a 2026 priority), output_vs_expectation="No operational signal in 7 days — confirm engagement, blocked status, or capacity issue.", blocking="Invisible to Duncan — unknown.", needs_support="CEO check-in to surface what they are actually working on." For LOW_SIGNAL leaders: flag if their single source is non-execution (only meetings, no cards/Azure/releases). For ACTIVE leaders: ground output_vs_expectation in the SPECIFIC source items in leader_signal_map.sources_detail. Silence from a direct report IS a finding, not a gap to hide.
@@ -2159,6 +2169,243 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
         auto_injected: frictionAutoInjected,
       };
     }
+
+    // 4f. DETERMINISTIC DECISIONS FLOOR — guarantees Section 9 is never empty on a non-green briefing.
+    if (briefing_type === "morning") {
+      parsed.payload = parsed.payload || {};
+      const aiDecisions: any[] = Array.isArray(parsed.payload.decisions) ? [...parsed.payload.decisions] : [];
+      let decisionsAutoInjected = 0;
+
+      const dnorm = (s: any) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      const decisionKey = (d: any) => dnorm(d?.decision).slice(0, 80);
+      const seen = new Set<string>(aiDecisions.map(decisionKey).filter(Boolean));
+      const hasDecision = (text: string) => {
+        const k = dnorm(text).slice(0, 80);
+        if (!k) return false;
+        if (seen.has(k)) return true;
+        for (const ek of seen) {
+          if (!ek) continue;
+          if (ek.includes(k) || k.includes(ek)) return true;
+        }
+        return false;
+      };
+      const pushDecision = (d: any, urgency: number) => {
+        const key = decisionKey(d);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        aiDecisions.push({ ...d, _urgency: urgency });
+        decisionsAutoInjected++;
+      };
+
+      const cap = (parsed.payload?.data_coverage_audit as any)?.confidence_cap || "medium";
+      const capConfidence = (c: string) => {
+        const order = { high: 3, medium: 2, low: 1 } as const;
+        const want = (order as any)[c] ?? 2;
+        const max = (order as any)[cap] ?? 2;
+        return want <= max ? c : cap;
+      };
+
+      // (a) Coverage gaps + (b) silent priorities → assign owner.
+      const coverageGaps: any[] = Array.isArray(parsed.payload.coverage_gaps) ? parsed.payload.coverage_gaps : [];
+      const silentMissingDec = (Array.isArray(missing) ? missing : []).filter((mm: any) => {
+        const sig = signalsByPriority?.get?.(mm.priority_id);
+        return !sig || (Array.isArray(sig.mentions) && sig.mentions.length === 0);
+      });
+      const allUncovered = [
+        ...coverageGaps.map((g: any) => ({ priority: g?.priority || g?.priority_title || g?.title, priority_id: g?.priority_id, expected_owner: g?.expected_owner })),
+        ...silentMissingDec.map((sm: any) => ({ priority: sm?.priority, priority_id: sm?.priority_id, expected_owner: sm?.expected_owner })),
+      ].filter((x) => x.priority);
+      const seenPriority = new Set<string>();
+      for (const u of allUncovered) {
+        const pk = dnorm(u.priority);
+        if (!pk || seenPriority.has(pk)) continue;
+        seenPriority.add(pk);
+        const def = PRIORITY_DEFINITIONS.find((p) => p.id === u.priority_id);
+        const owner = def?.expected_owner || u.expected_owner || "Cross-functional — escalate to CEO";
+        const decisionText = `Assign accountable owner and stand up workstream for ${u.priority}`;
+        if (hasDecision(decisionText)) continue;
+        pushDecision({
+          decision: decisionText,
+          why_it_matters: `${u.priority} is a 2026 priority with no owned workstream — the company cannot deliver against a plan no-one is running.`,
+          consequence: `Another 7 days of zero attributable activity — risk of missing the priority outright.`,
+          who_to_involve: owner,
+          confidence: capConfidence("high"),
+          blocked_by_missing_data: null,
+          evidence_source: "silent_priority",
+          auto_injected: true,
+        }, 100);
+      }
+
+      // (c) High/critical risks → mitigation call.
+      const risksArr: any[] = Array.isArray(parsed.payload.risks) ? parsed.payload.risks : [];
+      for (const r of risksArr) {
+        const sev = String(r?.severity || "").toLowerCase();
+        if (sev !== "high" && sev !== "critical") continue;
+        const title = String(r?.risk || r?.title || r?.name || "").trim();
+        if (!title) continue;
+        const impact = Number(r?.probability_impact_pts || 0);
+        const decisionText = `Decide mitigation path for "${title}" or accept the ${impact}-pt probability hit`;
+        if (hasDecision(decisionText)) continue;
+        pushDecision({
+          decision: decisionText,
+          why_it_matters: `${sev.toUpperCase()} risk accounting for ${impact} pts of the outcome-probability gap.`,
+          consequence: `If unaddressed for 7 days, baseline outcome probability stays anchored at the lower bound.`,
+          who_to_involve: r?.owner || "CEO + accountable function lead",
+          confidence: capConfidence(sev === "critical" ? "high" : "medium"),
+          blocked_by_missing_data: null,
+          evidence_source: "risk",
+          auto_injected: true,
+        }, 80 + Math.min(impact, 20));
+      }
+
+      // (d) CEO-resolved friction.
+      const frictionArr: any[] = Array.isArray(parsed.payload.friction) ? parsed.payload.friction : [];
+      for (const f of frictionArr) {
+        const resolver = String(f?.recommended_resolver || "").toLowerCase();
+        if (!resolver.includes("ceo")) continue;
+        const teams = Array.isArray(f?.teams) ? f.teams.join("/") : "teams";
+        const issue = String(f?.issue || "").trim();
+        if (!issue) continue;
+        const decisionText = `Break ${teams} deadlock on ${issue}`;
+        if (hasDecision(decisionText)) continue;
+        pushDecision({
+          decision: decisionText,
+          why_it_matters: f?.consequence || "Cross-functional friction with no single owner who can unblock it.",
+          consequence: f?.consequence || "Friction compounds and the dependent priority slips.",
+          who_to_involve: teams,
+          confidence: capConfidence("medium"),
+          blocked_by_missing_data: null,
+          evidence_source: "friction",
+          auto_injected: true,
+        }, 70);
+      }
+
+      // (e) Critical email signals — board mentions, unowned commitments, escalations.
+      try {
+        const sigs = (email_pulse?.signals as any) || {};
+        const board: any[] = Array.isArray(sigs.board_mentions) ? sigs.board_mentions : [];
+        for (const b of board.slice(0, 2)) {
+          const topic = String(b?.topic || b?.subject || b?.summary || "board mention").trim();
+          const decisionText = `Decide CEO response to board signal: ${topic}`;
+          if (hasDecision(decisionText)) continue;
+          pushDecision({
+            decision: decisionText,
+            why_it_matters: "Board-level mention surfaced in leadership inbox in the last 24h.",
+            consequence: "Silence reads as misalignment to the board.",
+            who_to_involve: b?.from || "CEO + Chair",
+            confidence: capConfidence("medium"),
+            blocked_by_missing_data: null,
+            evidence_source: "email",
+            auto_injected: true,
+          }, 75);
+        }
+        const unownedC: any[] = (Array.isArray(sigs.commitments) ? sigs.commitments : [])
+          .filter((c: any) => !c?.owner || /unknown|tbd|n\/?a/i.test(String(c.owner)));
+        for (const c of unownedC.slice(0, 2)) {
+          const topic = String(c?.topic || c?.commitment || c?.summary || "ownerless commitment").trim();
+          const decisionText = `Assign owner for ownerless commitment: ${topic}`;
+          if (hasDecision(decisionText)) continue;
+          pushDecision({
+            decision: decisionText,
+            why_it_matters: "Commitment made externally with no internal owner — accountability gap.",
+            consequence: "Commitment slips silently with no-one tracking delivery.",
+            who_to_involve: "CEO to allocate",
+            confidence: capConfidence("medium"),
+            blocked_by_missing_data: null,
+            evidence_source: "email",
+            auto_injected: true,
+          }, 60);
+        }
+      } catch (_) { /* non-fatal */ }
+
+      // (f) Silent leaders owning 2026 priorities — CEO intervention.
+      try {
+        const lsm: any[] = Array.isArray(leader_signal_map) ? leader_signal_map : [];
+        for (const ls of lsm) {
+          if (String(ls?.signal_status || "").toLowerCase() !== "silent") continue;
+          const owns: string[] = Array.isArray(ls?.owns_priorities) ? ls.owns_priorities : [];
+          if (owns.length === 0) continue;
+          const decisionText = `Intervene with ${ls?.name || "silent leader"} — silent owner of ${owns.join(" + ")}`;
+          if (hasDecision(decisionText)) continue;
+          pushDecision({
+            decision: decisionText,
+            why_it_matters: `${ls?.name || "Leader"} owns ${owns.length} 2026 priority(ies) but produced no operational signal in 7 days.`,
+            consequence: `Owned priorities continue with no visible ownership — unrecoverable if silence extends another week.`,
+            who_to_involve: ls?.name || "Direct report",
+            confidence: capConfidence("high"),
+            blocked_by_missing_data: null,
+            evidence_source: "silent_leader",
+            auto_injected: true,
+          }, 85);
+        }
+      } catch (_) { /* non-fatal */ }
+
+      // (g) Confidence-cap blind spot — proceed-or-pause call.
+      try {
+        const dca: any = parsed.payload?.data_coverage_audit || {};
+        const capLevel = String(dca?.confidence_cap || "high").toLowerCase();
+        if (capLevel === "medium" || capLevel === "low") {
+          const worst = dca?.worst_red_domain;
+          const label = worst?.label || "critical knowledge domain";
+          const decisionText = `Proceed with upcoming commitments OR pause until ${label} blind spot is closed`;
+          if (!hasDecision(decisionText)) {
+            pushDecision({
+              decision: decisionText,
+              why_it_matters: `Briefing confidence is capped at "${capLevel}" because ${label} evidence is missing — material decisions cannot be made honestly.`,
+              consequence: `Decisions made under this cap carry undisclosed risk to board, customers, or launch.`,
+              who_to_involve: "CEO + domain owner for " + label,
+              confidence: capConfidence("high"),
+              blocked_by_missing_data: `${label}: ${worst?.recommendation || "required artifacts not uploaded"}`,
+              evidence_source: "data_blind_spot",
+              auto_injected: true,
+            }, 90);
+          }
+        }
+      } catch (_) { /* non-fatal */ }
+
+      // Final fallback — non-green briefing with zero decisions is itself a finding.
+      const _outcomeProb = typeof parsed.outcome_probability === "number" ? parsed.outcome_probability : 50;
+      const _trajectoryGreen = String(parsed.trajectory || "").toLowerCase().includes("on track");
+      const _coverageGapsLen = Array.isArray(parsed.payload?.coverage_gaps) ? parsed.payload.coverage_gaps.length : 0;
+      const isNonGreen = !_trajectoryGreen || _outcomeProb < 70 || _coverageGapsLen > 0;
+      if (aiDecisions.length === 0 && isNonGreen) {
+        pushDecision({
+          decision: "Verify Duncan has visibility into priorities, risks and inboxes — no CEO-grade decisions detected on a non-green briefing",
+          why_it_matters: "An empty Decisions section on a non-green briefing means Duncan cannot see the company clearly enough to surface a CEO call.",
+          consequence: "CEO operates blind to the calls only they can make.",
+          who_to_involve: "Duncan",
+          confidence: "low",
+          blocked_by_missing_data: "Decision detection produced no candidates from coverage gaps, risks, friction, email or leader signals.",
+          evidence_source: null,
+          auto_injected: true,
+        }, 50);
+      }
+
+      // Sort by urgency DESC, keep top 3 for the UI, strip _urgency.
+      aiDecisions.sort((a: any, b: any) => (b?._urgency ?? 0) - (a?._urgency ?? 0));
+      const top = aiDecisions.slice(0, 3).map((d: any) => {
+        const { _urgency, ...rest } = d;
+        return {
+          decision: String(rest?.decision || "").trim() || "Unspecified decision",
+          why_it_matters: String(rest?.why_it_matters || "").trim() || "—",
+          consequence: String(rest?.consequence || "").trim() || "—",
+          who_to_involve: String(rest?.who_to_involve || "").trim() || "—",
+          confidence: capConfidence(String(rest?.confidence || "medium").toLowerCase()),
+          blocked_by_missing_data: rest?.blocked_by_missing_data ?? null,
+          evidence_source: rest?.evidence_source ?? null,
+          auto_injected: !!rest?.auto_injected,
+        };
+      });
+
+      parsed.payload.decisions = top;
+      parsed.payload.decisions_meta = {
+        total_considered: aiDecisions.length,
+        rendered: top.length,
+        auto_injected: decisionsAutoInjected,
+        confidence_cap: cap,
+      };
+    }
+
     if (email_pulse) {
       const sigs = email_pulse.signals || {};
       const commitments = Array.isArray(sigs.commitments) ? sigs.commitments : [];
