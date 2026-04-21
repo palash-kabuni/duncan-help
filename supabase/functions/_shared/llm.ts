@@ -74,8 +74,6 @@ const PROVIDER_TIMEOUT_OVERRIDES: Partial<Record<WorkflowName, number>> = {
 function timeoutFor(workflow: WorkflowName): number {
   return PROVIDER_TIMEOUT_OVERRIDES[workflow] ?? PROVIDER_TIMEOUT_MS_DEFAULT;
 }
-// Back-compat alias for any in-file references to the old constant.
-const PROVIDER_TIMEOUT_MS = PROVIDER_TIMEOUT_MS_DEFAULT;
 
 export interface LLMMessage {
   role: "system" | "user" | "assistant" | "tool";
