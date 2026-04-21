@@ -102,7 +102,7 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
       "confidence": number
     }],
     "friction": [{"issue": string, "teams": string[], "consequence": string}],
-    "leadership": [{"name": string, "role": string, "output_vs_expectation": string, "risk_level": "low"|"medium"|"high", "blocking": string, "needs_support": string, "ceo_intervention_required": boolean}],
+    "leadership": [{"name": string, "role": string, "output_vs_expectation": string, "risk_level": "low"|"medium"|"high", "blocking": string, "needs_support": string, "ceo_intervention_required": boolean, "signal_status": "active"|"low_signal"|"silent", "evidence_sources": [string]}],
     "watchlist": [{"workstream": string, "owner": string, "status": string, "good_looks_like": string, "missing": string, "data_blind_spot": string|null}],
     "decisions": [{"decision": string, "why_it_matters": string, "consequence": string, "who_to_involve": string, "confidence": "high"|"medium"|"low", "blocked_by_missing_data": string|null}],
     "automation": {"percent": number, "working": string, "manual": string, "next": string, "blockers": string},
@@ -148,7 +148,8 @@ CRITICAL RULES:
 - decisions[].confidence MUST NEVER exceed payload.data_coverage_audit.confidence_cap.
 - decisions[].blocked_by_missing_data MUST name the Red domain whenever the decision cannot be honestly judged without that evidence. Format: "{domain_label}: {what specifically is missing}". Set null ONLY when fully grounded. When missing_artifacts_recommendations contains specific artifact names that would unblock this decision, prepend: "Needs: {artifact_name_1}, {artifact_name_2} — {domain_label} blind spot."
 - payload.document_intelligence: For EVERY domain in domain_file_review with files_inspected.length > 0, produce one entry. Ground "what_it_covers" in the actual content_excerpt (do NOT invent). Cross-reference the excerpt against xero_invoices, workstream_cards, azure_work_items, meetings, recent_releases — if a number, date, owner, or commitment in the doc disagrees with another data source, list it in contradicted_by with a specific quote (e.g. "Plan assumes £180k Q2 burn but Xero shows £241k actual"). Mark verdict="weak" if the doc is thin, generic, or stale; "strong" only when current, specific, and corroborated by ≥1 other system.
-- payload.missing_artifacts_recommendations: THINK LIKE A CHIEF OF STAFF, NOT A CEO. Recommend artifacts the CEO would NEVER think to upload, drawn from the operating_system_checklist in context. Cover ALL 7 knowledge domains (not just Red ones — even Green domains have depth gaps). For each artifact: (a) "what_it_unlocks" MUST tie to a specific briefing section (e.g. "Risk Radar accuracy on India launch", "Decisions §9 confidence cap → high", "Investor advisory grounding"); (b) "where_to_find_it" MUST be grounded in inferred_artifact_signals where a hint exists (e.g. "Heard mentioned in Patrick's 14 Apr meeting — likely in his Drive/email"), otherwise plausible owner+location ("DocuSign — Patrick"); (c) cross-reference meetings, xero_invoices, azure_work_items, recent_releases to INFER artifacts that should exist but haven't been uploaded (AWS invoices in Xero → infer infrastructure cost map; "India launch" in meetings → infer signed vendor MoU; security tags on Azure tickets → infer pen-test report). Maximum 15 artifacts TOTAL across all domains, ranked by unlock-value. Priority levels: "critical" = blocks a §9 decision or board commitment; "high" = caps a major section confidence; "medium"/"low" = depth improvements.`;
+- payload.missing_artifacts_recommendations: THINK LIKE A CHIEF OF STAFF, NOT A CEO. Recommend artifacts the CEO would NEVER think to upload, drawn from the operating_system_checklist in context. Cover ALL 7 knowledge domains (not just Red ones — even Green domains have depth gaps). For each artifact: (a) "what_it_unlocks" MUST tie to a specific briefing section (e.g. "Risk Radar accuracy on India launch", "Decisions §9 confidence cap → high", "Investor advisory grounding"); (b) "where_to_find_it" MUST be grounded in inferred_artifact_signals where a hint exists (e.g. "Heard mentioned in Patrick's 14 Apr meeting — likely in his Drive/email"), otherwise plausible owner+location ("DocuSign — Patrick"); (c) cross-reference meetings, xero_invoices, azure_work_items, recent_releases to INFER artifacts that should exist but haven't been uploaded (AWS invoices in Xero → infer infrastructure cost map; "India launch" in meetings → infer signed vendor MoU; security tags on Azure tickets → infer pen-test report). Maximum 15 artifacts TOTAL across all domains, ranked by unlock-value. Priority levels: "critical" = blocks a §9 decision or board commitment; "high" = caps a major section confidence; "medium"/"low" = depth improvements.
+- payload.leadership: You MUST return EXACTLY ONE entry per name in leadership_roster (provided in context). Never omit a leader, never invent extras. For each leader, set "signal_status" from leader_signal_map: "active" (≥2 sources), "low_signal" (1 source), "silent" (0 sources). "evidence_sources" MUST be the array from leader_signal_map.sources for that leader. For SILENT leaders: set ceo_intervention_required=true, risk_level="medium" (or "high" if they own a 2026 priority), output_vs_expectation="No operational signal in 7 days — confirm engagement, blocked status, or capacity issue.", blocking="Invisible to Duncan — unknown.", needs_support="CEO check-in to surface what they are actually working on." For LOW_SIGNAL leaders: flag if their single source is non-execution (only meetings, no cards/Azure/releases). For ACTIVE leaders: ground output_vs_expectation in the SPECIFIC source items in leader_signal_map.sources_detail. Silence from a direct report IS a finding, not a gap to hide.`;
 
 const EVENING_SCHEMA_HINT = `Return STRICT JSON:
 {
@@ -344,6 +345,82 @@ const OPERATING_SYSTEM_CHECKLIST: Record<string, string[]> = {
     "Comp benchmarking data",
   ],
 };
+
+// ─── Leadership Roster — direct reports Duncan MUST assess every briefing ──
+const LEADERSHIP_ROSTER: Array<{
+  name: string;
+  role: string;
+  aliases: string[];
+  owns_priorities?: string[];
+}> = [
+  { name: "Nimesh", role: "CEO", aliases: ["nimesh", "nimesh patel"], owns_priorities: ["lightning_strike"] },
+  { name: "Patrick", role: "CFO", aliases: ["patrick", "patrick badenoch"], owns_priorities: ["preorders"] },
+  { name: "Ellaine", role: "COO / General Counsel", aliases: ["ellaine"] },
+  { name: "Matt", role: "CPO", aliases: ["matt"], owns_priorities: ["team_selection"] },
+  { name: "Alex", role: "CMO", aliases: ["alex"], owns_priorities: ["kpl_registrations", "preorders"] },
+  { name: "Simon", role: "Operations Director", aliases: ["simon", "simon wood"], owns_priorities: ["lightning_strike", "trials", "team_selection"] },
+  { name: "Palash", role: "Head of Duncan", aliases: ["palash", "palash soundarkar"], owns_priorities: ["duncan_automation"] },
+  { name: "Parmy", role: "CTO", aliases: ["parmy", "parmy virk"] },
+];
+
+// Per-leader signal tally — deterministic, server-authoritative.
+function computeLeaderSignalMap(input: {
+  meetings: Array<{ title: string | null; participants?: string[] | null; summary: string | null; meeting_date: string | null }>;
+  cards: Array<{ title: string | null; owner_id?: string | null }>;
+  workItems: Array<{ title: string | null; assigned_to?: string | null }>;
+  releases: Array<{ title: string | null; version: string | null; published_at: string | null }>;
+  profiles: Array<{ display_name: string | null }>;
+}) {
+  const norm = (s: string) => s.toLowerCase().trim();
+  return LEADERSHIP_ROSTER.map((leader) => {
+    const aliases = leader.aliases.map(norm);
+    const matchAny = (h: string | null | undefined) => {
+      if (!h) return false;
+      const s = norm(String(h));
+      return aliases.some((a) => s.includes(a));
+    };
+
+    const meetingHits = (input.meetings || []).filter((m) => {
+      const partHit = Array.isArray(m.participants) && m.participants.some((p) => matchAny(p));
+      return partHit || matchAny(m.summary) || matchAny(m.title);
+    });
+    const cardHits = (input.cards || []).filter((c) => {
+      const ownerName = (input.profiles || []).find((p) => norm(String(p.display_name || "")) === norm(String(c.owner_id || "")))?.display_name;
+      return matchAny(ownerName as string | null) || matchAny(c.title);
+    });
+    const azureHits = (input.workItems || []).filter((w) => matchAny(w.assigned_to) || matchAny(w.title));
+    const releaseHits = (input.releases || []).filter((r) => matchAny(r.title));
+
+    const sources: string[] = [];
+    if (meetingHits.length) sources.push("meetings");
+    if (cardHits.length) sources.push("workstreams");
+    if (azureHits.length) sources.push("azure");
+    if (releaseHits.length) sources.push("releases");
+
+    const signal_status: "active" | "low_signal" | "silent" =
+      sources.length >= 2 ? "active" : sources.length === 1 ? "low_signal" : "silent";
+
+    return {
+      name: leader.name,
+      role: leader.role,
+      owns_priorities: leader.owns_priorities ?? [],
+      signal_status,
+      sources,
+      counts: {
+        meetings: meetingHits.length,
+        workstreams: cardHits.length,
+        azure: azureHits.length,
+        releases: releaseHits.length,
+      },
+      sources_detail: {
+        meetings: meetingHits.slice(0, 3).map((m) => ({ title: m.title, date: m.meeting_date })),
+        workstreams: cardHits.slice(0, 3).map((c) => ({ title: c.title })),
+        azure: azureHits.slice(0, 3).map((w) => ({ title: w.title })),
+        releases: releaseHits.slice(0, 3).map((r) => ({ title: r.title, version: r.version })),
+      },
+    };
+  });
+}
 
 // ─── Cross-system signal inference — what evidence in OTHER systems implies a doc should exist ──
 function inferArtifactSignals(input: {
@@ -693,8 +770,16 @@ Deno.serve(async (req) => {
       releases: releases as any[],
     });
 
+    // ─── Leadership signal map (deterministic, per-leader tally) ───
+    const leader_signal_map = computeLeaderSignalMap({
+      meetings: meetings as any[],
+      cards: cards as any[],
+      workItems: workItems as any[],
+      releases: releases as any[],
+      profiles: profiles as any[],
+    });
 
-    // ─── Data Coverage Audit (deterministic, server-side) ─────────
+
     const data_coverage_audit = computeDataCoverage(
       (projectFiles as any[]) || [],
       (allMeetingTitles as any[]) || [],
@@ -842,6 +927,8 @@ Deno.serve(async (req) => {
       domain_file_review,
       operating_system_checklist: OPERATING_SYSTEM_CHECKLIST,
       inferred_artifact_signals,
+      leadership_roster: LEADERSHIP_ROSTER.map((l) => ({ name: l.name, role: l.role, owns_priorities: l.owns_priorities ?? [] })),
+      leader_signal_map,
       previous_briefing: (prev as any)?.[0] ?? null,
     };
 
@@ -1095,6 +1182,78 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
           surplus--;
         }
       }
+    }
+
+    // 4d-bis. Leadership roster enforcement — every direct report must appear,
+    //         silent leaders auto-flagged for CEO intervention.
+    if (briefing_type === "morning") {
+      const aiLeaders: any[] = Array.isArray(parsed.payload?.leadership) ? parsed.payload.leadership : [];
+      const norm = (s: string) => String(s || "").toLowerCase().trim();
+      const findAi = (rosterName: string) =>
+        aiLeaders.find((l) => norm(l?.name).includes(norm(rosterName)) || norm(rosterName).includes(norm(l?.name)));
+
+      const fullRoster = LEADERSHIP_ROSTER.map((leader) => {
+        const sig = leader_signal_map.find((s) => s.name === leader.name)!;
+        const ai = findAi(leader.name);
+        const status = sig.signal_status;
+        const isOwnerOfPriority = (leader.owns_priorities ?? []).length > 0;
+
+        if (ai && status !== "silent") {
+          // Trust the AI but stamp deterministic signal fields.
+          return {
+            name: leader.name,
+            role: ai.role || leader.role,
+            output_vs_expectation: ai.output_vs_expectation || `Active in ${sig.sources.join(", ")}.`,
+            risk_level: ai.risk_level || (status === "low_signal" ? "medium" : "low"),
+            blocking: ai.blocking || "",
+            needs_support: ai.needs_support || "",
+            ceo_intervention_required: !!ai.ceo_intervention_required,
+            signal_status: status,
+            evidence_sources: sig.sources,
+          };
+        }
+
+        // Silent OR omitted — synthesize the stub.
+        return {
+          name: leader.name,
+          role: leader.role,
+          output_vs_expectation:
+            status === "silent"
+              ? "No operational signal in 7 days — no meetings, workstream cards, Azure items or releases attributed to this leader."
+              : (ai?.output_vs_expectation || `Single-source signal only (${sig.sources.join(", ") || "none"}).`),
+          risk_level:
+            status === "silent"
+              ? (isOwnerOfPriority ? "high" : "medium")
+              : (ai?.risk_level || "medium"),
+          blocking: status === "silent" ? "Invisible to Duncan — unknown." : (ai?.blocking || ""),
+          needs_support:
+            status === "silent"
+              ? "CEO check-in to surface what they are actually working on, blocked by, or capacity-constrained on."
+              : (ai?.needs_support || ""),
+          ceo_intervention_required: status === "silent" ? true : !!ai?.ceo_intervention_required,
+          signal_status: status,
+          evidence_sources: sig.sources,
+        };
+      });
+
+      // Sort: intervention → high risk → silent → low_signal → active
+      const riskRank: Record<string, number> = { high: 0, medium: 1, low: 2 };
+      const sigRank: Record<string, number> = { silent: 0, low_signal: 1, active: 2 };
+      fullRoster.sort((a, b) => {
+        if (a.ceo_intervention_required !== b.ceo_intervention_required) return a.ceo_intervention_required ? -1 : 1;
+        const r = (riskRank[a.risk_level] ?? 9) - (riskRank[b.risk_level] ?? 9);
+        if (r !== 0) return r;
+        return (sigRank[a.signal_status] ?? 9) - (sigRank[b.signal_status] ?? 9);
+      });
+
+      parsed.payload.leadership = fullRoster;
+      parsed.payload.leadership_summary = {
+        total: fullRoster.length,
+        active: fullRoster.filter((l) => l.signal_status === "active").length,
+        low_signal: fullRoster.filter((l) => l.signal_status === "low_signal").length,
+        silent: fullRoster.filter((l) => l.signal_status === "silent").length,
+        intervention_required: fullRoster.filter((l) => l.ceo_intervention_required).length,
+      };
     }
 
     // 4e. Missing artifacts recommendations — clean, cap at 15, link to decisions §9.
