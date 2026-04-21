@@ -54,10 +54,10 @@ export const WORKFLOW_ROUTING: Record<WorkflowName, { primary: Provider; fallbac
   generic:                     { primary: "claude", fallback: "openai" },
 };
 
-const CLAUDE_MODEL_PRIMARY = "claude-sonnet-4-5-20250929";
-const CLAUDE_MODEL_DEGRADE = "claude-haiku-4-5";
-const OPENAI_MODEL_PRIMARY = "gpt-4o";
-const OPENAI_MODEL_DEGRADE = "gpt-4o-mini";
+const CLAUDE_MODEL_PRIMARY = "claude-opus-4-5";
+const CLAUDE_MODEL_DEGRADE = "claude-sonnet-4-5-20250929";
+const OPENAI_MODEL_PRIMARY = "gpt-5";
+const OPENAI_MODEL_DEGRADE = "gpt-5-mini";
 
 export interface LLMMessage {
   role: "system" | "user" | "assistant" | "tool";
