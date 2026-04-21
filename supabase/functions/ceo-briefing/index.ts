@@ -720,7 +720,24 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       };
     }
 
-    // 5. Prose post-check — scan key narrative fields for "X of 6" digit mismatches
+    // 4b. Data Coverage Audit — inject + apply confidence cap
+    parsed.payload.data_coverage_audit = data_coverage_audit;
+    if (briefing_type === "morning") {
+      const cap = data_coverage_audit.confidence_cap;
+      if (cap === "medium" || cap === "low") {
+        const probCap = cap === "low" ? 30 : 55;
+        const execCap = cap === "low" ? 35 : 60;
+        if (typeof parsed.outcome_probability !== "number" || parsed.outcome_probability > probCap) parsed.outcome_probability = probCap;
+        if (typeof parsed.execution_score !== "number" || parsed.execution_score > execCap) parsed.execution_score = execCap;
+        const existing = parsed.payload.confidence_warning || {};
+        parsed.payload.confidence_warning = {
+          ...existing,
+          reason: `${existing.reason ? existing.reason + " " : ""}${data_coverage_audit.cap_reason} (Confidence cap: ${cap}.)`,
+          data_coverage_cap: cap,
+          data_coverage_cap_reason: data_coverage_audit.cap_reason,
+        };
+      }
+    }
     //    against server-truth coverage count and append a corrective sentence.
     const trueCovered = covered.length;
     const proseFields = ["company_pulse", "brutal_truth", "execution_explanation", "probability_movement"] as const;
