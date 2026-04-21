@@ -54,18 +54,28 @@ async function fetchPositionInterviews(apiKey: string, positionId: string) {
   return data?.position?.interviews || [];
 }
 
-// Based on real Hireflix schema introspection:
-// InterviewUrlType has exactly 3 fields: private, public, short
-// - "private" = reviewer/internal playback URL (what we want)
-// - "public" = candidate-facing link (NOT what we want)
-// - "short" = shortened candidate invite link (NOT what we want)
+// Hireflix InterviewUrlType has exactly 3 fields: private, public, short
+// - "private" = admin dashboard link (REQUIRES Hireflix workspace login — NOT what we want)
+// - "public"  = hosted recording playback page (no login required) ← what we want
+// - "short"   = shortened version of the public link (also no login)
+// We prefer `public`, fall back to `short`, and only use `private` as a last resort.
 function extractReviewerPlaybackUrl(interview: any): string | null {
+  const publicUrl = interview?.url?.public;
+  if (typeof publicUrl === "string" && publicUrl.trim()) {
+    console.log(`Found playback URL (url.public): ${publicUrl}`);
+    return publicUrl.trim();
+  }
+  const shortUrl = interview?.url?.short;
+  if (typeof shortUrl === "string" && shortUrl.trim()) {
+    console.log(`Falling back to url.short: ${shortUrl}`);
+    return shortUrl.trim();
+  }
   const privateUrl = interview?.url?.private;
   if (typeof privateUrl === "string" && privateUrl.trim()) {
-    console.log(`Found reviewer playback URL (url.private): ${privateUrl}`);
+    console.warn(`Only url.private available for interview ${interview?.id} — this requires Hireflix login`);
     return privateUrl.trim();
   }
-  console.log(`No reviewer playback URL (url.private) found for interview ${interview?.id}. url object:`, JSON.stringify(interview?.url));
+  console.log(`No playback URL found for interview ${interview?.id}. url object:`, JSON.stringify(interview?.url));
   return null;
 }
 
