@@ -11,46 +11,48 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
 // ─── 2026 Non-negotiable priorities (canonical) ────────────────────────────
+// Strict, distinctive multi-word aliases ONLY. Generic words removed to prevent
+// false-positive coverage matches (e.g. "event", "launch", "app", "duncan").
 const PRIORITY_DEFINITIONS = [
   {
     id: "lightning_strike",
     title: "Lightning Strike India — 7 June 2026",
-    aliases: ["lightning strike", "lightning", "india launch", "june 7", "7 june", "launch event"],
+    aliases: ["lightning strike", "india launch", "7 june 2026", "june 7 2026"],
     why_it_matters: "The single hard deadline anchoring every other 2026 priority. Slip = cascade.",
     expected_owner: "Nimesh (CEO) + Simon (Ops Director)",
   },
   {
     id: "kpl_registrations",
     title: "1M Kabuni Premier League registrations",
-    aliases: ["kpl", "premier league", "registrations", "registration", "1m users", "1 million"],
+    aliases: ["kpl registration", "premier league registration", "1m registration", "1 million registration"],
     why_it_matters: "Top of funnel for trials, selection and pre-orders. Without it, nothing downstream works.",
     expected_owner: "Alex (CMO)",
   },
   {
     id: "trials",
     title: "Trials October & November 2026",
-    aliases: ["trials", "trial", "october", "november", "selection trials"],
+    aliases: ["selection trials", "trials 2026", "october trials", "november trials"],
     why_it_matters: "Conversion event from 1M registrations to the 10-team selection.",
     expected_owner: "Simon (Ops Director)",
   },
   {
     id: "team_selection",
     title: "Final 10-team selection — December 2026 (10 Super Coaches)",
-    aliases: ["10 teams", "team selection", "super coaches", "december selection", "10-team"],
+    aliases: ["10 team selection", "10-team selection", "super coaches", "december selection"],
     why_it_matters: "The product output of the entire trials funnel. Defines the league.",
     expected_owner: "Simon (Ops Director) + Matt (CPO)",
   },
   {
     id: "preorders",
     title: "100,000 pre-orders",
-    aliases: ["pre-order", "preorder", "pre orders", "100k", "100,000", "commerce"],
+    aliases: ["pre-order", "preorder", "100k pre", "100,000 pre"],
     why_it_matters: "Primary commercial proof point for investors and supply chain commitments.",
     expected_owner: "Alex (CMO) + Patrick (CFO)",
   },
   {
     id: "duncan_automation",
     title: "Duncan automates 25% of the company",
-    aliases: ["duncan automation", "automate", "automation", "25%", "duncan"],
+    aliases: ["duncan automation", "automate company", "25% automation", "operating leverage"],
     why_it_matters: "Operating-leverage thesis. Without this, the company can't scale into 2027.",
     expected_owner: "Palash (Head of Duncan)",
   },
@@ -113,6 +115,7 @@ CRITICAL RULES:
 - "function_area" in "what_changed" is a REPORTING LENS, not a workstream identifier.
 - For every entry in "coverage_report" where status = "missing", you MUST add an entry to payload.coverage_gaps. Do NOT fabricate scores for missing priorities — flag them as gaps instead.
 - payload.brutal_truth MUST mention any uncovered 2026 priority by name when coverage_gaps is non-empty.
+- HONEST SCORING: If fewer than half of the 6 priorities have a workstream (coverage_ratio < 0.5), outcome_probability MUST be ≤ 35, execution_score MUST be ≤ 40, and trajectory MUST be "At Risk" or "Off Track". State the reason in payload.execution_explanation: "Low-evidence briefing — N of 6 priorities have no owned workstream." You cannot honestly project >35% probability against a plan you cannot see.
 - "tldr" must directly answer the three Final Instruction questions in 1-2 sentences each.
 - For each workstream score, all six analytical-framework axes are MANDATORY (progress_vs_goal, execution_quality, commercial_impact, dependency_strength + scores).
 - Risk windows (7d/30d/90d) must be structured objects, never loose strings.
@@ -184,24 +187,32 @@ FINAL INSTRUCTION (the briefing must answer these three):
 
 Surface these answers in the "tldr" field at the top. If you cannot answer them clearly from the data provided, the briefing has failed.`;
 
-// Coverage detection: does any workstream / azure project / recent card title match this priority?
+// Strict 1:1 coverage detection.
+// - Match ONLY against workstream names (project_tag + azure project_name), NOT card titles.
+// - First-match-wins: a workstream can satisfy only ONE priority, then it's consumed.
+// - Aliases are multi-word distinctive phrases (see PRIORITY_DEFINITIONS).
 function detectCoverage(
   priorities: typeof PRIORITY_DEFINITIONS,
   workstreams: string[],
-  cardTitles: string[],
+  _cardTitles: string[], // intentionally ignored — too noisy
 ) {
-  const haystack = [...workstreams, ...cardTitles].map((s) => (s || "").toLowerCase());
+  const claimed = new Set<string>();
+  const wsLower = workstreams.map((w) => ({ orig: w, low: (w || "").toLowerCase() }));
   return priorities.map((p) => {
-    const hit = p.aliases.find((alias) =>
-      haystack.some((h) => h.includes(alias.toLowerCase()))
-    );
-    const matched = hit
-      ? workstreams.find((w) => w.toLowerCase().includes(hit.toLowerCase())) ?? null
-      : null;
+    let matched: string | null = null;
+    for (const alias of p.aliases) {
+      const a = alias.toLowerCase();
+      const found = wsLower.find((w) => !claimed.has(w.orig) && w.low.includes(a));
+      if (found) {
+        matched = found.orig;
+        claimed.add(found.orig);
+        break;
+      }
+    }
     return {
       priority_id: p.id,
       priority: p.title,
-      status: hit ? ("covered" as const) : ("missing" as const),
+      status: matched ? ("covered" as const) : ("missing" as const),
       matched_workstream: matched,
       why_it_matters: p.why_it_matters,
       expected_owner: p.expected_owner,
@@ -368,6 +379,7 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
     // 2. Ensure coverage_gaps reflects actual missing priorities (server-authoritative)
     parsed.payload = parsed.payload || {};
     const missing = coverage_report.filter((c) => c.status === "missing");
+    const covered = coverage_report.filter((c) => c.status === "covered");
     const modelGaps = Array.isArray(parsed.payload.coverage_gaps) ? parsed.payload.coverage_gaps : [];
     parsed.payload.coverage_gaps = missing.map((m) => {
       const fromModel = modelGaps.find((g: any) =>
@@ -382,6 +394,40 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
         recommended_workstream_name: fromModel?.recommended_workstream_name || m.priority.split("—")[0].trim(),
       };
     });
+
+    // 3. Coverage summary (server-authoritative)
+    const totalPriorities = PRIORITY_DEFINITIONS.length;
+    const coverageRatio = covered.length / totalPriorities;
+    parsed.payload.coverage_summary = {
+      covered: covered.length,
+      total: totalPriorities,
+      ratio: Number(coverageRatio.toFixed(2)),
+      covered_priorities: covered.map((c) => ({ priority: c.priority, matched_workstream: c.matched_workstream })),
+      missing_priorities: missing.map((m) => m.priority),
+    };
+    parsed.payload.available_workstreams = available_workstreams;
+
+    // 4. Honest scoring clamp — cannot project high probability against a plan you cannot see.
+    if (briefing_type === "morning" && coverageRatio < 0.5) {
+      const probCap = 35;
+      const execCap = 40;
+      const origProb = typeof parsed.outcome_probability === "number" ? parsed.outcome_probability : null;
+      const origExec = typeof parsed.execution_score === "number" ? parsed.execution_score : null;
+      if (origProb === null || origProb > probCap) parsed.outcome_probability = probCap;
+      if (origExec === null || origExec > execCap) parsed.execution_score = execCap;
+      // Force trajectory honest
+      const traj = (parsed.trajectory || "").toLowerCase();
+      if (traj === "on track" || traj === "slight drift" || !traj) {
+        parsed.trajectory = coverageRatio < 0.34 ? "Off Track" : "At Risk";
+      }
+      parsed.payload.confidence_warning = {
+        reason: `Low-evidence briefing — Duncan can only see ${covered.length} of ${totalPriorities} 2026 priorities. Probability capped at ${probCap}% and execution at ${execCap}/100 until missing workstreams are created.`,
+        original_probability: origProb,
+        original_execution: origExec,
+        applied_probability_cap: probCap,
+        applied_execution_cap: execCap,
+      };
+    }
 
     const briefing_date = new Date().toISOString().slice(0, 10);
 
