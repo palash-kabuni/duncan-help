@@ -1318,9 +1318,9 @@ Deno.serve(async (req) => {
     };
     const domain_file_review: DomainFileReview[] = [];
     const allFiles = (projectFiles as any[]) || [];
-    const PER_FILE_CHAR_CAP = 6000;
-    const PER_DOMAIN_CHAR_CAP = 6000;
-    const TOTAL_CHAR_CAP = 30000;
+    const PER_FILE_CHAR_CAP = 2500;
+    const PER_DOMAIN_CHAR_CAP = 2500;
+    const TOTAL_CHAR_CAP = 10000;
     let totalChars = 0;
 
     for (const d of KNOWLEDGE_DOMAINS) {
@@ -1659,6 +1659,17 @@ Deno.serve(async (req) => {
       previous_briefing: (prev as any)?.[0] ?? null,
     };
 
+    const brevityPromptSuffix = `
+
+BASE BREVITY RULES (MANDATORY):
+- Keep every prose field to 1-2 tight sentences.
+- Prefer short bullets over long narrative.
+- Limit every array to the minimum needed to satisfy schema rules.
+- Reuse the server-grounded inputs verbatim wherever possible.
+- JSON only. No markdown fences. No preamble.`;
+
+    const compactContextJson = JSON.stringify(context).slice(0, 22000);
+
     const userPrompt = `Generate the ${briefing_type === "evening" ? "EVENING ACCOUNTABILITY" : "MORNING CEO"} BRIEFING.
 
 ${briefing_type === "evening" ? EVENING_SCHEMA_HINT : MORNING_SCHEMA_HINT}
@@ -1687,9 +1698,9 @@ HARD RULES:
     • Keep the legacy "automation" object too (percent/working/manual/next/blockers) — it still feeds the headline number.
 
 Source data (24h activity window; available_workstreams + coverage_report + meeting_priority_signals are full-set):
-${JSON.stringify(context).slice(0, 60000)}
+${compactContextJson}
 
-If previous_briefing is non-null, explain probability/score deltas vs it. Keep prose tight, executive, no fluff. If a data source is empty, say so — do not invent activity. Remember: workstream_scores ⊆ available_workstreams; missing priorities → coverage_gaps, NOT fabricated scores.`;
+If previous_briefing is non-null, explain probability/score deltas vs it. Keep prose tight, executive, no fluff. If a data source is empty, say so — do not invent activity. Remember: workstream_scores ⊆ available_workstreams; missing priorities → coverage_gaps, NOT fabricated scores.${brevityPromptSuffix}`;
 
     const apiKey = Deno.env.get("OPENAI_API_KEY");
     if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
@@ -1704,8 +1715,13 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
         .replace(/^```(?:json)?\s*/i, "")
         .replace(/```\s*$/i, "")
         .trim();
+      const firstBrace = cleaned.indexOf("{");
+      const lastBrace = cleaned.lastIndexOf("}");
+      const jsonCandidate = firstBrace >= 0 && lastBrace > firstBrace
+        ? cleaned.slice(firstBrace, lastBrace + 1)
+        : cleaned;
       try {
-        return JSON.parse(cleaned);
+        return JSON.parse(jsonCandidate);
       } catch {
         if (finishReason === "length") {
           const err: any = new Error(
@@ -1747,7 +1763,8 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
         ],
-        max_tokens: 8192,
+        max_tokens: 4096,
+        model_override: { claude: "claude-haiku-4-5", openai: "gpt-5-mini" },
       });
       parsed = parseBriefingJson(aiData);
     } catch (err: any) {
@@ -1761,7 +1778,8 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
               { role: "system", content: SYSTEM_PROMPT },
               { role: "user", content: `${userPrompt}${compactPromptSuffix}` },
             ],
-            max_tokens: 6144,
+            max_tokens: 3072,
+            model_override: { claude: "claude-haiku-4-5", openai: "gpt-5-mini" },
           });
           parsed = parseBriefingJson(aiData);
         } catch (retryErr: any) {
@@ -1775,7 +1793,8 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
                   { role: "system", content: SYSTEM_PROMPT },
                   { role: "user", content: `${userPrompt}${compactPromptSuffix}${ultraCompactPromptSuffix}` },
                 ],
-                max_tokens: 4096,
+                max_tokens: 2048,
+                model_override: { claude: "claude-haiku-4-5", openai: "gpt-5-mini" },
               });
               parsed = parseBriefingJson(aiData);
             } catch (finalRetryErr: any) {
