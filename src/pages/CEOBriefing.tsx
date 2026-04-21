@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { RefreshCw, Sparkles, Send, Settings2, AlertTriangle } from "lucide-react";
+import { RefreshCw, Sparkles, Send, Settings2, AlertTriangle, ShieldCheck } from "lucide-react";
 import { useCEOBriefing, type BriefingType } from "@/hooks/useCEOBriefing";
 import PulseBanner from "@/components/ceo/PulseBanner";
 import RiskRadar from "@/components/ceo/RiskRadar";
