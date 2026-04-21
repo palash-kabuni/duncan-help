@@ -138,11 +138,27 @@ async function callOpenAI(opts: CallLLMOptions, model: string): Promise<Normalis
   if (opts.temperature !== undefined) body.temperature = opts.temperature;
   if (opts.response_format) body.response_format = opts.response_format;
 
-  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), PROVIDER_TIMEOUT_MS);
+  let resp: Response;
+  try {
+    resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+  } catch (e: any) {
+    if (e?.name === "AbortError") {
+      const err: any = new Error(`OpenAI timeout after ${PROVIDER_TIMEOUT_MS}ms`);
+      err.status = 504;
+      err.timeout = true;
+      throw err;
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
