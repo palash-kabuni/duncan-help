@@ -294,6 +294,83 @@ export default function DataCoverageCard({
         </div>
       )}
 
+      {Array.isArray(audit.strategic_coverage) && audit.strategic_coverage.length > 0 && (
+        <div className="border-t border-border">
+          <div className="px-4 py-3 border-b border-border bg-muted/20 flex items-center gap-2">
+            <Target className="h-3.5 w-3.5 text-primary" />
+            <h4 className="text-sm font-semibold text-foreground">Files we still need (by 2026 priority)</h4>
+          </div>
+          <div className="divide-y divide-border">
+            {audit.strategic_coverage.map((pc) => {
+              const open = expanded === `pri:${pc.priority_id}`;
+              const totalMissing = pc.by_domain.reduce((s, d) => s + d.missing.length, 0);
+              return (
+                <div key={pc.priority_id} className="px-4 py-2.5">
+                  <button
+                    onClick={() => setExpanded(open ? null : `pri:${pc.priority_id}`)}
+                    className="w-full flex items-center gap-3 text-left"
+                  >
+                    <span className={`h-2 w-2 rounded-full ${dotClass(pc.status)} shrink-0`} />
+                    <span className="text-sm text-foreground font-medium flex-1 truncate">{pc.priority_title}</span>
+                    <span className="text-[10px] font-mono text-muted-foreground tabular-nums">
+                      {pc.total_supplied}/{pc.total_required} ({pc.coverage_pct}%)
+                    </span>
+                    <StatusIcon status={pc.status} />
+                  </button>
+                  {open && (
+                    <div className="mt-2 ml-5 space-y-2">
+                      {totalMissing === 0 ? (
+                        <p className="text-[11px] text-muted-foreground italic">All required artifacts evidenced.</p>
+                      ) : (
+                        pc.by_domain.filter((d) => d.missing.length > 0 || d.supplied.length > 0).map((dr) => {
+                          const tag = domainPrefillById.get(dr.domain) || dr.domain;
+                          return (
+                            <div key={dr.domain} className="rounded border border-border bg-muted/20 p-2.5 space-y-1.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-mono uppercase text-foreground/70">{dr.domain_label}</span>
+                                <span className="text-[10px] font-mono text-muted-foreground">
+                                  {dr.supplied.length}/{dr.required.length}
+                                </span>
+                              </div>
+                              {dr.missing.length > 0 && (
+                                <ul className="text-[11px] text-foreground/80 list-disc ml-4 space-y-0.5">
+                                  {dr.missing.map((m, i) => (
+                                    <li key={i} className="text-red-600 dark:text-red-400">{m}</li>
+                                  ))}
+                                </ul>
+                              )}
+                              {dr.supplied.length > 0 && (
+                                <div className="text-[10px] text-green-600 dark:text-green-400 space-y-0.5">
+                                  {dr.supplied.map((s, i) => (
+                                    <p key={i} className="truncate">
+                                      <CheckCircle2 className="h-2.5 w-2.5 inline mr-1" />
+                                      <span className="font-medium">{s.name}</span>
+                                      <span className="text-muted-foreground"> — likely: {s.likely_supplied_as}</span>
+                                    </p>
+                                  ))}
+                                </div>
+                              )}
+                              {dr.missing.length > 0 && (
+                                <Button asChild size="sm" variant="outline" className="h-6 text-[10px]">
+                                  <Link to={`/projects?prefill_tag=${encodeURIComponent(tag)}`}>
+                                    <Upload className="h-3 w-3 mr-1" />
+                                    Upload to fix
+                                  </Link>
+                                </Button>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {sortedRecs.length > 0 && (
         <div className="border-t border-border">
           <div className="px-4 py-3 border-b border-border bg-muted/20 flex items-center justify-between gap-3 flex-wrap">
