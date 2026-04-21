@@ -2625,6 +2625,117 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       };
     }
 
+    // ─── Automation Progress: ground in server data + recommendation floor ──
+    if (briefing_type === "morning") {
+      parsed.payload = parsed.payload || {};
+      const ap = (parsed.payload.automation_progress && typeof parsed.payload.automation_progress === "object")
+        ? parsed.payload.automation_progress : {};
+
+      // Force company_usage and top_users to server-computed truth.
+      ap.company_usage = automation_leverage.company_usage;
+      ap.top_users = automation_leverage.top_users;
+
+      const modelRecs: any[] = Array.isArray(ap.recommendations) ? ap.recommendations.filter((r) => r && typeof r === "object" && r.title) : [];
+      const isGreen = String(parsed.trajectory || "").toLowerCase() === "on track";
+
+      // Deterministic floor — at least 3 recs whenever the briefing is non-green.
+      const floorRecs: any[] = [];
+      const seen = new Set(modelRecs.map((r) => String(r.title).toLowerCase().trim()));
+      const pushRec = (rec: any) => {
+        const key = String(rec.title).toLowerCase().trim();
+        if (seen.has(key)) return;
+        seen.add(key);
+        floorRecs.push({ ...rec, auto_injected: true });
+      };
+
+      const coverageGaps: any[] = Array.isArray(parsed.payload?.coverage_gaps) ? parsed.payload.coverage_gaps : [];
+      for (const g of coverageGaps.slice(0, 3)) {
+        pushRec({
+          title: `Auto-detect & flag activity on "${g.priority}"`,
+          why_now: `No owned workstream for ${g.priority}. ${g.consequence_if_unowned || "Untracked priority risks slipping silently."}`,
+          expected_leverage: "High",
+          effort: "M",
+          evidence_source: "coverage_gap",
+        });
+      }
+
+      const friction: any[] = Array.isArray(parsed.payload?.friction) ? parsed.payload.friction : [];
+      for (const f of friction.filter((x) => x && x.recommended_resolver && !/ceo/i.test(String(x.recommended_resolver))).slice(0, 2)) {
+        pushRec({
+          title: `Standardise the ${(f.teams || []).join(" ↔ ")} handoff for "${(f.issue || "").slice(0, 60)}"`,
+          why_now: `Recurring cross-team friction routed to ${f.recommended_resolver}. Automating the handoff reduces CEO escalation.`,
+          expected_leverage: "Medium",
+          effort: "M",
+          evidence_source: "friction",
+        });
+      }
+
+      const wsScores: any[] = Array.isArray(parsed.workstream_scores) ? parsed.workstream_scores : [];
+      const stuck = wsScores.filter((w) => {
+        const r = String(w?.rag || "").toLowerCase();
+        return r === "red" || r === "yellow";
+      });
+      for (const w of stuck.slice(0, 2)) {
+        pushRec({
+          title: `Weekly auto-status digest for "${w.name}"`,
+          why_now: `Workstream tracking ${w.rag || "non-green"} — automated weekly digests would surface drift before next briefing.`,
+          expected_leverage: "Medium",
+          effort: "S",
+          evidence_source: "stuck_workstream",
+        });
+      }
+
+      const heavy = automation_leverage.heavy_surfaces || ({} as any);
+      if ((heavy.gmail_auto_drafts_today || 0) >= 5) {
+        pushRec({
+          title: "Auto-categorise inbound emails before drafting",
+          why_now: `${heavy.gmail_auto_drafts_today} Gmail auto-drafts created today — adding triage classification would skip low-value threads.`,
+          expected_leverage: "High",
+          effort: "M",
+          evidence_source: "heavy_manual_surface",
+        });
+      }
+      if ((heavy.general_chats_top_users || 0) >= 30) {
+        pushRec({
+          title: "Saved workflows for repeat questions in general chat",
+          why_now: `Top users issued ${heavy.general_chats_top_users}+ general-chat queries — promoting frequent flows to one-click actions reclaims time.`,
+          expected_leverage: "Medium",
+          effort: "S",
+          evidence_source: "heavy_manual_surface",
+        });
+      }
+
+      // Combine model + floor; cap to top 5 for UI density.
+      const merged = [...modelRecs, ...floorRecs].slice(0, 5);
+
+      // If still under 3 on a non-green briefing, add generic Duncan improvements.
+      const generics = [
+        { title: "Daily Duncan adoption digest to leadership", why_now: "Make leverage visible — share top users + automation gaps weekly so leaders pull Duncan into their flow.", expected_leverage: "Medium", effort: "S", evidence_source: "heavy_manual_surface" },
+        { title: "One-click 'send this to a teammate' from any Duncan answer", why_now: "Reduce copy/paste friction. Most chat answers get re-shared manually — a share action would compound usage.", expected_leverage: "Medium", effort: "S", evidence_source: "heavy_manual_surface" },
+        { title: "Slack DM nudge when a workstream goes silent for 7 days", why_now: "Silent owners drive Section 05 watchlist entries. Proactive nudges would resolve them before the CEO has to.", expected_leverage: "High", effort: "M", evidence_source: "stuck_workstream" },
+      ];
+      let i = 0;
+      while (merged.length < 3 && !isGreen && i < generics.length) {
+        const g = generics[i++];
+        const key = g.title.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          merged.push({ ...g, auto_injected: true });
+        }
+      }
+
+      ap.recommendations = merged.map((r) => ({
+        title: String(r.title || ""),
+        why_now: String(r.why_now || ""),
+        expected_leverage: ["Low", "Medium", "High"].includes(r.expected_leverage) ? r.expected_leverage : "Medium",
+        effort: ["S", "M", "L"].includes(r.effort) ? r.effort : "M",
+        auto_injected: Boolean(r.auto_injected),
+        evidence_source: r.evidence_source || "model",
+      }));
+
+      parsed.payload.automation_progress = ap;
+    }
+
     const briefing_date = new Date().toISOString().slice(0, 10);
 
     const { data: saved, error: saveErr } = await admin
