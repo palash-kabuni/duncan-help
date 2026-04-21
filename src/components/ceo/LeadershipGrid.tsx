@@ -31,6 +31,9 @@ const sourceIcon = (src: string) => {
     case "workstreams": return <Kanban className="h-3 w-3" />;
     case "azure": return <GitBranch className="h-3 w-3" />;
     case "releases": return <Rocket className="h-3 w-3" />;
+    case "calendar": return <Calendar className="h-3 w-3" />;
+    case "email": return <Mail className="h-3 w-3" />;
+    case "transcript": return <FileText className="h-3 w-3" />;
     default: return <Activity className="h-3 w-3" />;
   }
 };
