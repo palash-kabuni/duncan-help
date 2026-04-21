@@ -108,12 +108,16 @@ export default function SettingsProfile() {
           <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
             <Building2 className="h-3.5 w-3.5" /> Department
           </Label>
-          <Input
-            value={form.department ?? ""}
-            onChange={(e) => set("department", e.target.value)}
-            placeholder="e.g. Operations"
-            className="h-9"
-          />
+          <Select value={form.department ?? ""} onValueChange={(v) => set("department", v)}>
+            <SelectTrigger className="h-9">
+              <SelectValue placeholder="Select department" />
+            </SelectTrigger>
+            <SelectContent>
+              {departments.map((d) => (
+                <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="space-y-1.5">
