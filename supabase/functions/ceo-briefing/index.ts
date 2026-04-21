@@ -1208,6 +1208,56 @@ Deno.serve(async (req) => {
     );
     const available_workstreams = Array.from(new Set([...projectTags, ...azureProjects])).sort();
 
+    // ─── Server-authoritative workstream baseline ─────────────────
+    // Per-workstream RAG, progress, confidence, risk derived from raw card data.
+    // The model MUST anchor workstream_scores to these numbers; the post-processor
+    // overwrites rag and backfills missing rows from this structure.
+    const _nowMs = Date.now();
+    const _normTag = (s: string) => String(s || "").trim().toLowerCase();
+    const workstream_baseline = available_workstreams.map((tag) => {
+      const cardsForTag = (allCards as any[]).filter((c) => _normTag(c.project_tag) === _normTag(tag));
+      const card_count = cardsForTag.length;
+      let red_count = 0, amber_count = 0, green_count = 0, done_count = 0, overdue_count = 0;
+      let mostRecentMs = 0;
+      for (const c of cardsForTag) {
+        const status = String(c.status || "").toLowerCase();
+        if (status === "red") red_count++;
+        else if (status === "yellow" || status === "amber") amber_count++;
+        else if (status === "green") green_count++;
+        else if (status === "done" || status === "completed") done_count++;
+        const upd = c.updated_at ? new Date(c.updated_at).getTime() : 0;
+        if (upd > mostRecentMs) mostRecentMs = upd;
+        if (c.due_date && status !== "done" && status !== "completed") {
+          const due = new Date(c.due_date).getTime();
+          if (!isNaN(due) && due < _nowMs) overdue_count++;
+        }
+      }
+      const days_since_last_activity = mostRecentMs
+        ? Math.floor((_nowMs - mostRecentMs) / 86400000)
+        : 999;
+      let derived_rag: "red" | "amber" | "green" | "silent";
+      if (card_count === 0) derived_rag = "silent";
+      else if (red_count > 0 || overdue_count > 0 || days_since_last_activity > 14) derived_rag = "red";
+      else if (amber_count > 0 || days_since_last_activity > 7) derived_rag = "amber";
+      else derived_rag = "green";
+      const baseline_progress = Math.round(100 * done_count / Math.max(card_count, 1));
+      const baseline_confidence = Math.max(10, Math.min(90, 100 - days_since_last_activity * 5));
+      const baseline_risk = Math.min(100, red_count * 30 + amber_count * 15 + Math.min(overdue_count * 10, 40));
+      const card_status_summary = card_count === 0
+        ? "0 cards · silent"
+        : `${card_count} card${card_count === 1 ? "" : "s"} · ${red_count} red / ${amber_count} amber / ${green_count} green${done_count ? ` / ${done_count} done` : ""}${overdue_count ? ` · ${overdue_count} overdue` : ""}`;
+      return {
+        name: tag,
+        card_count, red_count, amber_count, green_count, done_count, overdue_count,
+        days_since_last_activity,
+        derived_rag,
+        baseline_progress,
+        baseline_confidence,
+        baseline_risk,
+        card_status_summary,
+      };
+    });
+
     const allCardTitles = (allCards as any[]).map((c) => c.title).filter(Boolean) as string[];
     const allAzureTitles = (allWorkItems as any[]).map((w) => w.title).filter(Boolean) as string[];
 
