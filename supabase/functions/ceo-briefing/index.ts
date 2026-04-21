@@ -65,6 +65,8 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
   "execution_score": number (0-100),
   "workstream_scores": [{
     "name": string,                  // MUST be drawn verbatim from available_workstreams. NEVER invented.
+    "rag": "red" | "amber" | "green" | "silent",   // MUST equal workstream_baseline[name].derived_rag — server overwrites if you deviate.
+    "card_status_summary": string,   // MUST equal workstream_baseline[name].card_status_summary verbatim, e.g. "3 cards · 0 red / 3 amber / 0 green".
     "progress": number,
     "confidence": number,
     "risk": number,
@@ -72,7 +74,7 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
     "execution_quality": string,
     "commercial_impact": string,
     "dependency_strength": string,
-    "evidence": string               // MUST cite a real card title, Azure work item, or release. No generic prose.
+    "evidence": string               // MUST cite a real card title, Azure work item, or release. For silent workstreams, write "Silent — no cards in the last 7 days".
   }],
   "payload": {
     "tldr": {
@@ -163,6 +165,9 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
 
 CRITICAL RULES:
 - "workstream_scores[].name" MUST come verbatim from "available_workstreams" in the source data. Do NOT invent workstreams. Do NOT use the function-bucket names in "what_changed" (Launch & India, Product & Technology, etc.) as workstream names — those are reporting lenses, not workstreams. If "available_workstreams" is empty, return "workstream_scores": [] and say so in payload.company_pulse.
+- WORKSTREAM COVERAGE: workstream_scores MUST contain EXACTLY one entry per name in available_workstreams — no omissions, no duplicates, no inventions. If you cannot articulate scores for one, still return the row using the workstream_baseline values for that name and set evidence to "Silent — no cards in the last 7 days" or quote the most recent card.
+- WORKSTREAM RAG TRUTH: workstream_scores[i].rag MUST equal workstream_baseline[name].derived_rag verbatim. The server overwrites any deviation. Justify in evidence; never override.
+- WORKSTREAM ALIGNMENT: when execution_score < 50 OR outcome_probability < 50, NO workstream may simultaneously have progress >= 70 AND risk <= 30 AND rag = "green". Either downgrade progress/risk or cite the contradicting evidence (a green card that justifies it). The server clamps violators.
 - "function_area" in "what_changed" is a REPORTING LENS, not a workstream identifier.
 - For every entry in "coverage_report" where status = "missing", you MUST add an entry to payload.coverage_gaps. Do NOT fabricate scores for missing priorities — flag them as gaps instead.
 - payload.brutal_truth MUST mention any uncovered 2026 priority by name when coverage_gaps is non-empty.
@@ -1021,7 +1026,7 @@ Deno.serve(async (req) => {
       safe(admin.from("xero_invoices").select("invoice_number,contact_name,total,amount_due,amount_paid,status,type,due_date,date").gte("synced_at", since).order("date", { ascending: false }).limit(40)),
       safe(admin.from("xero_contacts").select("name,outstanding_balance,overdue_balance").gt("overdue_balance", 0).order("overdue_balance", { ascending: false }).limit(15)),
       safe(admin.from("integration_audit_logs").select("integration,action,details,created_at").gte("created_at", since).limit(40)),
-      safe(admin.from("workstream_cards").select("title,project_tag").is("archived_at", null).limit(500)),
+      safe(admin.from("workstream_cards").select("title,project_tag,status,due_date,updated_at,archived_at").is("archived_at", null).limit(500)),
       safe(admin.from("azure_work_items").select("title,project_name").limit(500)),
       safe(admin.from("meetings").select("title,meeting_date,transcript").not("transcript", "is", null).order("meeting_date", { ascending: false }).limit(10)),
       safe(admin.from("project_files").select("id,file_name,created_at,extracted_text").order("created_at", { ascending: false }).limit(1000)),
@@ -1202,6 +1207,56 @@ Deno.serve(async (req) => {
       new Set((allWorkItems as any[]).map((w) => w.project_name).filter((p): p is string => !!p && p.trim().length > 0))
     );
     const available_workstreams = Array.from(new Set([...projectTags, ...azureProjects])).sort();
+
+    // ─── Server-authoritative workstream baseline ─────────────────
+    // Per-workstream RAG, progress, confidence, risk derived from raw card data.
+    // The model MUST anchor workstream_scores to these numbers; the post-processor
+    // overwrites rag and backfills missing rows from this structure.
+    const _nowMs = Date.now();
+    const _normTag = (s: string) => String(s || "").trim().toLowerCase();
+    const workstream_baseline = available_workstreams.map((tag) => {
+      const cardsForTag = (allCards as any[]).filter((c) => _normTag(c.project_tag) === _normTag(tag));
+      const card_count = cardsForTag.length;
+      let red_count = 0, amber_count = 0, green_count = 0, done_count = 0, overdue_count = 0;
+      let mostRecentMs = 0;
+      for (const c of cardsForTag) {
+        const status = String(c.status || "").toLowerCase();
+        if (status === "red") red_count++;
+        else if (status === "yellow" || status === "amber") amber_count++;
+        else if (status === "green") green_count++;
+        else if (status === "done" || status === "completed") done_count++;
+        const upd = c.updated_at ? new Date(c.updated_at).getTime() : 0;
+        if (upd > mostRecentMs) mostRecentMs = upd;
+        if (c.due_date && status !== "done" && status !== "completed") {
+          const due = new Date(c.due_date).getTime();
+          if (!isNaN(due) && due < _nowMs) overdue_count++;
+        }
+      }
+      const days_since_last_activity = mostRecentMs
+        ? Math.floor((_nowMs - mostRecentMs) / 86400000)
+        : 999;
+      let derived_rag: "red" | "amber" | "green" | "silent";
+      if (card_count === 0) derived_rag = "silent";
+      else if (red_count > 0 || overdue_count > 0 || days_since_last_activity > 14) derived_rag = "red";
+      else if (amber_count > 0 || days_since_last_activity > 7) derived_rag = "amber";
+      else derived_rag = "green";
+      const baseline_progress = Math.round(100 * done_count / Math.max(card_count, 1));
+      const baseline_confidence = Math.max(10, Math.min(90, 100 - days_since_last_activity * 5));
+      const baseline_risk = Math.min(100, red_count * 30 + amber_count * 15 + Math.min(overdue_count * 10, 40));
+      const card_status_summary = card_count === 0
+        ? "0 cards · silent"
+        : `${card_count} card${card_count === 1 ? "" : "s"} · ${red_count} red / ${amber_count} amber / ${green_count} green${done_count ? ` / ${done_count} done` : ""}${overdue_count ? ` · ${overdue_count} overdue` : ""}`;
+      return {
+        name: tag,
+        card_count, red_count, amber_count, green_count, done_count, overdue_count,
+        days_since_last_activity,
+        derived_rag,
+        baseline_progress,
+        baseline_confidence,
+        baseline_risk,
+        card_status_summary,
+      };
+    });
 
     const allCardTitles = (allCards as any[]).map((c) => c.title).filter(Boolean) as string[];
     const allAzureTitles = (allWorkItems as any[]).map((w) => w.title).filter(Boolean) as string[];
@@ -1386,6 +1441,7 @@ Deno.serve(async (req) => {
       now_utc: new Date().toISOString(),
       window: "last 24h",
       available_workstreams,
+      workstream_baseline,
       priority_definitions: PRIORITY_DEFINITIONS.map((p) => ({
         id: p.id,
         title: p.title,
@@ -1483,12 +1539,66 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
     catch (e) { return json({ error: "Invalid JSON from model", raw: raw.slice(0, 500) }, 502); }
 
     // ─── Server-side guardrails ─────────────────────────────────
-    // 1. Strip any fabricated workstream scores (must be in available_workstreams)
-    if (Array.isArray(parsed.workstream_scores) && available_workstreams.length > 0) {
-      const allowed = new Set(available_workstreams.map((s) => s.toLowerCase()));
-      parsed.workstream_scores = parsed.workstream_scores.filter(
-        (w: any) => w?.name && allowed.has(String(w.name).toLowerCase())
-      );
+    // 1. Workstream scores: strip fabrications, force baseline RAG, backfill missing, clamp green-vs-red.
+    if (available_workstreams.length > 0) {
+      const allowedLc = new Set(available_workstreams.map((s) => s.toLowerCase()));
+      const baselineByLc = new Map(workstream_baseline.map((b) => [b.name.toLowerCase(), b]));
+      const incoming: any[] = Array.isArray(parsed.workstream_scores)
+        ? parsed.workstream_scores.filter((w: any) => w?.name && allowedLc.has(String(w.name).toLowerCase()))
+        : [];
+      const byLc = new Map<string, any>();
+      for (const w of incoming) byLc.set(String(w.name).toLowerCase(), w);
+
+      const execScore = typeof parsed.execution_score === "number" ? parsed.execution_score : 100;
+      const outcomeProb = typeof parsed.outcome_probability === "number" ? parsed.outcome_probability : 100;
+      const briefingIsAtRisk = execScore < 50 || outcomeProb < 50;
+
+      const finalScores: any[] = available_workstreams.map((name) => {
+        const baseline = baselineByLc.get(name.toLowerCase())!;
+        const existing = byLc.get(name.toLowerCase());
+        if (!existing) {
+          // Backfill from baseline
+          return {
+            name,
+            rag: baseline.derived_rag,
+            card_status_summary: baseline.card_status_summary,
+            progress: baseline.baseline_progress,
+            confidence: baseline.baseline_confidence,
+            risk: baseline.baseline_risk,
+            progress_vs_goal: `Baseline: ${baseline.card_status_summary}.`,
+            execution_quality: baseline.card_count === 0 ? "No tracked cards." : `${baseline.days_since_last_activity}d since last card update.`,
+            commercial_impact: "Not modelled — auto-injected from card status.",
+            dependency_strength: "Not modelled — auto-injected from card status.",
+            evidence: baseline.card_count === 0
+              ? "Silent — no cards in the last 7 days."
+              : `Auto-scored from card status: ${baseline.card_status_summary}.`,
+            auto_injected: true,
+          };
+        }
+        // Force baseline RAG + card_status_summary (single source of truth)
+        const merged: any = {
+          ...existing,
+          rag: baseline.derived_rag,
+          card_status_summary: baseline.card_status_summary,
+        };
+        // Clamp green-against-red contradictions
+        const progNum = typeof merged.progress === "number" ? merged.progress : null;
+        const riskNum = typeof merged.risk === "number" ? merged.risk : null;
+        if (
+          briefingIsAtRisk &&
+          baseline.derived_rag !== "green" &&
+          progNum !== null && riskNum !== null &&
+          progNum >= 70 && riskNum <= 30
+        ) {
+          merged.progress = 50;
+          merged.risk = 50;
+          merged.evidence = `${merged.evidence || ""} · Score capped: contradicts overall execution_score=${execScore} / outcome_probability=${outcomeProb}.`.trim();
+          merged.auto_clamped = true;
+        }
+        return merged;
+      });
+
+      parsed.workstream_scores = finalScores;
     }
     // 2. Ensure coverage_gaps reflects actual missing priorities (server-authoritative)
     //    + enrich with meeting_priority_signals to flag implicit (untracked) work.
@@ -1715,7 +1825,7 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
         if (!rag || rag === "green") continue;
         const name = String(ws?.name || "").trim();
         if (!name || hasRowFor(name)) continue;
-        const statusLabel = rag === "red" ? "Red" : rag === "yellow" ? "Yellow" : "At Risk";
+        const statusLabel = rag === "red" ? "Red" : (rag === "yellow" || rag === "amber") ? "Yellow" : "At Risk";
         wlIn.push({
           workstream: name,
           owner: ws?.owner || "Unassigned — CEO to allocate",
@@ -2673,7 +2783,7 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       const wsScores: any[] = Array.isArray(parsed.workstream_scores) ? parsed.workstream_scores : [];
       const stuck = wsScores.filter((w) => {
         const r = String(w?.rag || "").toLowerCase();
-        return r === "red" || r === "yellow";
+        return r === "red" || r === "yellow" || r === "amber";
       });
       for (const w of stuck.slice(0, 2)) {
         pushRec({
