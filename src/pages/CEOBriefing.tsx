@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Navigate, Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
-import { isCEO } from "@/lib/ceoAccess";
+import { canViewBriefing, canGenerateBriefing } from "@/lib/ceoAccess";
 import AppLayout from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -35,7 +35,8 @@ const CEOBriefing = () => {
   const [showRouting, setShowRouting] = useState(false);
 
   if (authLoading) return null;
-  if (!isCEO(user?.email)) return <Navigate to="/" replace />;
+  if (!canViewBriefing(user?.email)) return <Navigate to="/" replace />;
+  const canGenerate = canGenerateBriefing(user?.email);
 
   const p = (briefing?.payload as any) || {};
   const today = briefing?.briefing_date ? new Date(briefing.briefing_date) : new Date();
@@ -54,9 +55,12 @@ const CEOBriefing = () => {
           <div className="min-w-0">
             <h1 className="text-2xl font-bold tracking-tight text-foreground">Team Briefing</h1>
             <p className="text-sm text-muted-foreground font-mono">{dateLabel}</p>
+            {!canGenerate && (
+              <p className="text-xs text-muted-foreground mt-1">Read-only view. Generated daily by the CEO.</p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {job ? (
+            {canGenerate && (job ? (
               <div className="flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2 min-w-[280px]">
                 <RefreshCw className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
                 <div className="flex-1 min-w-0">
@@ -75,7 +79,7 @@ const CEOBriefing = () => {
                 {generating ? <RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-2" />}
                 {briefing ? "Regenerate" : "Generate"}
               </Button>
-            )}
+            ))}
           </div>
         </div>
 
@@ -88,10 +92,14 @@ const CEOBriefing = () => {
         ) : !briefing ? (
           <div className="rounded-lg border border-dashed border-border p-12 text-center space-y-3">
             <p className="text-sm text-muted-foreground">No {type} briefing yet for today.</p>
-            <Button onClick={generate} disabled={generating}>
-              <Sparkles className="h-4 w-4 mr-2" />
-              Generate {type} briefing
-            </Button>
+            {canGenerate ? (
+              <Button onClick={generate} disabled={generating}>
+                <Sparkles className="h-4 w-4 mr-2" />
+                Generate {type} briefing
+              </Button>
+            ) : (
+              <p className="text-xs text-muted-foreground">The CEO will generate today's briefing shortly.</p>
+            )}
           </div>
         ) : (
           <>

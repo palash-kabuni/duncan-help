@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { LayoutDashboard, Plug, Settings, LogOut, X, ChevronDown, CheckCircle2, Mail, FileText, MessageSquare, Calendar, FolderOpen, GitBranch, Zap, Menu, Layers, Megaphone, Crown } from "lucide-react";
-import { isCEO } from "@/lib/ceoAccess";
+import { canViewBriefing } from "@/lib/ceoAccess";
 import ChatHistory from "@/components/ChatHistory";
 import { useGeneralChats } from "@/hooks/useGeneralChats";
 import type { useGeneralChats as UseGeneralChatsType } from "@/hooks/useGeneralChats";
@@ -173,7 +173,7 @@ const Sidebar = ({
           Workstreams
         </RouterNavLink>
 
-        {isCEO(user?.email) && (
+        {canViewBriefing(user?.email) && (
           <RouterNavLink
             to="/team-briefing"
             onClick={() => onMobileClose?.()}

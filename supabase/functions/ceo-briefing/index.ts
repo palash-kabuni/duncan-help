@@ -1,7 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callLLMWithFallback } from "../_shared/llm.ts";
 
-const CEO_EMAILS = ["nimesh@kabuni.com", "palash@kabuni.com"];
+// Only Nimesh can trigger briefing generation. Viewing is open to all signed-in users (enforced via RLS).
+const CEO_GENERATOR_EMAILS = ["nimesh@kabuni.com"];
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1029,7 +1030,7 @@ Deno.serve(async (req) => {
     if (claimsErr || !claimsData?.claims) return json({ error: "Unauthorized" }, 401);
 
     const email = (claimsData.claims.email as string | undefined)?.toLowerCase() ?? "";
-    if (!CEO_EMAILS.includes(email)) return json({ error: "Forbidden — CEO only" }, 403);
+    if (!CEO_GENERATOR_EMAILS.includes(email)) return json({ error: "Forbidden — only the CEO can generate briefings" }, 403);
 
     const userId = claimsData.claims.sub as string;
     const body = await req.json().catch(() => ({}));

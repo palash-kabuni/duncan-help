@@ -1,16 +1,33 @@
 /**
- * Single source of truth for CEO Briefing access control.
- * If this allowlist ever changes, also update:
- *  - supabase/functions/ceo-briefing/index.ts (CEO_EMAILS)
- *  - supabase/functions/ceo-briefing-status/index.ts (CEO_EMAILS)
- *  - supabase/functions/norman-chat/index.ts (CEO_EMAILS)
+ * Access control for the Team Briefing.
+ *
+ * Two tiers:
+ *  - VIEWERS: any authenticated user can read briefings (`canViewBriefing`).
+ *  - GENERATORS: only the CEO (Nimesh) can trigger generation (`canGenerateBriefing`).
+ *
+ * If the generator allowlist changes, also update:
+ *  - supabase/functions/ceo-briefing/index.ts (CEO_GENERATOR_EMAILS)
  *  - supabase/functions/send-ceo-briefing-actions/index.ts (CEO_EMAILS)
- *  - RLS policies on `ceo_briefings` table
+ *  - RLS INSERT policies on `ceo_briefings` and `ceo_briefing_jobs`
  */
+
+/** @deprecated legacy viewer allowlist — viewing is now open to all signed-in users. */
 export const CEO_EMAILS = ["nimesh@kabuni.com", "palash@kabuni.com"] as const;
+
+/** Only Nimesh can generate / regenerate briefings. */
+export const CEO_GENERATOR_EMAILS = ["nimesh@kabuni.com"] as const;
 
 /** @deprecated use CEO_EMAILS. Kept for backwards-compat with older imports. */
 export const CEO_EMAIL = CEO_EMAILS[0];
 
+/** True for the legacy CEO allowlist (Nimesh + Palash). Used by features other than the briefing. */
 export const isCEO = (email: string | null | undefined): boolean =>
   CEO_EMAILS.includes(((email ?? "").toLowerCase()) as (typeof CEO_EMAILS)[number]);
+
+/** Anyone signed in can view the Team Briefing. */
+export const canViewBriefing = (email: string | null | undefined): boolean =>
+  !!email;
+
+/** Only the CEO can trigger briefing generation. */
+export const canGenerateBriefing = (email: string | null | undefined): boolean =>
+  CEO_GENERATOR_EMAILS.includes(((email ?? "").toLowerCase()) as (typeof CEO_GENERATOR_EMAILS)[number]);
