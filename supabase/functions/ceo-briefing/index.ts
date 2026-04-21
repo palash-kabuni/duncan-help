@@ -1672,7 +1672,9 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
         ],
         // temperature omitted — GPT-5 fallback only supports default (1) and
         // Sonnet 4.5 produces structurally cleaner JSON without an explicit value.
-        max_tokens: 4096,
+        // 8192 tokens needed: full workstream_scores + risks + tldr + coverage_gaps
+        // routinely exceed 4k and were causing mid-JSON truncation ("Invalid JSON from model").
+        max_tokens: 8192,
       });
     } catch (err: any) {
       console.error("LLM error:", err?.status, err?.message);
@@ -1682,6 +1684,7 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
     await updateJob({ phase: "Applying guardrails", progress: 80 });
 
     const raw = aiData?.choices?.[0]?.message?.content ?? "{}";
+    const finishReason = aiData?.choices?.[0]?.finish_reason;
     // Strip markdown code fences if the model wrapped its JSON output.
     const cleaned = raw
       .trim()
@@ -1690,7 +1693,15 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       .trim();
     let parsed: any;
     try { parsed = JSON.parse(cleaned); }
-    catch (e) { throw new Error(`Invalid JSON from model: ${cleaned.slice(0, 300)}`); }
+    catch (e) {
+      // Detect output-cap truncation explicitly so the next run can be tuned.
+      if (finishReason === "length") {
+        throw new Error(
+          `Model output truncated at max_tokens — increase the cap. Last 200 chars: ${cleaned.slice(-200)}`,
+        );
+      }
+      throw new Error(`Invalid JSON from model (finish=${finishReason}): ${cleaned.slice(0, 300)}`);
+    }
 
     // ─── Server-side guardrails ─────────────────────────────────
     // 1. Workstream scores: strip fabrications, force baseline RAG, backfill missing, clamp green-vs-red.
