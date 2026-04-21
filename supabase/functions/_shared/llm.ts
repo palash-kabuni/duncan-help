@@ -139,7 +139,8 @@ async function callOpenAI(opts: CallLLMOptions, model: string): Promise<Normalis
     if (model.startsWith("gpt-5")) body.max_completion_tokens = opts.max_tokens;
     else body.max_tokens = opts.max_tokens;
   }
-  if (opts.temperature !== undefined) body.temperature = opts.temperature;
+  // GPT-5 family only supports default temperature (1); omit if caller passed a custom value.
+  if (opts.temperature !== undefined && !model.startsWith("gpt-5")) body.temperature = opts.temperature;
   if (opts.response_format) body.response_format = opts.response_format;
 
   const ctrl = new AbortController();
@@ -464,7 +465,8 @@ async function openaiStream(opts: CallLLMOptions, model: string): Promise<Readab
     if (model.startsWith("gpt-5")) body.max_completion_tokens = opts.max_tokens;
     else body.max_tokens = opts.max_tokens;
   }
-  if (opts.temperature !== undefined) body.temperature = opts.temperature;
+  // GPT-5 family only supports default temperature (1).
+  if (opts.temperature !== undefined && !model.startsWith("gpt-5")) body.temperature = opts.temperature;
 
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
