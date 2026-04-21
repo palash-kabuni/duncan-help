@@ -1899,7 +1899,6 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
           leadership: [],
           decisions: [],
           automation: {
-            percent: Math.min(25, Math.max(0, Math.round((Number(automation_leverage?.company_usage?.active_users || 0) / 8) * 25))),
             working: "Adoption signal is present in Duncan usage logs.",
             manual: "Operational reporting still depends on missing ownership and artifacts.",
             next: "Improve tracked workstreams and evidence coverage.",
