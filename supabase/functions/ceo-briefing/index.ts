@@ -684,6 +684,16 @@ Deno.serve(async (req) => {
 
     const meeting_priority_signals = scanTranscriptsForPriorities(recentTranscripts as any[]);
 
+    // ─── Cross-system inferred-artifact signals (Chief-of-Staff reasoning) ─
+    const inferred_artifact_signals = inferArtifactSignals({
+      meetings: meetings as any[],
+      recentTranscripts: recentTranscripts as any[],
+      xeroInvoices: xeroInvoices as any[],
+      workItems: workItems as any[],
+      releases: releases as any[],
+    });
+
+
     // ─── Data Coverage Audit (deterministic, server-side) ─────────
     const data_coverage_audit = computeDataCoverage(
       (projectFiles as any[]) || [],
