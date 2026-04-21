@@ -65,10 +65,10 @@ const CEOBriefing = () => {
 
   return (
     <AppLayout>
-      <div className="mx-auto max-w-5xl px-4 md:px-8 py-6 space-y-6">
+      <div className="mx-auto max-w-5xl w-full px-4 md:px-8 py-6 space-y-6 min-w-0 overflow-x-hidden">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 min-w-0">
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold tracking-tight text-foreground">CEO Briefing</h1>
             <p className="text-sm text-muted-foreground font-mono">{dateLabel}</p>
           </div>
@@ -86,7 +86,8 @@ const CEOBriefing = () => {
             {briefing && type === "morning" && (
               <Button onClick={() => setSendOpen(true)} disabled={generating} size="sm" variant="outline">
                 <Send className="h-3.5 w-3.5 mr-2" />
-                Send team actions
+                <span className="hidden sm:inline">Send team actions</span>
+                <span className="sm:hidden">Send</span>
               </Button>
             )}
             {lastSent && (
