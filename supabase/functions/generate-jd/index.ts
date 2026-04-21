@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callLLMWithFallback } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,15 +29,11 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Generate JD content via OpenAI
-    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "gpt-4.1",
+    // Generate JD content via the LLM router
+    let aiData: any;
+    try {
+      aiData = await callLLMWithFallback({
+        workflow: "generate-jd",
         messages: [
           {
             role: "system",
@@ -94,18 +91,14 @@ Write in a warm but professional tone. Be specific to the role, not generic.`,
           },
         }],
         tool_choice: { type: "function", function: { name: "return_job_description" } },
-      }),
-    });
-
-    if (!aiResponse.ok) {
-      const errText = await aiResponse.text();
-      console.error("AI error:", aiResponse.status, errText);
+      });
+    } catch (err: any) {
+      console.error("AI error:", err?.status, err?.message);
       return new Response(JSON.stringify({ error: "AI generation failed" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const aiData = await aiResponse.json();
     const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
     if (!toolCall?.function?.arguments) {
       return new Response(JSON.stringify({ error: "AI did not return a JD" }), {
