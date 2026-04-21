@@ -36,10 +36,18 @@ const CEOBriefing = () => {
   const [showRouting, setShowRouting] = useState(false);
   const [lastSent, setLastSent] = useState<string | null>(null);
 
-  // Load most recent send timestamp for this briefing
-  useState(() => {});
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  useEffectLastSent(briefing?.id, setLastSent);
+  useEffect(() => {
+    if (!briefing?.id) { setLastSent(null); return; }
+    supabase
+      .from("ceo_briefing_email_logs")
+      .select("sent_at")
+      .eq("briefing_id", briefing.id)
+      .eq("status", "sent")
+      .order("sent_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => setLastSent(data?.sent_at ?? null));
+  }, [briefing?.id]);
 
   if (authLoading) return null;
   if (!isCEO(user?.email)) return <Navigate to="/" replace />;
