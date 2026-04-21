@@ -319,7 +319,8 @@ async function callClaude(opts: CallLLMOptions, model: string): Promise<Normalis
   if (tc) body.tool_choice = tc;
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), PROVIDER_TIMEOUT_MS);
+  const timeoutMs = timeoutFor(opts.workflow);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   let resp: Response;
   try {
     resp = await fetch("https://api.anthropic.com/v1/messages", {
@@ -334,7 +335,7 @@ async function callClaude(opts: CallLLMOptions, model: string): Promise<Normalis
     });
   } catch (e: any) {
     if (e?.name === "AbortError") {
-      const err: any = new Error(`Anthropic timeout after ${PROVIDER_TIMEOUT_MS}ms`);
+      const err: any = new Error(`Anthropic timeout after ${timeoutMs}ms`);
       err.status = 504;
       err.timeout = true;
       throw err;
