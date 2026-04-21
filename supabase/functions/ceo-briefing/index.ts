@@ -1038,6 +1038,38 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
+    // ─── Hybrid async: create a job row, then run the heavy pipeline in the
+    // background. Return immediately so the client can poll ceo-briefing-status.
+    const { data: jobRow, error: jobErr } = await admin
+      .from("ceo_briefing_jobs")
+      .insert({
+        user_id: userId,
+        briefing_type,
+        status: "queued",
+        progress: 0,
+        phase: "Queued",
+      })
+      .select("id")
+      .single();
+
+    if (jobErr || !jobRow) {
+      console.error("Failed to create briefing job:", jobErr);
+      return json({ error: "Failed to create briefing job", details: jobErr?.message }, 500);
+    }
+    const jobId = jobRow.id as string;
+
+    const updateJob = async (patch: Record<string, unknown>) => {
+      try {
+        await admin.from("ceo_briefing_jobs").update(patch).eq("id", jobId);
+      } catch (e) {
+        console.error("updateJob failed:", e);
+      }
+    };
+
+    const runWorker = async () => {
+      try {
+        await updateJob({ status: "gathering", phase: "Gathering data", progress: 10 });
+
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
     const safe = async <T>(p: Promise<{ data: T | null; error: any }>): Promise<T[]> => {
