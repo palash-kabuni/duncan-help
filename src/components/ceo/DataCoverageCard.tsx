@@ -149,6 +149,11 @@ export default function DataCoverageCard({
           <p className="text-[11px] font-mono text-muted-foreground">
             {audit.counts.green}/{audit.counts.total} green · {audit.counts.yellow} partial · {audit.counts.red} missing
           </p>
+          {typeof audit.overall_strategic_pct === "number" && (
+            <p className="text-[11px] font-mono text-muted-foreground">
+              Strategic artifact coverage (2026 plan): <span className="text-foreground font-semibold">{audit.overall_strategic_pct}%</span>
+            </p>
+          )}
           {summary && summary.documents_reviewed > 0 && (
             <p className="text-[11px] font-mono text-muted-foreground">
               Documents reviewed: {summary.documents_reviewed} · Weak: {summary.weak} · Adequate: {summary.adequate} · Strong: {summary.strong}
@@ -164,6 +169,7 @@ export default function DataCoverageCard({
         {audit.domains.map((d) => {
           const isOpen = expanded === d.id;
           const di = diByDomain.get(d.id);
+          const hasStrategic = typeof d.strategic_required === "number" && d.strategic_required > 0;
           return (
             <div key={d.id} className="px-4 py-2.5">
               <button
@@ -172,6 +178,17 @@ export default function DataCoverageCard({
               >
                 <span className={`h-2 w-2 rounded-full ${dotClass(d.status)} shrink-0`} />
                 <span className="text-sm text-foreground font-medium flex-1 truncate">{d.label}</span>
+                {hasStrategic && (
+                  <span className="text-[10px] font-mono text-muted-foreground tabular-nums hidden sm:inline">
+                    {d.strategic_supplied}/{d.strategic_required} ({d.strategic_pct}%)
+                  </span>
+                )}
+                {d.live_signal && (
+                  <Badge variant="outline" className={`text-[9px] font-mono uppercase gap-1 ${d.live_signal === "active" ? "border-blue-500/40 text-blue-600 dark:text-blue-400" : "border-border text-muted-foreground"}`}>
+                    <Activity className="h-2.5 w-2.5" />
+                    {d.live_signal}
+                  </Badge>
+                )}
                 {di && (
                   <Badge variant="outline" className={`text-[9px] font-mono uppercase ${verdictClass(di.verdict)}`}>
                     doc: {di.verdict}
@@ -188,6 +205,27 @@ export default function DataCoverageCard({
               {isOpen && (
                 <div className="mt-2 ml-5 space-y-3">
                   <p className="text-xs text-muted-foreground">{d.evidence}</p>
+
+                  {hasStrategic && (
+                    <div className="rounded border border-border bg-muted/20 p-2.5 space-y-1.5">
+                      <p className="text-[11px] font-mono uppercase text-foreground/70 flex items-center gap-1.5">
+                        <Target className="h-3 w-3" />
+                        Strategic coverage: {d.strategic_supplied} / {d.strategic_required} artifacts ({d.strategic_pct}%)
+                      </p>
+                      {Array.isArray(d.blind_priorities) && d.blind_priorities.length > 0 && (
+                        <p className="text-[11px] text-red-600 dark:text-red-400">
+                          <span className="font-mono uppercase text-[9px]">Blind for: </span>
+                          {d.blind_priorities.join(" · ")}
+                        </p>
+                      )}
+                      {Array.isArray(d.missing_artifacts) && d.missing_artifacts.length > 0 && (
+                        <div className="text-[11px] text-foreground/80">
+                          <span className="font-mono uppercase text-[9px] text-foreground/60">Missing: </span>
+                          {d.missing_artifacts.join(", ")}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {di && (
                     <div className="rounded border border-border bg-muted/20 p-2.5 space-y-2">
