@@ -1441,6 +1441,21 @@ Deno.serve(async (req) => {
       };
     });
 
+    // ─── Filter to ACTIVE workstreams only ────────────────────────
+    // Drop tags with zero cards UNLESS they exist as an Azure DevOps project
+    // (Azure projects are tracked separately and may legitimately be empty in workstream_cards).
+    const azureProjectsLc = new Set(azureProjects.map((p) => p.toLowerCase()));
+    const activeBaseline = workstream_baseline.filter(
+      (b) => b.card_count > 0 || azureProjectsLc.has(b.name.toLowerCase())
+    );
+    const activeNamesLc = new Set(activeBaseline.map((b) => b.name.toLowerCase()));
+    // Reassign so all downstream code (LLM prompt, overwrite block, payload) uses the filtered set.
+    (workstream_baseline as any).length = 0;
+    (workstream_baseline as any).push(...activeBaseline);
+    const _filteredAvailable = available_workstreams.filter((w) => activeNamesLc.has(w.toLowerCase()));
+    (available_workstreams as any).length = 0;
+    (available_workstreams as any).push(..._filteredAvailable);
+
     const allCardTitles = (allCards as any[]).map((c) => c.title).filter(Boolean) as string[];
     const allAzureTitles = (allWorkItems as any[]).map((w) => w.title).filter(Boolean) as string[];
 
