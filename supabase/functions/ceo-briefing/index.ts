@@ -339,6 +339,20 @@ Deno.serve(async (req) => {
       [...allCardTitles, ...allAzureTitles],
     );
 
+    // Pre-compute the server-authoritative coverage summary so the model can quote it verbatim.
+    const _preCovered = coverage_report.filter((c) => c.status === "covered");
+    const _preMissing = coverage_report.filter((c) => c.status === "missing");
+    const _preTotal = PRIORITY_DEFINITIONS.length;
+    const _preRatio = _preCovered.length / _preTotal;
+    const coverage_summary_authoritative = {
+      covered: _preCovered.length,
+      total: _preTotal,
+      ratio: Number(_preRatio.toFixed(2)),
+      ratio_pct: Math.round(_preRatio * 100),
+      covered_priorities: _preCovered.map((c) => ({ priority: c.priority, matched_workstream: c.matched_workstream })),
+      missing_priorities: _preMissing.map((m) => m.priority),
+    };
+
     const context = {
       now_utc: new Date().toISOString(),
       window: "last 24h",
@@ -350,6 +364,8 @@ Deno.serve(async (req) => {
         expected_owner: p.expected_owner,
       })),
       coverage_report,
+      coverage_summary: coverage_summary_authoritative,
+      meeting_priority_signals,
       meetings,
       workstream_cards: cards,
       workstream_activity: activity,
@@ -372,7 +388,20 @@ Deno.serve(async (req) => {
 
 ${briefing_type === "evening" ? EVENING_SCHEMA_HINT : MORNING_SCHEMA_HINT}
 
-Source data (24h activity window; available_workstreams + coverage_report are full-set):
+SERVER-AUTHORITATIVE COVERAGE (USE THESE NUMBERS VERBATIM):
+${JSON.stringify(coverage_summary_authoritative)}
+
+HARD RULES:
+- coverage_summary above is server-computed truth. You MUST use these exact numbers (covered/total/ratio_pct) verbatim in payload.company_pulse, payload.brutal_truth, and payload.execution_explanation. Do NOT recompute, infer, estimate, or round coverage in prose.
+- Do NOT claim a priority is covered unless it appears in coverage_summary.covered_priorities.
+- Use meeting_priority_signals to detect IMPLICIT coverage — work happening on a 2026 priority WITHOUT a formal workstream. For any priority that has signals but no workstream, the corresponding payload.coverage_gaps entry MUST include:
+    "current_signal": "<one-sentence summary of what's being discussed in meetings>",
+    "signal_sources": [<meeting_title strings>],
+    "recommended_action": "Formalise into a workstream — work is already happening but untracked."
+  Implicit-coverage gaps are MORE URGENT than silent gaps because momentum exists but is invisible to the system.
+- For priorities with NO signal anywhere (no workstream, no meeting mention), set "current_signal": null and "recommended_action": "No activity detected — assign owner immediately."
+
+Source data (24h activity window; available_workstreams + coverage_report + meeting_priority_signals are full-set):
 ${JSON.stringify(context).slice(0, 120000)}
 
 If previous_briefing is non-null, explain probability/score deltas vs it. Keep prose tight, executive, no fluff. If a data source is empty, say so — do not invent activity. Remember: workstream_scores ⊆ available_workstreams; missing priorities → coverage_gaps, NOT fabricated scores.`;
