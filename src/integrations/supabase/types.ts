@@ -576,6 +576,7 @@ export type Database = {
           auto_draft_last_run_at: string | null
           auto_drafts_counter_date: string
           auto_drafts_created_today: number
+          ceo_briefing_optin: boolean
           common_phrases: Json
           created_at: string
           id: string
@@ -592,6 +593,7 @@ export type Database = {
           auto_draft_last_run_at?: string | null
           auto_drafts_counter_date?: string
           auto_drafts_created_today?: number
+          ceo_briefing_optin?: boolean
           common_phrases?: Json
           created_at?: string
           id?: string
@@ -608,6 +610,7 @@ export type Database = {
           auto_draft_last_run_at?: string | null
           auto_drafts_counter_date?: string
           auto_drafts_created_today?: number
+          ceo_briefing_optin?: boolean
           common_phrases?: Json
           created_at?: string
           id?: string
