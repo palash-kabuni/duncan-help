@@ -297,6 +297,145 @@ const KNOWLEDGE_DOMAINS = [
   },
 ] as const;
 
+// ─── Operating-system checklist — what a Chief of Staff would expect to exist ─
+// Per-domain baseline of artifacts the CEO would NOT naturally think to upload.
+// Used by the AI to prescribe a shopping list, not just grade what's present.
+const OPERATING_SYSTEM_CHECKLIST: Record<string, string[]> = {
+  finance_planning: [
+    "13-week rolling cash forecast", "Runway model (base/bull/bear)",
+    "Unit economics by SKU/segment", "CAC / LTV trend report",
+    "AR aging schedule", "12-month payroll forecast", "FX exposure snapshot",
+  ],
+  finance_transactions: [
+    "Reconciled monthly P&L", "Bank-to-Xero reconciliation log",
+    "Vendor concentration report (top 10 spend)",
+  ],
+  legal: [
+    "Cap table (current)", "Shareholder agreement", "IP assignment register",
+    "Employment contracts (signed)", "Supplier MSAs",
+    "Active NDAs (signed register)", "Data Processing Agreements (DPAs)",
+    "Regulatory licences (India launch)", "Insurance certificates (current)",
+    "Lightning Strike vendor MoU (signed)",
+  ],
+  technology_direction: [
+    "Architecture Decision Records (ADRs)", "Latest security audit",
+    "Penetration test report (last 12mo)", "SLA register (uptime targets)",
+    "Vendor risk register", "Incident post-mortems (last 90d)",
+    "API contracts (external + internal)", "Infrastructure cost map (AWS/GCP)",
+  ],
+  product_strategy: [
+    "Roadmap with dated milestones", "Customer-research synthesis (last quarter)",
+    "Churn / retention analysis", "Feature-usage telemetry export",
+    "NPS / CSAT report", "Live PRDs (current sprint)",
+  ],
+  investor_board: [
+    "Latest board deck (final)", "Investor update emails (last 3)",
+    "KPI dashboard snapshots (monthly)", "Capital strategy memo",
+    "Term sheet (latest round)", "409A valuation (if US)",
+    "Board minutes (last 2 meetings)",
+  ],
+  operations: [
+    "Org chart with comp bands", "Succession plan (top 10 roles)",
+    "Performance calibration grid", "Hiring plan vs actual",
+    "Attrition log (rolling 12mo)", "Operations runbook",
+  ],
+  recruitment: [
+    "Hiring funnel conversion report", "Interviewer scorecards",
+    "Comp benchmarking data",
+  ],
+};
+
+// ─── Cross-system signal inference — what evidence in OTHER systems implies a doc should exist ──
+function inferArtifactSignals(input: {
+  meetings: Array<{ title: string | null; meeting_date: string | null; summary: string | null }>;
+  recentTranscripts: Array<{ title: string; meeting_date: string | null; transcript: string | null }>;
+  xeroInvoices: Array<{ contact_name: string | null; total: number | null; date: string | null }>;
+  workItems: Array<{ title: string | null; tags?: string | null }>;
+  releases: Array<{ title: string | null; version: string | null; published_at: string | null }>;
+}) {
+  const signals: Array<{ inferred_artifact: string; domain: string; source: string; hint: string }> = [];
+  const seen = new Set<string>();
+  const push = (s: { inferred_artifact: string; domain: string; source: string; hint: string }) => {
+    const k = `${s.domain}::${s.inferred_artifact}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    signals.push(s);
+  };
+
+  // Meetings — keyword → artifact
+  const meetingHaystack = [...input.meetings, ...input.recentTranscripts].map((m: any) => ({
+    title: String(m.title || ""),
+    date: m.meeting_date || null,
+    text: `${m.title || ""} ${m.summary || ""} ${m.transcript ? String(m.transcript).slice(0, 4000) : ""}`.toLowerCase(),
+  }));
+  const meetingRules: Array<{ kw: string[]; domain: string; artifact: string }> = [
+    { kw: ["india launch", "lightning strike", "vendor mou"], domain: "legal", artifact: "Signed Lightning Strike India vendor MoU" },
+    { kw: ["board", "investor update", "investor call"], domain: "investor_board", artifact: "Latest board deck / investor update" },
+    { kw: ["fundraise", "round", "term sheet"], domain: "investor_board", artifact: "Active term sheet + capital strategy memo" },
+    { kw: ["security", "pentest", "pen test", "vulnerability"], domain: "technology_direction", artifact: "Penetration test report + remediation plan" },
+    { kw: ["architecture", "platform redesign", "rearchitect"], domain: "technology_direction", artifact: "Architecture Decision Record (ADR)" },
+    { kw: ["customer research", "user interview", "discovery call"], domain: "product_strategy", artifact: "Customer-research synthesis" },
+    { kw: ["budget", "burn", "runway", "cash"], domain: "finance_planning", artifact: "13-week cash forecast + runway model" },
+    { kw: ["nda", "non-disclosure"], domain: "legal", artifact: "Signed NDAs register" },
+    { kw: ["hire", "headcount", "comp band"], domain: "operations", artifact: "Hiring plan vs actual + comp bands" },
+  ];
+  for (const m of meetingHaystack) {
+    for (const r of meetingRules) {
+      if (r.kw.some((k) => m.text.includes(k))) {
+        push({
+          inferred_artifact: r.artifact,
+          domain: r.domain,
+          source: `meeting:${m.title.slice(0, 60)}`,
+          hint: `Mentioned in "${m.title.slice(0, 60)}"${m.date ? ` (${m.date.slice(0, 10)})` : ""} — likely with the participants of that meeting.`,
+        });
+      }
+    }
+  }
+
+  // Xero — large/recurring vendor payments → vendor contracts should exist
+  const vendorTotals = new Map<string, number>();
+  for (const inv of input.xeroInvoices) {
+    if (!inv.contact_name || typeof inv.total !== "number") continue;
+    vendorTotals.set(inv.contact_name, (vendorTotals.get(inv.contact_name) || 0) + Math.abs(inv.total));
+  }
+  for (const [vendor, total] of vendorTotals.entries()) {
+    if (total < 1000) continue;
+    const lower = vendor.toLowerCase();
+    if (/aws|amazon web|gcp|google cloud|azure/.test(lower)) {
+      push({ inferred_artifact: `Infrastructure contract + cost map (${vendor})`, domain: "technology_direction", source: `xero:${vendor}`, hint: `Recurring spend with ${vendor} (~£${Math.round(total)} in window) — vendor contract should be on file.` });
+    } else if (/lawyer|legal|solicitor/.test(lower)) {
+      push({ inferred_artifact: `Legal engagement letter (${vendor})`, domain: "legal", source: `xero:${vendor}`, hint: `Active legal spend with ${vendor} — engagement letter should be uploaded.` });
+    } else if (total > 10000) {
+      push({ inferred_artifact: `Vendor MSA / contract (${vendor})`, domain: "legal", source: `xero:${vendor}`, hint: `Material spend with ${vendor} (~£${Math.round(total)}) — supplier MSA expected.` });
+    }
+  }
+
+  // Azure work items — security/compliance tags
+  for (const w of input.workItems) {
+    const blob = `${w.title || ""} ${w.tags || ""}`.toLowerCase();
+    if (/security|pentest|vuln|cve/.test(blob)) {
+      push({ inferred_artifact: "Latest security audit + pen-test report", domain: "technology_direction", source: `azure:${(w.title || "").slice(0, 60)}`, hint: `Security work in flight — audit/pen-test artefacts should back this up.` });
+    }
+    if (/compliance|gdpr|dpa|iso/.test(blob)) {
+      push({ inferred_artifact: "Compliance evidence pack (GDPR/DPA/ISO)", domain: "legal", source: `azure:${(w.title || "").slice(0, 60)}`, hint: `Compliance work in flight — DPAs and audit evidence should be uploaded.` });
+    }
+  }
+
+  // Releases — customer-facing → research synthesis expected
+  for (const r of input.releases) {
+    if (r.title) {
+      push({
+        inferred_artifact: `Customer-research synthesis behind "${r.title}"`,
+        domain: "product_strategy",
+        source: `release:${r.version || r.title}`,
+        hint: `Released "${r.title}"${r.published_at ? ` on ${r.published_at.slice(0, 10)}` : ""} — discovery research should justify it.`,
+      });
+    }
+  }
+
+  return signals.slice(0, 40);
+}
+
 type DomainStatus = "green" | "yellow" | "red";
 
 function computeDataCoverage(
