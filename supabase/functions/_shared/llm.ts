@@ -64,7 +64,16 @@ const OPENAI_MODEL_DEGRADE = "gpt-5-mini";
 
 // Per-attempt provider timeout. If the LLM doesn't respond in this window we
 // abort and let callLLMWithFallback try the other provider.
-const PROVIDER_TIMEOUT_MS = 60_000;
+// Default 60s. ceo-briefing runs in a background task (EdgeRuntime.waitUntil)
+// and needs more headroom because Sonnet 4.5 averages 90-180s on the briefing
+// prompt; the per-workflow override below is consulted at call time.
+const PROVIDER_TIMEOUT_MS_DEFAULT = 60_000;
+const PROVIDER_TIMEOUT_OVERRIDES: Partial<Record<WorkflowName, number>> = {
+  "ceo-briefing": 180_000,
+};
+function timeoutFor(workflow: WorkflowName): number {
+  return PROVIDER_TIMEOUT_OVERRIDES[workflow] ?? PROVIDER_TIMEOUT_MS_DEFAULT;
+}
 
 export interface LLMMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -144,7 +153,8 @@ async function callOpenAI(opts: CallLLMOptions, model: string): Promise<Normalis
   if (opts.response_format) body.response_format = opts.response_format;
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), PROVIDER_TIMEOUT_MS);
+  const timeoutMs = timeoutFor(opts.workflow);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   let resp: Response;
   try {
     resp = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -155,7 +165,7 @@ async function callOpenAI(opts: CallLLMOptions, model: string): Promise<Normalis
     });
   } catch (e: any) {
     if (e?.name === "AbortError") {
-      const err: any = new Error(`OpenAI timeout after ${PROVIDER_TIMEOUT_MS}ms`);
+      const err: any = new Error(`OpenAI timeout after ${timeoutMs}ms`);
       err.status = 504;
       err.timeout = true;
       throw err;
@@ -307,7 +317,8 @@ async function callClaude(opts: CallLLMOptions, model: string): Promise<Normalis
   if (tc) body.tool_choice = tc;
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), PROVIDER_TIMEOUT_MS);
+  const timeoutMs = timeoutFor(opts.workflow);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   let resp: Response;
   try {
     resp = await fetch("https://api.anthropic.com/v1/messages", {
@@ -322,7 +333,7 @@ async function callClaude(opts: CallLLMOptions, model: string): Promise<Normalis
     });
   } catch (e: any) {
     if (e?.name === "AbortError") {
-      const err: any = new Error(`Anthropic timeout after ${PROVIDER_TIMEOUT_MS}ms`);
+      const err: any = new Error(`Anthropic timeout after ${timeoutMs}ms`);
       err.status = 504;
       err.timeout = true;
       throw err;

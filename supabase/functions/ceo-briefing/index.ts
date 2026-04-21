@@ -1038,6 +1038,38 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
+    // ─── Hybrid async: create a job row, then run the heavy pipeline in the
+    // background. Return immediately so the client can poll ceo-briefing-status.
+    const { data: jobRow, error: jobErr } = await admin
+      .from("ceo_briefing_jobs")
+      .insert({
+        user_id: userId,
+        briefing_type,
+        status: "queued",
+        progress: 0,
+        phase: "Queued",
+      })
+      .select("id")
+      .single();
+
+    if (jobErr || !jobRow) {
+      console.error("Failed to create briefing job:", jobErr);
+      return json({ error: "Failed to create briefing job", details: jobErr?.message }, 500);
+    }
+    const jobId = jobRow.id as string;
+
+    const updateJob = async (patch: Record<string, unknown>) => {
+      try {
+        await admin.from("ceo_briefing_jobs").update(patch).eq("id", jobId);
+      } catch (e) {
+        console.error("updateJob failed:", e);
+      }
+    };
+
+    const runWorker = async () => {
+      try {
+        await updateJob({ status: "gathering", phase: "Gathering data", progress: 10 });
+
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
     const safe = async <T>(p: Promise<{ data: T | null; error: any }>): Promise<T[]> => {
@@ -1122,6 +1154,8 @@ Deno.serve(async (req) => {
       workItems: workItems as any[],
       releases: releases as any[],
     });
+
+    await updateJob({ phase: "Scanning email signals", progress: 35 });
 
     // ─── Company-wide email pulse (opt-in mailboxes, last 24h) ────
     let email_pulse: any = null;
@@ -1623,7 +1657,9 @@ ${JSON.stringify(context).slice(0, 60000)}
 If previous_briefing is non-null, explain probability/score deltas vs it. Keep prose tight, executive, no fluff. If a data source is empty, say so — do not invent activity. Remember: workstream_scores ⊆ available_workstreams; missing priorities → coverage_gaps, NOT fabricated scores.`;
 
     const apiKey = Deno.env.get("OPENAI_API_KEY");
-    if (!apiKey) return json({ error: "OPENAI_API_KEY not configured" }, 500);
+    if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
+
+    await updateJob({ status: "synthesising", phase: "Synthesising briefing", progress: 55 });
 
     let aiData: any;
     try {
@@ -1634,18 +1670,21 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.3,
+        // temperature omitted — GPT-5 fallback only supports default (1) and
+        // Sonnet 4.5 produces structurally cleaner JSON without an explicit value.
         max_tokens: 4096,
       });
     } catch (err: any) {
       console.error("LLM error:", err?.status, err?.message);
-      return json({ error: "AI generation failed", details: String(err?.message || "").slice(0, 500) }, 502);
+      throw new Error(`AI generation failed: ${String(err?.message || "").slice(0, 300)}`);
     }
+
+    await updateJob({ phase: "Applying guardrails", progress: 80 });
 
     const raw = aiData?.choices?.[0]?.message?.content ?? "{}";
     let parsed: any;
     try { parsed = JSON.parse(raw); }
-    catch (e) { return json({ error: "Invalid JSON from model", raw: raw.slice(0, 500) }, 502); }
+    catch (e) { throw new Error(`Invalid JSON from model: ${raw.slice(0, 300)}`); }
 
     // ─── Server-side guardrails ─────────────────────────────────
     // 1. Workstream scores: strip fabrications, force baseline RAG, backfill missing, clamp green-vs-red.
@@ -2955,6 +2994,8 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       parsed.payload.automation_progress = ap;
     }
 
+    await updateJob({ phase: "Persisting briefing", progress: 95 });
+
     const briefing_date = new Date().toISOString().slice(0, 10);
 
     const { data: saved, error: saveErr } = await admin
@@ -2974,10 +3015,39 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
 
     if (saveErr) {
       console.error("Save error:", saveErr);
-      return json({ error: "Failed to persist briefing", details: saveErr.message }, 500);
+      throw new Error(`Failed to persist briefing: ${saveErr.message}`);
     }
 
-    return json({ briefing: saved });
+        await updateJob({
+          status: "completed",
+          phase: "Completed",
+          progress: 100,
+          briefing_id: saved?.id ?? null,
+          error: null,
+        });
+        console.log(`[ceo-briefing] job=${jobId} completed briefing=${saved?.id}`);
+      } catch (workerErr: any) {
+        console.error(`[ceo-briefing] job=${jobId} failed:`, workerErr);
+        await updateJob({
+          status: "failed",
+          phase: "Failed",
+          error: String(workerErr?.message || workerErr || "Unknown error").slice(0, 1000),
+        });
+      }
+    };
+
+    // Kick off the worker without awaiting it; respond to the client immediately.
+    // EdgeRuntime.waitUntil keeps the function alive until the promise resolves.
+    // @ts-ignore — EdgeRuntime is provided by Supabase's edge runtime.
+    if (typeof EdgeRuntime !== "undefined" && typeof EdgeRuntime.waitUntil === "function") {
+      // @ts-ignore
+      EdgeRuntime.waitUntil(runWorker());
+    } else {
+      // Fallback for non-Supabase runtimes (tests etc.) — fire-and-forget.
+      runWorker();
+    }
+
+    return json({ job_id: jobId, status: "queued" });
   } catch (e: any) {
     console.error("ceo-briefing fatal:", e);
     return json({ error: e?.message || "Internal error" }, 500);
