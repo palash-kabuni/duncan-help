@@ -119,22 +119,22 @@ const RiskRadar = ({
             r.auto_injected ? "border border-dashed border-amber-500/50" : "border border-border"
           )}
         >
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-start gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3">
+            <div className="flex items-start gap-2 min-w-0 flex-1">
               <AlertTriangle className={cn("h-4 w-4 mt-0.5 shrink-0",
                 r.severity === "critical" || r.severity === "high" ? "text-red-500" : "text-yellow-500"
               )} />
-              <h4 className="text-sm font-semibold text-foreground">{r.risk}</h4>
+              <h4 className="text-sm font-semibold text-foreground break-words min-w-0">{r.risk}</h4>
             </div>
-            <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+            <div className="flex items-center gap-1.5 flex-wrap sm:justify-end sm:shrink-0 pl-6 sm:pl-0">
               {typeof r.probability_impact_pts === "number" && r.probability_impact_pts > 0 && (
-                <Badge variant="outline" className="text-[10px] font-mono border-primary/40 text-primary">
+                <Badge variant="outline" className="text-[10px] font-mono border-primary/40 text-primary whitespace-nowrap">
                   −{r.probability_impact_pts} pts
                 </Badge>
               )}
-              {r.severity && <Badge variant="outline" className={cn("uppercase text-[10px]", sevStyle(r.severity))}>{r.severity}</Badge>}
+              {r.severity && <Badge variant="outline" className={cn("uppercase text-[10px] whitespace-nowrap", sevStyle(r.severity))}>{r.severity}</Badge>}
               {typeof r.confidence === "number" && (
-                <span className="text-[10px] font-mono text-muted-foreground">conf {r.confidence}%</span>
+                <span className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">conf {r.confidence}%</span>
               )}
             </div>
           </div>
