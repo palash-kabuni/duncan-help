@@ -60,16 +60,16 @@ const PulseBanner = ({
           </div>
         </div>
       )}
-      <div className="flex flex-col lg:flex-row items-stretch gap-4 sm:gap-6 rounded-lg border border-border bg-card p-4 sm:p-6 min-w-0">
+      <div className="flex flex-col xl:flex-row items-stretch gap-4 sm:gap-6 rounded-lg border border-border bg-card p-4 sm:p-6 min-w-0">
         <div className="flex-1 flex flex-col justify-center gap-3 min-w-0">
           <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">June 7 Trajectory</span>
-          <Badge variant="outline" className={cn("w-fit max-w-full text-sm sm:text-base px-3 sm:px-4 py-1.5 font-semibold", trajectoryStyle(trajectory))}>
+          <Badge variant="outline" className={cn("w-fit max-w-full text-sm sm:text-base px-3 sm:px-4 py-1.5 font-semibold whitespace-nowrap", trajectoryStyle(trajectory))}>
             {trajectory || "—"}
           </Badge>
           <p className="text-sm text-muted-foreground break-words">India Lightning Strike readiness only — overall company health shown in Company Pulse above.</p>
         </div>
         <div className={cn(
-          "flex flex-col gap-4 lg:border-l lg:border-border lg:pl-6 pt-4 border-t border-border lg:pt-0 lg:border-t-0 transition-opacity min-w-0",
+          "flex flex-col gap-4 xl:border-l xl:border-border xl:pl-6 pt-4 border-t border-border xl:pt-0 xl:border-t-0 transition-opacity min-w-0",
           lowEvidence && "opacity-60"
         )}>
           <div className="flex items-center justify-around gap-4 sm:gap-6">
