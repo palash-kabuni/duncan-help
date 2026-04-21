@@ -788,6 +788,15 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       if (silentMissing.length > 0) evidence.push(`${silentMissing.length} priorit${silentMissing.length === 1 ? "y has" : "ies have"} no visible activity anywhere (silent).`);
       evidence.push(`Recent execution: ${recentCardActivity} workstream card update${recentCardActivity === 1 ? "" : "s"}, ${recentAzureActivity} Azure work item change${recentAzureActivity === 1 ? "" : "s"} in last 24h.`);
 
+      // Data coverage blind spots
+      const dca = data_coverage_audit;
+      if (dca.counts.red > 0 || dca.counts.yellow > 0) {
+        evidence.push(`Data blind spots: ${dca.counts.red} red, ${dca.counts.yellow} yellow across ${dca.counts.total} knowledge domains (confidence cap: ${dca.confidence_cap}).`);
+      }
+      if (dca.critical_reds.length > 0) {
+        blockers.push(`Critical knowledge gaps: ${dca.critical_reds.map((d) => d.label).join(", ")} — Duncan has no data here and cannot judge these areas honestly.`);
+      }
+
       if (!lightningCovered) blockers.push("Lightning Strike Event has no tracked workstream — the flagship June 7 commitment is invisible to execution tracking.");
       if (silentMissing.length >= 2) blockers.push(`${silentMissing.length} priorities are completely silent — no meetings, no workstreams, no owners.`);
       if (failedSyncs > 0) blockers.push(`${failedSyncs} integration sync failure${failedSyncs === 1 ? "" : "s"} in last 24h — data freshness at risk.`);
