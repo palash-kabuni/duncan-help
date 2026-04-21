@@ -1618,7 +1618,7 @@ HARD RULES:
     • Keep the legacy "automation" object too (percent/working/manual/next/blockers) — it still feeds the headline number.
 
 Source data (24h activity window; available_workstreams + coverage_report + meeting_priority_signals are full-set):
-${JSON.stringify(context).slice(0, 120000)}
+${JSON.stringify(context).slice(0, 60000)}
 
 If previous_briefing is non-null, explain probability/score deltas vs it. Keep prose tight, executive, no fluff. If a data source is empty, say so — do not invent activity. Remember: workstream_scores ⊆ available_workstreams; missing priorities → coverage_gaps, NOT fabricated scores.`;
 
@@ -1635,7 +1635,7 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
           { role: "user", content: userPrompt },
         ],
         temperature: 0.3,
-        max_tokens: 8192,
+        max_tokens: 4096,
       });
     } catch (err: any) {
       console.error("LLM error:", err?.status, err?.message);
