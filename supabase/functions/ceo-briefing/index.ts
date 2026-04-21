@@ -1029,6 +1029,11 @@ Deno.serve(async (req) => {
         hasReleases: (releases as any[]).length > 0,
         hasAzureMilestones: (workItems as any[]).some((w: any) => /milestone|release/i.test(String(w.title || ""))),
       },
+      {
+        cards: (allCards as any[]) || [],
+        workItems: (allWorkItems as any[]) || [],
+        xeroInvoices: (xeroInvoices as any[]) || [],
+      },
     );
 
     // ─── Domain File Review — actually READ uploaded docs (not just names) ─
