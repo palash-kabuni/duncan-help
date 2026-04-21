@@ -493,7 +493,7 @@ Deno.serve(async (req) => {
       safe(admin.from("workstream_cards").select("title,project_tag").is("archived_at", null).limit(500)),
       safe(admin.from("azure_work_items").select("title,project_name").limit(500)),
       safe(admin.from("meetings").select("title,meeting_date,transcript").not("transcript", "is", null).order("meeting_date", { ascending: false }).limit(10)),
-      safe(admin.from("project_files").select("file_name").limit(1000)),
+      safe(admin.from("project_files").select("id,file_name,created_at,extracted_text").order("created_at", { ascending: false }).limit(1000)),
       safe(admin.from("meetings").select("title").order("meeting_date", { ascending: false }).limit(200)),
     ]);
 
