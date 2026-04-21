@@ -1,111 +1,131 @@
 
 
-## Fix: Section 8 "Accountability Watchlist" is empty on every briefing
+## Fix: Section 9 “Decisions the CEO Must Make” is empty
 
 ### Root cause
 
-Same shape of bug as Section 6 was. The schema declares `watchlist[{workstream, owner, status, good_looks_like, missing, data_blind_spot}]` and there are quality rules for *each row* (good_looks_like, owner concentration cap, blind-spot tagging) — but **no rule tells the AI when watchlist must be populated and what minimum coverage looks like**. So the model returns `[]` and ships.
+Point 09 is empty for the same structural reason Sections 6 and 8 were empty:
 
-Confirmed on the latest 2026-04-21 morning briefing: `watchlist_count = 0`, despite `workstream_scores`, silent leaders, and Red coverage domains all being present.
+- The schema includes `payload.decisions[]`
+- The prompt constrains the shape of each decision
+- But the prompt never says **when decisions are mandatory**, **what sources must feed them**, or **what minimum count is required on a red briefing**
+- There is **no deterministic post-processor** to inject decisions when the AI returns `[]`
+- The UI renders the section with no empty-state explanation, so it just looks blank
 
-The post-processor at line 1469 only runs *if* `watchlist.length > 0` — so it rebalances owner concentration but never injects rows when the AI returns nothing. The UI then renders an empty `<table>` with headers and zero rows, which looks like a broken section.
+Confirmed in the latest morning briefing:
+- `outcome_probability = 30`
+- `execution_score = 35`
+- company pulse = Red
+- multiple coverage gaps + watchlist rows + risks
+- `payload.decisions = []`
 
-### What "Accountability Watchlist" should actually mean
+That should never happen on a briefing this red.
 
-A watchlist row is a **named workstream + named owner + what "done" looks like + what's missing right now**. Duncan already has every input it needs:
+### What Section 9 should contain
 
-- Every entry in `workstream_scores` that isn't Green is a candidate
-- Every `silent_priority` (priority with no owned workstream) is a candidate — owner = expected_owner from `PRIORITY_DEFINITIONS`
-- Every Red/Yellow domain in `data_coverage_audit.strategic_coverage` with no matching watchlist row is a candidate
-- Every `silent` leader who owns a 2026 priority is a candidate
+A Section 9 decision is not a generic recommendation. It should be a **real CEO-level call that only Nimesh can make or unblock**, such as:
 
-### The fix
+- assign an owner to a silent 2026 priority
+- decide whether to formalise an untracked but active priority into a workstream
+- approve / reject a cross-functional escalation with no clear resolver
+- force upload of missing artifacts before making a board-facing or launch-facing claim
+- intervene where a silent leader owns a critical priority
+- choose whether to proceed despite blind spots in legal / finance planning / technology direction
 
-**1. Add explicit `watchlist[]` population rules** (in the same CRITICAL RULES block, after rule 148):
+### Implementation plan
 
-```text
-- payload.watchlist POPULATION RULES:
-  watchlist[] is the operational accountability ledger. It MUST contain
-  one row for EACH of the following, with NO duplicates:
-    a. Every workstream_score where rag != "green" (Red, Yellow, At Risk)
-    b. Every entry in headline_context.silent_priorities (owner =
-       PRIORITY_DEFINITIONS.expected_owner, status = "No owned workstream",
-       missing = "No cards, no Azure items, no releases attributed")
-    c. Every 2026 priority where data_coverage_audit.strategic_coverage
-       coverage_pct < 50 that is not already covered by (a) or (b)
-    d. Every leader_signal_map entry with signal_status="silent" AND
-       owns_priorities.length > 0 (one row per priority they own)
+**1. Strengthen the briefing prompt in `supabase/functions/ceo-briefing/index.ts`**
 
-  MINIMUM count = max(3, count of non-green workstreams + silent_priorities).
-  An empty watchlist[] when outcome_probability < 70 OR coverage_gaps
-  is non-empty is a reporting failure.
+Add explicit `payload.decisions` population rules in the morning schema rules block:
 
-  For each row:
-    - "workstream": exact name from workstream_scores OR the 2026 priority name
-    - "owner": real accountable person (rule 148 still applies)
-    - "status": one of "Red", "Yellow", "At Risk", "Silent", "Uncovered"
-    - "good_looks_like": observable definition of done (rule 146)
-    - "missing": the SPECIFIC artifact, decision, or signal that's absent
-    - "data_blind_spot": Red/Yellow domain name if applicable, else null
-```
+- decisions must be populated from:
+  - `coverage_gaps`
+  - `headline_context.silent_priorities`
+  - high/critical `risks`
+  - `friction` entries where `recommended_resolver = "CEO"`
+  - `email_pulse_signals` escalations / board mentions / ownerless commitments
+  - `data_coverage_audit` when confidence is capped low/medium
+- each decision must describe:
+  - the exact decision
+  - why it matters
+  - 7-day consequence of no decision
+  - who the CEO must involve
+  - confidence capped by `data_coverage_audit.confidence_cap`
+  - `blocked_by_missing_data` when the decision is evidence-constrained
+- add a minimum:
+  - if trajectory is not green, or outcome probability < 70, or coverage gaps exist, `decisions[]` must contain at least 3 entries
+- prioritize only **CEO-grade calls**, not operational tasks
 
-**2. Deterministic post-processor floor** (mirrors the friction fix, runs *before* the existing 40% concentration cap):
+**2. Add a deterministic Section 9 post-processor in `supabase/functions/ceo-briefing/index.ts`**
 
-After AI output, before the existing `wl.length > 0` block:
+After the existing watchlist / risk / friction post-processing, add a decision floor that builds missing decisions from known signals.
 
-- Build `requiredRows[]` from: non-green workstream_scores + silent_priorities + Red coverage domains + silent leaders owning priorities
-- For each `requiredRow` not already represented in `parsed.payload.watchlist` (matched by case-insensitive workstream name), inject:
-  ```
-  { workstream, owner: <expected_owner or "Cross-functional — escalate to CEO">,
-    status: <derived: Silent | Uncovered | Red | Yellow>,
-    good_looks_like: <from PRIORITY_DEFINITIONS.success_criteria when known>,
-    missing: <"No owned workstream" | "Coverage <40% in {domain}" | "Owner silent 7d">,
-    data_blind_spot: <domain name or null>,
-    auto_injected: true }
-  ```
-- If final watchlist is still empty AND `outcome_probability < 70`, inject one system row: `{workstream: "Watchlist detection failed", owner: "Duncan", status: "Red", missing: "Verify briefing has visibility into workstreams + priorities — unusual on a non-green briefing", auto_injected: true}`
+Inject a decision when absent for:
+- each silent / uncovered priority
+  - e.g. “Assign accountable owner and stand up workstream for 1M registrations”
+- each CEO-resolved friction item
+  - e.g. “Break deadlock between Marketing and Operations on X”
+- each severe blind spot blocking honest judgement
+  - e.g. “Proceed with June 7 commitments or pause until missing India ops/legal artifacts are uploaded”
+- each critical email escalation or board mention with no owner
+- each silent leader owning a critical 2026 priority
 
-Then run the existing 40% owner-concentration cap on the combined list.
+Then:
+- dedupe by normalized decision title / priority
+- sort by urgency
+- keep the top 3 strongest decisions for the UI
+- stamp `auto_injected: true` on deterministic rows
 
-**3. UI: surface auto-flag tag + explicit empty state**
+**3. Extend the decisions schema slightly**
 
-```text
-EDIT src/pages/CEOBriefing.tsx (Section 8)
-  - Add new column "Source" (small mono chip): "AI" | "Auto-flagged"
-    using w.auto_injected
-  - For auto_injected rows: dashed left border on the <tr>
-  - When watchlist is truly [] AND briefing is Green: show
-    "All workstreams green and fully evidenced — no accountability gaps"
-    with a ShieldCheck icon (mirrors the §6 empty state)
-  - Currently it just renders an empty <table> body which looks broken
-```
+Update `payload.decisions[]` to include:
+- `auto_injected: boolean`
+- optional `evidence_source` such as:
+  - `coverage_gap`
+  - `risk`
+  - `friction`
+  - `email`
+  - `silent_leader`
+  - `data_blind_spot`
+
+This makes the section auditable and consistent with the fixes already applied to friction/watchlist.
+
+**4. Improve Section 9 rendering in `src/pages/CEOBriefing.tsx`**
+
+Update the “Decisions the CEO Must Make” section to:
+- show an explicit empty state when there are truly no CEO decisions on a green briefing
+- visually distinguish auto-flagged decisions
+- optionally show a small evidence/source chip
+- keep the existing confidence badge and missing-data warning
+- preserve the current top-3 card layout
 
 ### Files to edit
 
 ```text
 EDIT supabase/functions/ceo-briefing/index.ts
-  - Add watchlist POPULATION RULES block after line 148
-  - Update schema entry (line 107) to add "auto_injected": boolean
-  - New post-processor block BEFORE the existing line 1469 block:
-    inject required rows from non-green workstreams, silent priorities,
-    Red coverage domains, silent leaders owning priorities
-  - Existing 40% concentration cap then runs on the combined list
+  - Add payload.decisions population rules to MORNING_SCHEMA_HINT
+  - Add deterministic decision post-processor
+  - Add decision dedupe + urgency sort + top-3 normalization
+  - Optionally extend decisions items with auto_injected + evidence_source
 
 EDIT src/pages/CEOBriefing.tsx
-  - Section 8 table: add Source column with AI / Auto-flagged chip
-  - Dashed left border on auto_injected rows
-  - Empty-state card with ShieldCheck when truly zero on a Green briefing
+  - Add empty state for Section 9
+  - Add auto-flag styling / source chip for decisions
 ```
 
-### Outcome
+### Expected outcome
 
-- Section 8 will populate on every non-green briefing — currently the most common signals (silent priorities, uncovered domains, silent leaders) are completely invisible there.
-- Each row tells the CEO *which workstream*, *who owns it*, *what done looks like*, and *what's missing right now* — and whether Duncan inferred it deterministically (`Auto-flagged`) or the AI surfaced it.
-- A Red briefing can no longer ship with an empty Section 8.
+After this change, Point 09 will no longer go blank on red or low-confidence briefings.
 
-### Out of scope (ask if you want)
+For the current kind of briefing, Section 9 should surface decisions like:
+- assign owners to silent 2026 priorities
+- decide whether to proceed on June 7 with severe ops/legal blind spots
+- resolve cross-functional escalations now rather than letting them drift
+- intervene with silent leaders who own critical outcomes
 
-- One-click "Send to owner" per watchlist row using `send-ceo-briefing-actions`
-- Auto-create a workstream card per `Uncovered` / `Silent` row with the owner pre-assigned
-- Trend chart of watchlist size + auto-injection ratio across the last 14 briefings (early signal of AI under-reporting)
+### Out of scope
+
+- Sending Section 9 decisions as standalone routed action emails
+- “Mark decision taken” workflow / persistence
+- Historical trend view of repeated CEO decisions across briefings
 
