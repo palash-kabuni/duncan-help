@@ -927,6 +927,8 @@ Deno.serve(async (req) => {
       domain_file_review,
       operating_system_checklist: OPERATING_SYSTEM_CHECKLIST,
       inferred_artifact_signals,
+      leadership_roster: LEADERSHIP_ROSTER.map((l) => ({ name: l.name, role: l.role, owns_priorities: l.owns_priorities ?? [] })),
+      leader_signal_map,
       previous_briefing: (prev as any)?.[0] ?? null,
     };
 
