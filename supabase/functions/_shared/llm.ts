@@ -132,10 +132,6 @@ async function callOpenAI(opts: CallLLMOptions, model: string): Promise<Normalis
     model,
     messages: opts.messages,
   };
-  const body: any = {
-    model,
-    messages: opts.messages,
-  };
   if (opts.tools) body.tools = opts.tools;
   if (opts.tool_choice) body.tool_choice = opts.tool_choice;
   if (opts.max_tokens) {
