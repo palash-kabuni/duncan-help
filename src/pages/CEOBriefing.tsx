@@ -222,7 +222,7 @@ const CEOBriefing = () => {
                 </Section>
 
                 <Section n={5} title="Strategic Risk Radar">
-                  <RiskRadar risks={p.risks || []} />
+                  <RiskRadar risks={p.risks || []} reconciliation={p.risk_reconciliation || null} />
                 </Section>
 
                 <Section n={6} title="Cross-Functional Friction">
