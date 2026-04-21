@@ -149,8 +149,8 @@ const CEOBriefing = () => {
                 <h2 className="text-sm font-mono uppercase tracking-widest text-muted-foreground">
                   Workstream Scorecard
                 </h2>
-                <div className="rounded-lg border border-border bg-card overflow-hidden">
-                  <table className="w-full text-xs">
+                <div className="rounded-lg border border-border bg-card overflow-x-auto">
+                  <table className="w-full text-xs min-w-[720px]">
                     <thead className="bg-muted/50">
                       <tr className="text-left">
                         <th className="px-3 py-2 font-mono uppercase tracking-wider">Workstream</th>
