@@ -58,7 +58,8 @@ const AppContent = () => {
           <Route path="/gmail" element={<ProtectedRoute><Gmail /></ProtectedRoute>} />
           <Route path="/releases" element={<ProtectedRoute><ReleaseManager /></ProtectedRoute>} />
           <Route path="/whats-new" element={<ProtectedRoute><WhatsNew /></ProtectedRoute>} />
-          <Route path="/ceo" element={<ProtectedRoute><CEOBriefing /></ProtectedRoute>} />
+          <Route path="/team-briefing" element={<ProtectedRoute><CEOBriefing /></ProtectedRoute>} />
+          <Route path="/ceo" element={<Navigate to="/team-briefing" replace />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
