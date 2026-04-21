@@ -827,6 +827,112 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
         };
       }
     }
+
+    // 4c. Document Intelligence post-processor — quality downgrades + recap.
+    if (briefing_type === "morning") {
+      const di = Array.isArray(parsed.payload.document_intelligence) ? parsed.payload.document_intelligence : [];
+      // Filter to entries that match a real reviewed domain.
+      const reviewedDomainIds = new Set(domain_file_review.map((d) => d.domain_id));
+      const cleanDI = di.filter((e: any) => e && typeof e.domain === "string" && reviewedDomainIds.has(e.domain));
+      parsed.payload.document_intelligence = cleanDI;
+
+      // Downgrade domain status when the doc is "weak".
+      const weakByDomain = new Map<string, any>();
+      for (const e of cleanDI) {
+        if ((e.verdict || "").toLowerCase() === "weak") weakByDomain.set(e.domain, e);
+      }
+      let downgraded = false;
+      for (const dom of data_coverage_audit.domains) {
+        const weak = weakByDomain.get(dom.id);
+        if (!weak) continue;
+        if (dom.status === "green") { dom.status = "yellow"; downgraded = true; }
+        else if (dom.status === "yellow") { dom.status = "red"; downgraded = true; }
+        const reason = weak.what_is_missing_in_doc || (weak.contradicted_by?.[0]) || "document is thin or stale";
+        dom.evidence = `${dom.label} doc exists (${weak.file_name || "uploaded file"}) but is weak — ${String(reason).slice(0, 200)}.`;
+        dom.recommendation = dom.recommendation || `Strengthen ${dom.label}: ${(weak.critical_gaps_to_fix?.[0]) || "fix the gaps Duncan called out"}.`;
+      }
+
+      // If status downgrades occurred, recompute the confidence cap.
+      if (downgraded) {
+        const reds2 = data_coverage_audit.domains.filter((d: any) => d.status === "red");
+        const yellows2 = data_coverage_audit.domains.filter((d: any) => d.status === "yellow");
+        const critReds2 = reds2.filter((d: any) => d.critical);
+        const finPlanRed2 = reds2.some((d: any) => d.id === "finance_planning");
+        const techDirRed2 = reds2.some((d: any) => d.id === "technology_direction");
+        let cap2: "high" | "medium" | "low" = "high";
+        let capReason2 = data_coverage_audit.cap_reason;
+        if (reds2.length >= 3 || (finPlanRed2 && techDirRed2)) {
+          cap2 = "low";
+          capReason2 = `${reds2.length} domains are missing or weak${finPlanRed2 && techDirRed2 ? " (including both Finance Planning and Technology Direction)" : ""}. Duncan cannot honestly project high confidence.`;
+        } else if (critReds2.length >= 1) {
+          cap2 = "medium";
+          capReason2 = `${critReds2.length} critical domain${critReds2.length === 1 ? "" : "s"} (${critReds2.map((d: any) => d.label).join(", ")}) are missing or weak. Confidence capped at medium.`;
+        }
+        data_coverage_audit.confidence_cap = cap2;
+        data_coverage_audit.cap_reason = capReason2;
+        data_coverage_audit.counts = {
+          red: reds2.length,
+          yellow: yellows2.length,
+          green: data_coverage_audit.domains.length - reds2.length - yellows2.length,
+          total: data_coverage_audit.domains.length,
+        };
+        // Re-apply caps after downgrade.
+        if (cap2 === "medium" || cap2 === "low") {
+          const probCap = cap2 === "low" ? 30 : 55;
+          const execCap = cap2 === "low" ? 35 : 60;
+          if (typeof parsed.outcome_probability !== "number" || parsed.outcome_probability > probCap) parsed.outcome_probability = probCap;
+          if (typeof parsed.execution_score !== "number" || parsed.execution_score > execCap) parsed.execution_score = execCap;
+        }
+      }
+
+      // Top-line counter on the audit.
+      const verdictCounts = { weak: 0, adequate: 0, strong: 0 };
+      for (const e of cleanDI) {
+        const v = (e.verdict || "").toLowerCase();
+        if (v === "weak" || v === "adequate" || v === "strong") verdictCounts[v as keyof typeof verdictCounts]++;
+      }
+      (data_coverage_audit as any).document_review_summary = {
+        documents_reviewed: cleanDI.length,
+        ...verdictCounts,
+      };
+    }
+
+    // 4d. Watchlist owner-concentration cap (40% rule) + display name resolution.
+    if (briefing_type === "morning" && Array.isArray(parsed.payload?.watchlist) && parsed.payload.watchlist.length > 0) {
+      const teamNames = new Set(
+        ((profiles as any[]) || [])
+          .map((p: any) => (p.display_name || "").toLowerCase())
+          .filter(Boolean)
+      );
+      const wl = parsed.payload.watchlist as any[];
+      const total = wl.length;
+      // Count first-name occurrences (covers "Simon", "Simon (Ops Director)", etc.)
+      const firstNameOf = (owner: string) => String(owner || "").trim().split(/\s+/)[0].toLowerCase();
+      const counts = new Map<string, number>();
+      for (const row of wl) {
+        const fn = firstNameOf(row.owner);
+        if (fn) counts.set(fn, (counts.get(fn) || 0) + 1);
+      }
+      const cap = Math.max(1, Math.floor(total * 0.4));
+      for (const [name, n] of counts.entries()) {
+        if (n <= cap) continue;
+        let surplus = n - cap;
+        for (const row of wl) {
+          if (surplus <= 0) break;
+          if (firstNameOf(row.owner) !== name) continue;
+          // Skip the first `cap` rows for this owner — only rebalance the surplus.
+          if ((counts.get(`__kept_${name}`) || 0) < cap) {
+            counts.set(`__kept_${name}`, (counts.get(`__kept_${name}`) || 0) + 1);
+            continue;
+          }
+          row.original_owner = row.owner;
+          row.owner = "Cross-functional — escalate to CEO";
+          row.reassignment_reason = `Single-owner concentration (>40%) on "${name}" — reassigned for accountability balance.`;
+          surplus--;
+        }
+      }
+    }
+
     //    against server-truth coverage count and append a corrective sentence.
     const trueCovered = covered.length;
     const proseFields = ["company_pulse", "brutal_truth", "execution_explanation", "probability_movement"] as const;
