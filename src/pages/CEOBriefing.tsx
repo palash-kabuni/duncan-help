@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Navigate, Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { isCEO } from "@/lib/ceoAccess";
@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { RefreshCw, Sparkles } from "lucide-react";
+import { RefreshCw, Sparkles, Send, Settings2 } from "lucide-react";
 import { useCEOBriefing, type BriefingType } from "@/hooks/useCEOBriefing";
 import PulseBanner from "@/components/ceo/PulseBanner";
 import RiskRadar from "@/components/ceo/RiskRadar";
@@ -15,6 +15,9 @@ import LeadershipGrid from "@/components/ceo/LeadershipGrid";
 import TldrPanel from "@/components/ceo/TldrPanel";
 import CoverageGaps from "@/components/ceo/CoverageGaps";
 import CompanyPulseCard, { type CompanyPulseStatus } from "@/components/ceo/CompanyPulseCard";
+import SendActionsDialog from "@/components/ceo/SendActionsDialog";
+import CEORoutingPanel from "@/components/ceo/CEORoutingPanel";
+import { supabase } from "@/integrations/supabase/client";
 
 const Section = ({ n, title, children }: { n: number; title: string; children: React.ReactNode }) => (
   <section className="space-y-3">
@@ -29,6 +32,22 @@ const CEOBriefing = () => {
   const { user, loading: authLoading } = useAuth();
   const [type, setType] = useState<BriefingType>("morning");
   const { briefing, previous, loading, generating, generate } = useCEOBriefing(type);
+  const [sendOpen, setSendOpen] = useState(false);
+  const [showRouting, setShowRouting] = useState(false);
+  const [lastSent, setLastSent] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!briefing?.id) { setLastSent(null); return; }
+    supabase
+      .from("ceo_briefing_email_logs")
+      .select("sent_at")
+      .eq("briefing_id", briefing.id)
+      .eq("status", "sent")
+      .order("sent_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => setLastSent(data?.sent_at ?? null));
+  }, [briefing?.id]);
 
   if (authLoading) return null;
   if (!isCEO(user?.email)) return <Navigate to="/" replace />;
@@ -51,7 +70,7 @@ const CEOBriefing = () => {
             <h1 className="text-2xl font-bold tracking-tight text-foreground">CEO Briefing</h1>
             <p className="text-sm text-muted-foreground font-mono">{dateLabel}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Tabs value={type} onValueChange={(v) => setType(v as BriefingType)}>
               <TabsList>
                 <TabsTrigger value="morning">Morning</TabsTrigger>
@@ -62,6 +81,17 @@ const CEOBriefing = () => {
               {generating ? <RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-2" />}
               {briefing ? "Regenerate" : "Generate"}
             </Button>
+            {briefing && type === "morning" && (
+              <Button onClick={() => setSendOpen(true)} disabled={generating} size="sm" variant="outline">
+                <Send className="h-3.5 w-3.5 mr-2" />
+                Send team actions
+              </Button>
+            )}
+            {lastSent && (
+              <Badge variant="outline" className="text-[10px] font-mono">
+                Last sent {new Date(lastSent).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+              </Badge>
+            )}
           </div>
         </div>
 
@@ -295,8 +325,39 @@ const CEOBriefing = () => {
             <p className="text-[10px] font-mono text-muted-foreground/60 text-center pt-4">
               Generated {new Date(briefing.created_at).toLocaleString("en-GB")} · Locked to CEO
             </p>
+
+            <div className="pt-4 border-t border-border">
+              <button
+                onClick={() => setShowRouting((v) => !v)}
+                className="text-xs font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground flex items-center gap-1.5"
+              >
+                <Settings2 className="h-3 w-3" />
+                {showRouting ? "Hide" : "Show"} action routing
+              </button>
+              {showRouting && <div className="mt-3"><CEORoutingPanel /></div>}
+            </div>
           </>
         )}
+
+        <SendActionsDialog
+          open={sendOpen}
+          onOpenChange={setSendOpen}
+          briefingId={briefing?.id ?? null}
+          briefingDate={briefing?.briefing_date}
+          onSent={() => {
+            if (briefing?.id) {
+              supabase
+                .from("ceo_briefing_email_logs")
+                .select("sent_at")
+                .eq("briefing_id", briefing.id)
+                .eq("status", "sent")
+                .order("sent_at", { ascending: false })
+                .limit(1)
+                .maybeSingle()
+                .then(({ data }) => setLastSent(data?.sent_at ?? null));
+            }
+          }}
+        />
       </div>
     </AppLayout>
   );

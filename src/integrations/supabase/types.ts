@@ -279,6 +279,77 @@ export type Database = {
           },
         ]
       }
+      ceo_action_routing: {
+        Row: {
+          created_at: string
+          display_name: string
+          email: string | null
+          owner_key: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name: string
+          email?: string | null
+          owner_key: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string
+          email?: string | null
+          owner_key?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ceo_briefing_email_logs: {
+        Row: {
+          action_count: number
+          briefing_id: string
+          created_at: string
+          error_message: string | null
+          id: string
+          owner_key: string | null
+          recipient_email: string
+          sent_at: string | null
+          sent_by: string | null
+          status: string
+        }
+        Insert: {
+          action_count?: number
+          briefing_id: string
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          owner_key?: string | null
+          recipient_email: string
+          sent_at?: string | null
+          sent_by?: string | null
+          status?: string
+        }
+        Update: {
+          action_count?: number
+          briefing_id?: string
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          owner_key?: string | null
+          recipient_email?: string
+          sent_at?: string | null
+          sent_by?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ceo_briefing_email_logs_briefing_id_fkey"
+            columns: ["briefing_id"]
+            isOneToOne: false
+            referencedRelation: "ceo_briefings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ceo_briefings: {
         Row: {
           briefing_date: string
