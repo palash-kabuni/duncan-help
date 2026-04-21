@@ -1442,6 +1442,11 @@ HARD RULES:
     • Add email risks/escalations to payload.risks with "source: email" and a probability_impact_pts that fits the gap.
     • Surface board_mentions in payload.tldr.where_to_act and the investor section if present.
     • If a leader appears in email_pulse_silent_leaders AND in leader_signal_map as silent, ESCALATE their leadership entry to risk_level="high" with output_vs_expectation referencing both meeting and email silence.
+- payload.automation_progress MUST be populated for the morning briefing using context.automation_leverage as the GROUND TRUTH:
+    • company_usage = automation_leverage.company_usage VERBATIM (do NOT recompute totals, trends, or active_users).
+    • top_users = automation_leverage.top_users VERBATIM for rank/name/role/department/total_tokens/request_count/primary_use/est_hours_saved. Do NOT invent users not in this array.
+    • recommendations = AT LEAST 3 concrete suggestions for what to improve or build next in Duncan, drawn from: (a) coverage_gaps (e.g. "Auto-ingest missing artifact for {priority}"), (b) headline_context.silent_priorities, (c) friction items where recommended_resolver != "CEO" (automatable handoffs), (d) workstreams stuck Yellow/Red, (e) heaviest manual surfaces in automation_leverage.heavy_surfaces (e.g. high gmail_auto_drafts_today → suggest auto-categorisation). Each recommendation MUST cite the evidence_source from the enum and set auto_injected=false.
+    • Keep the legacy "automation" object too (percent/working/manual/next/blockers) — it still feeds the headline number.
 
 Source data (24h activity window; available_workstreams + coverage_report + meeting_priority_signals are full-set):
 ${JSON.stringify(context).slice(0, 120000)}
