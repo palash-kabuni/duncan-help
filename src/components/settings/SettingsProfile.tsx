@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile, ProfileData } from "@/hooks/useProfile";
+import { useDepartments } from "@/hooks/useDepartments";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, Save, User, Briefcase, Building2 } from "lucide-react";
 import duncanAvatar from "@/assets/duncan-avatar.jpeg";
 import { toast } from "sonner";
@@ -11,6 +13,7 @@ import { toast } from "sonner";
 export default function SettingsProfile() {
   const { user } = useAuth();
   const { profile, isLoading, updateProfile, isSaving } = useProfile();
+  const { data: departments = [] } = useDepartments();
 
   const [form, setForm] = useState<Partial<ProfileData>>({
     display_name: "",
@@ -105,12 +108,16 @@ export default function SettingsProfile() {
           <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
             <Building2 className="h-3.5 w-3.5" /> Department
           </Label>
-          <Input
-            value={form.department ?? ""}
-            onChange={(e) => set("department", e.target.value)}
-            placeholder="e.g. Operations"
-            className="h-9"
-          />
+          <Select value={form.department ?? ""} onValueChange={(v) => set("department", v)}>
+            <SelectTrigger className="h-9">
+              <SelectValue placeholder="Select department" />
+            </SelectTrigger>
+            <SelectContent>
+              {departments.map((d) => (
+                <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="space-y-1.5">
