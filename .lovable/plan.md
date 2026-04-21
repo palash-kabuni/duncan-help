@@ -1,81 +1,123 @@
 
 
-## Re-audit: Are Sections 8 & 9 telling the truth — given everything Duncan now knows?
+## Two fixes: deep file review + watchlist owner diversity
 
-Honest answer: **No. Both sections are now lying by omission.** Here's why, and the minimal fix.
+### Problem 1 — Duncan never reads the files, only their names
 
-### What's changed since the last audit
+Today the briefing pulls `project_files.file_name` only. The Data Coverage Audit can say *"a file called 'Finance Plan v3.pdf' exists"* but Duncan has never read its contents. So when Nimesh uploads a financial plan, Duncan still can't tell him whether the **plan itself is good enough** — only that the filename matches a keyword. That's the opposite of "deep dive into them and report back what's missing."
 
-Duncan now knows — server-side, deterministically — that it is **flying blind on Finance Planning, Legal, Tech Direction, Investor/Board, and Product Strategy** (the Data Coverage Audit). It also knows its own `confidence_cap` is Medium or Low because of those blind spots.
+### Problem 2 — Watchlist looks Simon-heavy
 
-Sections 8 and 9 still write as if Duncan can see everything. That is the lie.
+`PRIORITY_DEFINITIONS` lists Simon as the `expected_owner` (or co-owner) on **3 of 6** priorities (Lightning Strike, Trials, Team Selection). The model then defaults `watchlist[].owner` to that field, so the watchlist visibly skews to Simon even when Alex/Patrick/Matt/Parmy/Palash are the right accountable owner for that workstream's actual blocker.
 
-### Section 8 — Accountability Watchlist ❌ Misleading
+---
 
-**Today** the watchlist row is `{workstream, owner, status, missing}`. The model is told to fill `missing` from workstream/Azure data only. So when a workstream is Yellow because Duncan **has no contract, no architecture doc, no financial plan to verify against**, the row says things like *"missing: progress update"* — which is operationally true and strategically false. The real "missing" is the document Duncan has never been allowed to read.
+### Fix 1 — Deep file review: ingest content, cross-check against other data
 
-It is also missing **"what good looks like"** (the benchmark) — that gap is still real from the previous audit.
+**Server (`supabase/functions/ceo-briefing/index.ts`)**
 
-### Section 9 — Decisions the CEO Must Make ❌ Overconfident
+1. **Pull file contents, not just names.** Project files are already chunked & embedded in `project_file_chunks` (used by the RAG pipeline). For each Red/Yellow/Green domain that has matched files, fetch the **first ~3 chunks per file** (≈2k chars each) for the most recent 1–2 files per domain. Cap total at ~30k chars across all domains so the prompt stays under control.
 
-**Today** decisions render with no honesty signal. A decision like *"Lock India launch comms"* is presented at the same confidence as one Duncan can fully evidence. But if Legal and Finance Planning are Red, Duncan literally cannot judge whether that decision is sound — yet Section 9 still demands the CEO act on it. That's exactly the behaviour the Data Coverage Audit was built to prevent, and Section 9 is the one place it isn't applied.
+2. **New deterministic field per domain → `file_review`:**
+   ```text
+   file_review: {
+     files_inspected: [{name, last_updated, chunks_read, byte_size}],
+     content_excerpt: "<first ~6k chars of joined content per domain, deduped>",
+   }
+   ```
 
-It also has no `confidence` and no `blocked_by_missing_data` flag, so the CEO can't tell which decisions are grounded vs guessed.
+3. **New AI output — `payload.document_intelligence`** (one entry per domain that has files):
+   ```text
+   {
+     domain: "finance_planning",
+     file_name: "Finance Plan v3.pdf",
+     verdict: "weak" | "adequate" | "strong",
+     what_it_covers: string,           // grounded in the excerpt
+     what_is_missing_in_doc: string,   // gaps INSIDE the doc
+     contradicted_by: [string],        // facts in OTHER data sources (Xero, workstreams, meetings) that contradict this doc
+     reinforced_by: [string],          // facts in OTHER data sources that confirm this doc
+     critical_gaps_to_fix: [string]    // 1-3 concrete asks
+   }
+   ```
 
-### The fix — make 8 & 9 inherit the Data Coverage Audit
+   The model is required to **cross-reference** the excerpt against `xero_invoices`, `workstream_cards`, `azure_work_items`, `meetings`, and `recent_releases`. Example output the prompt forces: *"Finance Plan v3 assumes £180k Q2 burn, but Xero shows £241k actual burn over the trailing 90d → contradicted_by: ['xero_invoices']."*
 
-One coherent change. Both sections become honest about their own evidence base.
+4. **Domain status is upgraded with content quality.** A domain that has matching files but `document_intelligence.verdict === "weak"` is downgraded from Green to **Yellow** and from Yellow to **Red**, with `evidence` rewritten to: *"Finance plan exists but is weak — assumes £180k burn vs £241k actual."* This makes the Data Coverage Audit reflect document **quality**, not just **presence**.
 
-**Section 8 — Accountability Watchlist**
+5. **Confidence cap re-applied** after the quality downgrade so a weak finance plan triggers the same medium/low cap as a missing one.
 
-Add two fields per row:
-- `good_looks_like: string` — concrete definition of done (restores the original spec)
-- `data_blind_spot: string | null` — if this workstream sits in a Red/Yellow knowledge domain, name the missing document/signal here (e.g. *"No signed vendor contract on file — Legal domain Red"*). Null if fully evidenced.
+**UI (`src/components/ceo/DataCoverageCard.tsx` + `CEOBriefing.tsx`)**
 
-The model is forced to populate `data_blind_spot` whenever the workstream maps to a Red/Yellow domain in `data_coverage_audit`.
+- Per domain row: when `document_intelligence` exists, show an expandable accordion with the verdict pill (weak/adequate/strong), the gaps inside the doc, the contradictions found in other systems, and the 1–3 fixes.
+- Add a top-line counter: *"Documents reviewed: 4 · Weak: 2 · Adequate: 1 · Strong: 1."*
 
-**Section 9 — Decisions the CEO Must Make**
+### Fix 2 — Watchlist owner accuracy (no more "Simon column")
 
-Add two fields per decision:
-- `confidence: "high" | "medium" | "low"` — capped by `data_coverage_audit.confidence_cap`. A decision can never exceed the briefing's overall cap.
-- `blocked_by_missing_data: string | null` — if the decision depends on a Red domain (e.g. financial plan, legal sign-off, tech roadmap), say so explicitly. Null if grounded.
+**Server (`supabase/functions/ceo-briefing/index.ts`)**
 
-Decisions where `blocked_by_missing_data` is non-null get rendered with an amber "Decide blind?" warning and a one-click link to upload the missing document.
+1. **Stop defaulting watchlist owner to `expected_owner`.** Add a new prompt rule:
+
+   ```text
+   watchlist[].owner MUST be the person actually accountable for the
+   specific blocker — derived from workstream_cards.owner_id (resolved
+   via team_directory), azure_work_items.assigned_to, or the function
+   area in `what_changed`. Use PRIORITY_DEFINITIONS.expected_owner ONLY
+   as a tie-breaker, never as the default.
+
+   No single owner may appear on more than 40% of watchlist rows. If
+   the data genuinely concentrates on one person, split the row into
+   sub-issues attributed to the actual contributors (e.g. CMO for
+   marketing-side blockers, CFO for funding gates, CTO for tech
+   readiness), or escalate to the CEO.
+   ```
+
+2. **Server-side post-processor** that, after the model returns:
+   - Counts owner frequency in `watchlist`. If any owner > 40% of rows, demote the surplus rows to a generic *"Cross-functional — escalate to CEO"* owner with a `reassignment_reason`.
+   - Resolves owner names against `team_directory` so display names are real (no hallucinated titles).
+
+3. **Loosen the over-assignment in `PRIORITY_DEFINITIONS`:**
+   ```text
+   trials.expected_owner       → "Simon (Ops Director) + Alex (CMO)"
+   team_selection.expected_owner → "Matt (CPO) + Simon (Ops Director)"
+   lightning_strike            → unchanged (Nimesh + Simon is correct)
+   ```
+   This keeps Simon where he genuinely owns, but breaks the auto-cascade onto his name.
+
+**UI (`src/pages/CEOBriefing.tsx`)**
+
+- When a row's owner is auto-rebalanced, show a small amber tag: *"Reassigned — single-owner concentration"*. This makes the rule visible to the CEO so it's never silently distorted.
 
 ### Files
 
 ```text
 EDIT supabase/functions/ceo-briefing/index.ts
-  - Schema: watchlist[] += good_looks_like, data_blind_spot
-  - Schema: decisions[]  += confidence, blocked_by_missing_data
-  - CRITICAL RULES: 
-      • watchlist[].good_looks_like must be a concrete definition of done
-      • watchlist[].data_blind_spot must be set when the workstream's
-        function area maps to a Red/Yellow domain in data_coverage_audit
-      • decisions[].confidence must NEVER exceed data_coverage_audit.confidence_cap
-      • decisions[].blocked_by_missing_data must name the Red domain
-        (legal / finance_planning / tech_direction / etc.) whenever
-        the decision cannot be honestly judged without that evidence
+  - Pull project_file_chunks (top-1-2 files per matched domain, ~3 chunks each)
+  - Build domain_file_review map; pass into context as `domain_file_review`
+  - Schema += payload.document_intelligence[]
+  - Prompt rules: cross-reference excerpts vs Xero / workstreams / Azure / meetings
+  - After parse: downgrade domain status when verdict === "weak"; re-apply
+    confidence cap; rewrite domain.evidence with the weakness reason
+  - Watchlist owner rule + 40%-cap post-processor
+  - Loosen Simon-heavy expected_owner on trials + team_selection
+
+EDIT src/components/ceo/DataCoverageCard.tsx
+  - Per-domain expandable row: verdict pill + what_it_covers +
+    what_is_missing_in_doc + contradicted_by + reinforced_by + fixes
+  - Top-line counter: documents reviewed / weak / adequate / strong
 
 EDIT src/pages/CEOBriefing.tsx
-  - Section 8 table: add "What Good Looks Like" and "Blind Spot" columns
-       • Blind spot cell: amber AlertTriangle + text when present
-  - Section 9 cards: 
-       • Confidence pill (high/medium/low) per decision
-       • Amber "Decide blind — missing {domain}" banner + 
-         "Upload to fix" link to /projects when blocked_by_missing_data is set
+  - Watchlist row: amber tag when owner was auto-rebalanced
 ```
 
 ### Outcome
 
-After this:
-- Section 8 stops pretending the only gap is execution. It names the **document Duncan was never given** alongside the operational gap.
-- Section 9 stops pretending every decision is equally grounded. Decisions Duncan cannot honestly judge are **flagged amber, capped at the briefing's confidence ceiling, and pointed at the missing upload**.
-- The CEO finally sees a briefing where every page tells the same truth: *"this is what I see, this is what I can't see, and here's how it limits my advice."*
+- Duncan **reads** uploaded files (not just file names), reports their **quality**, and names exactly which other systems **contradict or confirm** them.
+- A weak plan is treated almost as harshly as a missing plan — confidence is capped accordingly.
+- The watchlist is **owner-balanced** by rule. Simon stops appearing as the default accountable person for everything that touches Ops.
 
 ### Out of scope (ask if you want)
 
-- Auto-suggesting which exec to email when a decision is blocked by a Red domain (uses existing `send-ceo-briefing-actions` routing)
-- Showing a per-section "evidence score" (how grounded each of the 10 sections is) at the top of the briefing
-- Persisting `decision_id → resolved` so the next briefing knows which decisions the CEO actually made
+- Auto-emailing the document owner ("Patrick — Finance Plan v3 is weak: §X missing") via existing `send-ceo-briefing-actions` routing
+- A standalone *Document Health* page listing every uploaded file with verdict + last-reviewed date
+- Recursively pulling Google Drive folders so domain coverage fills itself before the CEO has to upload manually
 
