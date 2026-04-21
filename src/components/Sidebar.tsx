@@ -184,7 +184,7 @@ const Sidebar = ({
             }
           >
             <Crown className="h-4 w-4" />
-            CEO Briefing
+            Team Briefing
           </RouterNavLink>
         )}
 
