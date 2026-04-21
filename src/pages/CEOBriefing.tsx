@@ -123,6 +123,8 @@ const CEOBriefing = () => {
               coverageCovered={p.coverage_summary?.covered ?? null}
               coverageTotal={p.coverage_summary?.total ?? null}
               confidenceWarning={p.confidence_warning?.reason ?? null}
+              probabilityMovement={type === "morning" ? (p.probability_movement ?? null) : null}
+              executionExplanation={type === "morning" ? (p.execution_explanation ?? null) : null}
             />
 
             {type === "morning" && p.tldr && <TldrPanel tldr={p.tldr} />}
@@ -142,7 +144,10 @@ const CEOBriefing = () => {
             )}
 
             {type === "morning" && Array.isArray(briefing.workstream_scores) && briefing.workstream_scores.length > 0 && (
-              <Section n={0} title="Workstream Scorecard">
+              <section className="space-y-3">
+                <h2 className="text-sm font-mono uppercase tracking-widest text-muted-foreground">
+                  Workstream Scorecard
+                </h2>
                 <div className="rounded-lg border border-border bg-card overflow-hidden">
                   <table className="w-full text-xs">
                     <thead className="bg-muted/50">
@@ -173,7 +178,7 @@ const CEOBriefing = () => {
                     </tbody>
                   </table>
                 </div>
-              </Section>
+              </section>
             )}
 
             {type === "morning" ? (
@@ -193,25 +198,7 @@ const CEOBriefing = () => {
                   />
                 )}
 
-                <Section n={1} title="Company Pulse — Narrative">
-                  <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">{p.company_pulse || "—"}</p>
-                </Section>
-
-                <Section n={2} title="Outcome Probability — June 7">
-                  <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-                    <p className="text-2xl font-bold text-foreground tabular-nums">{briefing.outcome_probability ?? "—"}%</p>
-                    <p className="text-xs text-muted-foreground">{p.probability_movement || "No movement context."}</p>
-                  </div>
-                </Section>
-
-                <Section n={3} title="Execution Score">
-                  <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-                    <p className="text-2xl font-bold text-foreground tabular-nums">{briefing.execution_score ?? "—"}/100</p>
-                    <p className="text-xs text-muted-foreground">{p.execution_explanation || "—"}</p>
-                  </div>
-                </Section>
-
-                <Section n={4} title="What Changed Yesterday">
+                <Section n={1} title="What Changed Yesterday">
                   <div className="space-y-3">
                     {(p.what_changed || []).map((g: any, i: number) => (
                       <div key={i} className="rounded-lg border border-border bg-card p-4 space-y-2">
@@ -224,11 +211,11 @@ const CEOBriefing = () => {
                   </div>
                 </Section>
 
-                <Section n={5} title="Strategic Risk Radar">
+                <Section n={2} title="Strategic Risk Radar">
                   <RiskRadar risks={p.risks || []} reconciliation={p.risk_reconciliation || null} />
                 </Section>
 
-                <Section n={6} title="Cross-Functional Friction">
+                <Section n={3} title="Cross-Functional Friction">
                   {(() => {
                     const frictionList: any[] = Array.isArray(p.friction) ? p.friction : [];
                     const trajectory = String(briefing.trajectory || "").toLowerCase();
@@ -301,11 +288,11 @@ const CEOBriefing = () => {
                   })()}
                 </Section>
 
-                <Section n={7} title="Leadership Performance">
+                <Section n={4} title="Leadership Performance">
                   <LeadershipGrid leaders={p.leadership || []} />
                 </Section>
 
-                <Section n={8} title="Accountability Watchlist">
+                <Section n={5} title="Accountability Watchlist">
                   {(p.watchlist || []).length === 0 ? (
                     <div className="rounded-lg border border-border bg-card p-6 flex items-start gap-3">
                       <ShieldCheck className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
@@ -377,7 +364,7 @@ const CEOBriefing = () => {
                   )}
                 </Section>
 
-                <Section n={9} title="Decisions the CEO Must Make">
+                <Section n={6} title="Decisions the CEO Must Make">
                   {(() => {
                     const decisions = (p.decisions || []) as any[];
                     const trajectory = String(briefing.trajectory || "").toLowerCase();
@@ -456,7 +443,7 @@ const CEOBriefing = () => {
                   })()}
                 </Section>
 
-                <Section n={10} title="Automation Progress">
+                <Section n={7} title="Automation Progress">
                   <div className="rounded-lg border border-border bg-card p-4 space-y-2">
                     {typeof p.automation?.percent === "number" && (
                       <div className="flex items-center gap-3">
@@ -471,7 +458,7 @@ const CEOBriefing = () => {
                   </div>
                 </Section>
 
-                <Section n={11} title="One Brutal Truth">
+                <Section n={8} title="One Brutal Truth">
                   <div className="rounded-lg border-2 border-red-500/40 bg-red-500/5 p-6">
                     <p className="text-base font-medium text-foreground leading-relaxed">{p.brutal_truth || "—"}</p>
                   </div>

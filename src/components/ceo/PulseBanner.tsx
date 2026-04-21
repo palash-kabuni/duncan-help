@@ -13,6 +13,8 @@ interface PulseBannerProps {
   coverageCovered?: number | null;
   coverageTotal?: number | null;
   confidenceWarning?: string | null;
+  probabilityMovement?: string | null;
+  executionExplanation?: string | null;
 }
 
 const trajectoryStyle = (t?: string) => {
@@ -35,10 +37,13 @@ const PulseBanner = ({
   coverageCovered,
   coverageTotal,
   confidenceWarning,
+  probabilityMovement,
+  executionExplanation,
 }: PulseBannerProps) => {
   const lowEvidence = typeof coverageRatio === "number" && coverageRatio < 0.5;
   const covered = coverageCovered ?? 0;
   const total = coverageTotal ?? 6;
+  const hasCaptions = !!(probabilityMovement || executionExplanation);
 
   return (
     <div className="space-y-3">
@@ -64,11 +69,25 @@ const PulseBanner = ({
           <p className="text-sm text-muted-foreground">India Lightning Strike readiness only — overall company health shown in Company Pulse above.</p>
         </div>
         <div className={cn(
-          "flex items-center justify-around gap-6 md:border-l md:border-border md:pl-6 transition-opacity",
+          "flex flex-col gap-4 md:border-l md:border-border md:pl-6 transition-opacity",
           lowEvidence && "opacity-60"
         )}>
-          <ScoreGauge label="Probability %" score={outcomeProbability} delta={probabilityDelta} size="lg" />
-          <ScoreGauge label="Execution" score={executionScore} delta={executionDelta} size="lg" />
+          <div className="flex items-center justify-around gap-6">
+            <ScoreGauge label="Probability %" score={outcomeProbability} delta={probabilityDelta} size="lg" />
+            <ScoreGauge label="Execution" score={executionScore} delta={executionDelta} size="lg" />
+          </div>
+          {hasCaptions && (
+            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-border">
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                <span className="font-mono uppercase tracking-wider text-foreground/70">Probability:</span>{" "}
+                {probabilityMovement || "No movement context."}
+              </p>
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                <span className="font-mono uppercase tracking-wider text-foreground/70">Execution:</span>{" "}
+                {executionExplanation || "—"}
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>
