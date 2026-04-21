@@ -180,16 +180,16 @@ export default function SettingsGmail() {
         </div>
       </div>
 
-      {/* CEO Briefing inbox opt-in */}
+      {/* Team Briefing inbox opt-in */}
       <div className="border-t border-border pt-6">
         <div>
           <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
             <Eye className="h-4 w-4 text-primary" />
-            Include my inbox in the CEO briefing
+            Include my inbox in the Team Briefing
           </h3>
           <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
             When enabled, Duncan scans the last 24h of your inbox for commitments, risks, escalations,
-            board mentions, and customer/vendor signals — and feeds them into the CEO briefing. Raw
+            board mentions, and customer/vendor signals — and feeds them into the Team Briefing. Raw
             email content is never stored; only the structured signals are persisted on each briefing.
           </p>
         </div>
