@@ -1682,9 +1682,15 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
     await updateJob({ phase: "Applying guardrails", progress: 80 });
 
     const raw = aiData?.choices?.[0]?.message?.content ?? "{}";
+    // Strip markdown code fences if the model wrapped its JSON output.
+    const cleaned = raw
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
     let parsed: any;
-    try { parsed = JSON.parse(raw); }
-    catch (e) { throw new Error(`Invalid JSON from model: ${raw.slice(0, 300)}`); }
+    try { parsed = JSON.parse(cleaned); }
+    catch (e) { throw new Error(`Invalid JSON from model: ${cleaned.slice(0, 300)}`); }
 
     // ─── Server-side guardrails ─────────────────────────────────
     // 1. Workstream scores: strip fabrications, force baseline RAG, backfill missing, clamp green-vs-red.
