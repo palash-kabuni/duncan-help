@@ -1,131 +1,91 @@
 
 
-## Fix: Section 9 “Decisions the CEO Must Make” is empty
+## Trim duplicated UI in the CEO Briefing (no data changes)
 
-### Root cause
+You're right — the morning briefing currently shows the same numbers and narrative two or three times before you even reach Section 04. Below is what's repeated and what to remove. **No data points, schema, or briefing logic change.** Only redundant render blocks are deleted.
 
-Point 09 is empty for the same structural reason Sections 6 and 8 were empty:
+### What's duplicated today
 
-- The schema includes `payload.decisions[]`
-- The prompt constrains the shape of each decision
-- But the prompt never says **when decisions are mandatory**, **what sources must feed them**, or **what minimum count is required on a red briefing**
-- There is **no deterministic post-processor** to inject decisions when the AI returns `[]`
-- The UI renders the section with no empty-state explanation, so it just looks blank
+Order on screen right now:
 
-Confirmed in the latest morning briefing:
-- `outcome_probability = 30`
-- `execution_score = 35`
-- company pulse = Red
-- multiple coverage gaps + watchlist rows + risks
-- `payload.decisions = []`
+```text
+PulseBanner               → Trajectory + Probability gauge + Execution gauge + low-evidence warning
+TldrPanel                 → AI tl;dr
+CoverageGaps              → Coverage summary + gaps
+CompanyPulseCard          → Company status + reason + evidence + blockers
+EmailPulseCard
+DataCoverageCard
+01 Company Pulse — Narrative   ← duplicates CompanyPulseCard.reason
+02 Outcome Probability — June 7 ← duplicates PulseBanner Probability gauge
+03 Execution Score              ← duplicates PulseBanner Execution gauge
+04 What Changed Yesterday
+…
+```
 
-That should never happen on a briefing this red.
+So Probability appears in **PulseBanner + Section 02**, Execution appears in **PulseBanner + Section 03**, and the Company Pulse narrative appears in **CompanyPulseCard + Section 01**. That's the "01, 02, 03 double-up" you're seeing.
 
-### What Section 9 should contain
+### Cleanup (UI only)
 
-A Section 9 decision is not a generic recommendation. It should be a **real CEO-level call that only Nimesh can make or unblock**, such as:
+1. **Remove Section 01 "Company Pulse — Narrative"** — `CompanyPulseCard` already renders `pulse.reason` + evidence + blockers + positives. The standalone `<p>{p.company_pulse}</p>` adds nothing.
 
-- assign an owner to a silent 2026 priority
-- decide whether to formalise an untracked but active priority into a workstream
-- approve / reject a cross-functional escalation with no clear resolver
-- force upload of missing artifacts before making a board-facing or launch-facing claim
-- intervene where a silent leader owns a critical priority
-- choose whether to proceed despite blind spots in legal / finance planning / technology direction
+2. **Remove Section 02 "Outcome Probability — June 7"** as a standalone card. The big gauge in `PulseBanner` already shows the % and delta. Move the one line of `probability_movement` context into a small caption directly under the PulseBanner gauges so the "why it moved" sentence isn't lost.
 
-### Implementation plan
+3. **Remove Section 03 "Execution Score"** as a standalone card. Same reason — the Execution gauge is already in `PulseBanner`. Move `execution_explanation` into the same caption row under the gauges.
 
-**1. Strengthen the briefing prompt in `supabase/functions/ceo-briefing/index.ts`**
+4. **Renumber the remaining sections** so the CEO sees a clean 01–08 instead of 04–11:
 
-Add explicit `payload.decisions` population rules in the morning schema rules block:
+```text
+Before                              After
+04 What Changed Yesterday      →    01 What Changed Yesterday
+05 Strategic Risk Radar        →    02 Strategic Risk Radar
+06 Cross-Functional Friction   →    03 Cross-Functional Friction
+07 Leadership Performance      →    04 Leadership Performance
+08 Accountability Watchlist    →    05 Accountability Watchlist
+09 Decisions the CEO Must Make →    06 Decisions the CEO Must Make
+10 Automation Progress         →    07 Automation Progress
+11 One Brutal Truth            →    08 One Brutal Truth
+```
 
-- decisions must be populated from:
-  - `coverage_gaps`
-  - `headline_context.silent_priorities`
-  - high/critical `risks`
-  - `friction` entries where `recommended_resolver = "CEO"`
-  - `email_pulse_signals` escalations / board mentions / ownerless commitments
-  - `data_coverage_audit` when confidence is capped low/medium
-- each decision must describe:
-  - the exact decision
-  - why it matters
-  - 7-day consequence of no decision
-  - who the CEO must involve
-  - confidence capped by `data_coverage_audit.confidence_cap`
-  - `blocked_by_missing_data` when the decision is evidence-constrained
-- add a minimum:
-  - if trajectory is not green, or outcome probability < 70, or coverage gaps exist, `decisions[]` must contain at least 3 entries
-- prioritize only **CEO-grade calls**, not operational tasks
+The "Workstream Scorecard" section currently uses `n={0}` (renders as `00`) — keep it as a labelled block but drop the `00` prefix so it reads cleanly between the top cards and Section 01.
 
-**2. Add a deterministic Section 9 post-processor in `supabase/functions/ceo-briefing/index.ts`**
+5. **Evening tab is already clean** (1–6, no duplicates). No changes there.
 
-After the existing watchlist / risk / friction post-processing, add a decision floor that builds missing decisions from known signals.
+### What stays exactly the same
 
-Inject a decision when absent for:
-- each silent / uncovered priority
-  - e.g. “Assign accountable owner and stand up workstream for 1M registrations”
-- each CEO-resolved friction item
-  - e.g. “Break deadlock between Marketing and Operations on X”
-- each severe blind spot blocking honest judgement
-  - e.g. “Proceed with June 7 commitments or pause until missing India ops/legal artifacts are uploaded”
-- each critical email escalation or board mention with no owner
-- each silent leader owning a critical 2026 priority
-
-Then:
-- dedupe by normalized decision title / priority
-- sort by urgency
-- keep the top 3 strongest decisions for the UI
-- stamp `auto_injected: true` on deterministic rows
-
-**3. Extend the decisions schema slightly**
-
-Update `payload.decisions[]` to include:
-- `auto_injected: boolean`
-- optional `evidence_source` such as:
-  - `coverage_gap`
-  - `risk`
-  - `friction`
-  - `email`
-  - `silent_leader`
-  - `data_blind_spot`
-
-This makes the section auditable and consistent with the fixes already applied to friction/watchlist.
-
-**4. Improve Section 9 rendering in `src/pages/CEOBriefing.tsx`**
-
-Update the “Decisions the CEO Must Make” section to:
-- show an explicit empty state when there are truly no CEO decisions on a green briefing
-- visually distinguish auto-flagged decisions
-- optionally show a small evidence/source chip
-- keep the existing confidence badge and missing-data warning
-- preserve the current top-3 card layout
+- All data fetched, scored, and stored
+- PulseBanner, TldrPanel, CoverageGaps, CompanyPulseCard, EmailPulseCard, DataCoverageCard
+- Workstream Scorecard table
+- All sections from "What Changed Yesterday" onward — same content, same components, just renumbered
+- `ceo-briefing` edge function — untouched
 
 ### Files to edit
 
 ```text
-EDIT supabase/functions/ceo-briefing/index.ts
-  - Add payload.decisions population rules to MORNING_SCHEMA_HINT
-  - Add deterministic decision post-processor
-  - Add decision dedupe + urgency sort + top-3 normalization
-  - Optionally extend decisions items with auto_injected + evidence_source
-
 EDIT src/pages/CEOBriefing.tsx
-  - Add empty state for Section 9
-  - Add auto-flag styling / source chip for decisions
+  - Delete <Section n={1} title="Company Pulse — Narrative">
+  - Delete <Section n={2} title="Outcome Probability — June 7">
+  - Delete <Section n={3} title="Execution Score">
+  - Renumber remaining morning sections 4→1, 5→2, 6→3, 7→4, 8→5, 9→6, 10→7, 11→8
+  - Workstream Scorecard: render heading without the "00 ·" prefix
+    (small custom heading instead of <Section n={0}>)
+
+EDIT src/components/ceo/PulseBanner.tsx
+  - Accept two new optional props: probabilityMovement, executionExplanation
+  - Render them as a small two-column caption row under the gauges
+    (only shown when present), so the context that lived in Sections
+    02 and 03 stays visible directly beside the numbers
 ```
 
-### Expected outcome
+### Outcome
 
-After this change, Point 09 will no longer go blank on red or low-confidence briefings.
+- Three redundant blocks (~one full screen of repeated content) gone from the top of the morning briefing.
+- Probability % and Execution score appear **once**, with their explanatory sentence directly underneath the gauge.
+- Section numbers run 01–08 in a single clean sequence instead of jumping from 00 → 11.
+- Zero changes to the underlying briefing payload, prompt, or post-processors.
 
-For the current kind of briefing, Section 9 should surface decisions like:
-- assign owners to silent 2026 priorities
-- decide whether to proceed on June 7 with severe ops/legal blind spots
-- resolve cross-functional escalations now rather than letting them drift
-- intervene with silent leaders who own critical outcomes
+### Out of scope (ask if you want)
 
-### Out of scope
-
-- Sending Section 9 decisions as standalone routed action emails
-- “Mark decision taken” workflow / persistence
-- Historical trend view of repeated CEO decisions across briefings
+- Collapsing `EmailPulseCard` and `DataCoverageCard` into a single "Signals" row
+- Making the Workstream Scorecard collapsible by default
+- Same dedupe pass on the evening briefing (currently already clean)
 
