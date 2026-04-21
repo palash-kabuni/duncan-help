@@ -33,14 +33,14 @@ const PRIORITY_DEFINITIONS = [
     title: "Trials October & November 2026",
     aliases: ["selection trials", "trials 2026", "october trials", "november trials"],
     why_it_matters: "Conversion event from 1M registrations to the 10-team selection.",
-    expected_owner: "Simon (Ops Director)",
+    expected_owner: "Simon (Ops Director) + Alex (CMO)",
   },
   {
     id: "team_selection",
     title: "Final 10-team selection — December 2026 (10 Super Coaches)",
     aliases: ["10 team selection", "10-team selection", "super coaches", "december selection"],
     why_it_matters: "The product output of the entire trials funnel. Defines the league.",
-    expected_owner: "Simon (Ops Director) + Matt (CPO)",
+    expected_owner: "Matt (CPO) + Simon (Ops Director)",
   },
   {
     id: "preorders",
@@ -106,7 +106,17 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
     "watchlist": [{"workstream": string, "owner": string, "status": string, "good_looks_like": string, "missing": string, "data_blind_spot": string|null}],
     "decisions": [{"decision": string, "why_it_matters": string, "consequence": string, "who_to_involve": string, "confidence": "high"|"medium"|"low", "blocked_by_missing_data": string|null}],
     "automation": {"percent": number, "working": string, "manual": string, "next": string, "blockers": string},
-    "brutal_truth": string
+    "brutal_truth": string,
+    "document_intelligence": [{
+      "domain": string,
+      "file_name": string,
+      "verdict": "weak"|"adequate"|"strong",
+      "what_it_covers": string,
+      "what_is_missing_in_doc": string,
+      "contradicted_by": [string],
+      "reinforced_by": [string],
+      "critical_gaps_to_fix": [string]
+    }]
   }
 }
 
@@ -120,10 +130,12 @@ CRITICAL RULES:
 - For each workstream score, all six analytical-framework axes are MANDATORY (progress_vs_goal, execution_quality, commercial_impact, dependency_strength + scores).
 - Risk windows (7d/30d/90d) must be structured objects, never loose strings.
 - Every workstream "evidence" string MUST quote a real card title, Azure work item, or release from the source data.
-- watchlist[].good_looks_like MUST be a concrete, observable definition of done for that workstream (e.g. "India launch comms locked, vendor contracts signed, 400 schools confirmed by 1 May"). Never vague. Never "progress made".
-- watchlist[].data_blind_spot MUST be set (non-null) whenever the workstream's function area maps to a Red or Yellow domain in payload.data_coverage_audit. Name the missing document/signal explicitly (e.g. "No signed vendor contract on file — Legal domain Red", "No financial plan to verify burn against — Finance Planning domain Red"). Set null ONLY when the workstream is fully evidenced by Green domains.
-- decisions[].confidence MUST NEVER exceed payload.data_coverage_audit.confidence_cap. If the cap is "medium", no decision can be "high". If the cap is "low", no decision can be "high" or "medium".
-- decisions[].blocked_by_missing_data MUST name the Red domain (legal / finance_planning / technology_direction / investor_board / product_strategy) whenever the decision cannot be honestly judged without that evidence. Format: "{domain_label}: {what specifically is missing}". Set null ONLY when the decision is fully grounded in available data.`;
+- watchlist[].good_looks_like MUST be a concrete, observable definition of done for that workstream. Never vague.
+- watchlist[].data_blind_spot MUST be set (non-null) whenever the workstream's function area maps to a Red or Yellow domain in payload.data_coverage_audit. Name the missing document/signal explicitly. Set null ONLY when fully evidenced.
+- watchlist[].owner MUST be the person actually accountable for the SPECIFIC blocker — derived from workstream_cards.owner_id (resolved via team_directory display_name), azure_work_items.assigned_to, or the function area. Use PRIORITY_DEFINITIONS.expected_owner ONLY as a tie-breaker, NEVER as the default. NO single owner may appear on more than 40% of watchlist rows. Split concentrated rows into sub-issues attributed to the actual contributors (CMO for marketing blockers, CFO for funding gates, CTO for tech readiness, COO for execution gaps), or escalate to "Cross-functional — escalate to CEO".
+- decisions[].confidence MUST NEVER exceed payload.data_coverage_audit.confidence_cap.
+- decisions[].blocked_by_missing_data MUST name the Red domain whenever the decision cannot be honestly judged without that evidence. Format: "{domain_label}: {what specifically is missing}". Set null ONLY when fully grounded.
+- payload.document_intelligence: For EVERY domain in domain_file_review with files_inspected.length > 0, produce one entry. Ground "what_it_covers" in the actual content_excerpt (do NOT invent). Cross-reference the excerpt against xero_invoices, workstream_cards, azure_work_items, meetings, recent_releases — if a number, date, owner, or commitment in the doc disagrees with another data source, list it in contradicted_by with a specific quote (e.g. "Plan assumes £180k Q2 burn but Xero shows £241k actual"). Mark verdict="weak" if the doc is thin, generic, or stale; "strong" only when current, specific, and corroborated by ≥1 other system.`;
 
 const EVENING_SCHEMA_HINT = `Return STRICT JSON:
 {
@@ -481,7 +493,7 @@ Deno.serve(async (req) => {
       safe(admin.from("workstream_cards").select("title,project_tag").is("archived_at", null).limit(500)),
       safe(admin.from("azure_work_items").select("title,project_name").limit(500)),
       safe(admin.from("meetings").select("title,meeting_date,transcript").not("transcript", "is", null).order("meeting_date", { ascending: false }).limit(10)),
-      safe(admin.from("project_files").select("file_name").limit(1000)),
+      safe(admin.from("project_files").select("id,file_name,created_at,extracted_text").order("created_at", { ascending: false }).limit(1000)),
       safe(admin.from("meetings").select("title").order("meeting_date", { ascending: false }).limit(200)),
     ]);
 
@@ -532,6 +544,78 @@ Deno.serve(async (req) => {
         hasAzureMilestones: (workItems as any[]).some((w: any) => /milestone|release/i.test(String(w.title || ""))),
       },
     );
+
+    // ─── Domain File Review — actually READ uploaded docs (not just names) ─
+    type DomainFileReview = {
+      domain_id: string;
+      domain_label: string;
+      files_inspected: Array<{ name: string; last_updated: string | null; chunks_read: number; byte_size: number }>;
+      content_excerpt: string;
+    };
+    const domain_file_review: DomainFileReview[] = [];
+    const allFiles = (projectFiles as any[]) || [];
+    const PER_FILE_CHAR_CAP = 6000;
+    const PER_DOMAIN_CHAR_CAP = 6000;
+    const TOTAL_CHAR_CAP = 30000;
+    let totalChars = 0;
+
+    for (const d of KNOWLEDGE_DOMAINS) {
+      if (!d.file_aliases.length) continue;
+      if (totalChars >= TOTAL_CHAR_CAP) break;
+      const aliases = d.file_aliases.map((a) => a.toLowerCase());
+      const matchedFiles = allFiles
+        .filter((f: any) => f?.file_name && aliases.some((a) => String(f.file_name).toLowerCase().includes(a)))
+        .slice(0, 2);
+      if (matchedFiles.length === 0) continue;
+
+      const inspected: DomainFileReview["files_inspected"] = [];
+      const excerptParts: string[] = [];
+      let domainChars = 0;
+
+      for (const f of matchedFiles) {
+        if (domainChars >= PER_DOMAIN_CHAR_CAP || totalChars >= TOTAL_CHAR_CAP) break;
+        let chunkText = "";
+        let chunksRead = 0;
+        try {
+          const { data: chunks } = await admin
+            .from("project_file_chunks")
+            .select("content,chunk_index")
+            .eq("file_id", f.id)
+            .order("chunk_index", { ascending: true })
+            .limit(3);
+          if (chunks && chunks.length > 0) {
+            chunkText = chunks.map((c: any) => c.content || "").filter(Boolean).join("\n\n").slice(0, PER_FILE_CHAR_CAP);
+            chunksRead = chunks.length;
+          }
+        } catch { /* ignore */ }
+        if (!chunkText && typeof f.extracted_text === "string") {
+          chunkText = f.extracted_text.slice(0, PER_FILE_CHAR_CAP);
+          chunksRead = chunkText ? 1 : 0;
+        }
+        if (!chunkText) continue;
+
+        const remaining = Math.min(PER_DOMAIN_CHAR_CAP - domainChars, TOTAL_CHAR_CAP - totalChars);
+        const slice = chunkText.slice(0, remaining);
+        excerptParts.push(`[${f.file_name}]\n${slice}`);
+        inspected.push({
+          name: f.file_name,
+          last_updated: f.created_at ?? null,
+          chunks_read: chunksRead,
+          byte_size: slice.length,
+        });
+        domainChars += slice.length;
+        totalChars += slice.length;
+      }
+
+      if (inspected.length > 0) {
+        domain_file_review.push({
+          domain_id: d.id,
+          domain_label: d.label,
+          files_inspected: inspected,
+          content_excerpt: excerptParts.join("\n\n---\n\n"),
+        });
+      }
+    }
 
     // ─── Canonical workstream list ────────────────────────────────
     const projectTags = Array.from(
@@ -593,6 +677,7 @@ Deno.serve(async (req) => {
       xero_overdue_contacts: xeroContacts,
       integration_audit_24h: auditLogs,
       team_directory: profiles,
+      domain_file_review,
       previous_briefing: (prev as any)?.[0] ?? null,
     };
 
@@ -742,6 +827,112 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
         };
       }
     }
+
+    // 4c. Document Intelligence post-processor — quality downgrades + recap.
+    if (briefing_type === "morning") {
+      const di = Array.isArray(parsed.payload.document_intelligence) ? parsed.payload.document_intelligence : [];
+      // Filter to entries that match a real reviewed domain.
+      const reviewedDomainIds = new Set(domain_file_review.map((d) => d.domain_id));
+      const cleanDI = di.filter((e: any) => e && typeof e.domain === "string" && reviewedDomainIds.has(e.domain));
+      parsed.payload.document_intelligence = cleanDI;
+
+      // Downgrade domain status when the doc is "weak".
+      const weakByDomain = new Map<string, any>();
+      for (const e of cleanDI) {
+        if ((e.verdict || "").toLowerCase() === "weak") weakByDomain.set(e.domain, e);
+      }
+      let downgraded = false;
+      for (const dom of data_coverage_audit.domains) {
+        const weak = weakByDomain.get(dom.id);
+        if (!weak) continue;
+        if (dom.status === "green") { dom.status = "yellow"; downgraded = true; }
+        else if (dom.status === "yellow") { dom.status = "red"; downgraded = true; }
+        const reason = weak.what_is_missing_in_doc || (weak.contradicted_by?.[0]) || "document is thin or stale";
+        dom.evidence = `${dom.label} doc exists (${weak.file_name || "uploaded file"}) but is weak — ${String(reason).slice(0, 200)}.`;
+        dom.recommendation = dom.recommendation || `Strengthen ${dom.label}: ${(weak.critical_gaps_to_fix?.[0]) || "fix the gaps Duncan called out"}.`;
+      }
+
+      // If status downgrades occurred, recompute the confidence cap.
+      if (downgraded) {
+        const reds2 = data_coverage_audit.domains.filter((d: any) => d.status === "red");
+        const yellows2 = data_coverage_audit.domains.filter((d: any) => d.status === "yellow");
+        const critReds2 = reds2.filter((d: any) => d.critical);
+        const finPlanRed2 = reds2.some((d: any) => d.id === "finance_planning");
+        const techDirRed2 = reds2.some((d: any) => d.id === "technology_direction");
+        let cap2: "high" | "medium" | "low" = "high";
+        let capReason2 = data_coverage_audit.cap_reason;
+        if (reds2.length >= 3 || (finPlanRed2 && techDirRed2)) {
+          cap2 = "low";
+          capReason2 = `${reds2.length} domains are missing or weak${finPlanRed2 && techDirRed2 ? " (including both Finance Planning and Technology Direction)" : ""}. Duncan cannot honestly project high confidence.`;
+        } else if (critReds2.length >= 1) {
+          cap2 = "medium";
+          capReason2 = `${critReds2.length} critical domain${critReds2.length === 1 ? "" : "s"} (${critReds2.map((d: any) => d.label).join(", ")}) are missing or weak. Confidence capped at medium.`;
+        }
+        data_coverage_audit.confidence_cap = cap2;
+        data_coverage_audit.cap_reason = capReason2;
+        data_coverage_audit.counts = {
+          red: reds2.length,
+          yellow: yellows2.length,
+          green: data_coverage_audit.domains.length - reds2.length - yellows2.length,
+          total: data_coverage_audit.domains.length,
+        };
+        // Re-apply caps after downgrade.
+        if (cap2 === "medium" || cap2 === "low") {
+          const probCap = cap2 === "low" ? 30 : 55;
+          const execCap = cap2 === "low" ? 35 : 60;
+          if (typeof parsed.outcome_probability !== "number" || parsed.outcome_probability > probCap) parsed.outcome_probability = probCap;
+          if (typeof parsed.execution_score !== "number" || parsed.execution_score > execCap) parsed.execution_score = execCap;
+        }
+      }
+
+      // Top-line counter on the audit.
+      const verdictCounts = { weak: 0, adequate: 0, strong: 0 };
+      for (const e of cleanDI) {
+        const v = (e.verdict || "").toLowerCase();
+        if (v === "weak" || v === "adequate" || v === "strong") verdictCounts[v as keyof typeof verdictCounts]++;
+      }
+      (data_coverage_audit as any).document_review_summary = {
+        documents_reviewed: cleanDI.length,
+        ...verdictCounts,
+      };
+    }
+
+    // 4d. Watchlist owner-concentration cap (40% rule) + display name resolution.
+    if (briefing_type === "morning" && Array.isArray(parsed.payload?.watchlist) && parsed.payload.watchlist.length > 0) {
+      const teamNames = new Set(
+        ((profiles as any[]) || [])
+          .map((p: any) => (p.display_name || "").toLowerCase())
+          .filter(Boolean)
+      );
+      const wl = parsed.payload.watchlist as any[];
+      const total = wl.length;
+      // Count first-name occurrences (covers "Simon", "Simon (Ops Director)", etc.)
+      const firstNameOf = (owner: string) => String(owner || "").trim().split(/\s+/)[0].toLowerCase();
+      const counts = new Map<string, number>();
+      for (const row of wl) {
+        const fn = firstNameOf(row.owner);
+        if (fn) counts.set(fn, (counts.get(fn) || 0) + 1);
+      }
+      const cap = Math.max(1, Math.floor(total * 0.4));
+      for (const [name, n] of counts.entries()) {
+        if (n <= cap) continue;
+        let surplus = n - cap;
+        for (const row of wl) {
+          if (surplus <= 0) break;
+          if (firstNameOf(row.owner) !== name) continue;
+          // Skip the first `cap` rows for this owner — only rebalance the surplus.
+          if ((counts.get(`__kept_${name}`) || 0) < cap) {
+            counts.set(`__kept_${name}`, (counts.get(`__kept_${name}`) || 0) + 1);
+            continue;
+          }
+          row.original_owner = row.owner;
+          row.owner = "Cross-functional — escalate to CEO";
+          row.reassignment_reason = `Single-owner concentration (>40%) on "${name}" — reassigned for accountability balance.`;
+          surplus--;
+        }
+      }
+    }
+
     //    against server-truth coverage count and append a corrective sentence.
     const trueCovered = covered.length;
     const proseFields = ["company_pulse", "brutal_truth", "execution_explanation", "probability_movement"] as const;

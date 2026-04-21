@@ -182,7 +182,10 @@ const CEOBriefing = () => {
                 )}
 
                 {p.data_coverage_audit && (
-                  <DataCoverageCard audit={p.data_coverage_audit as DataCoverageAudit} />
+                  <DataCoverageCard
+                    audit={p.data_coverage_audit as DataCoverageAudit}
+                    documentIntelligence={Array.isArray(p.document_intelligence) ? p.document_intelligence : []}
+                  />
                 )}
 
                 <Section n={1} title="Company Pulse — Narrative">
@@ -253,7 +256,14 @@ const CEOBriefing = () => {
                         {(p.watchlist || []).map((w: any, i: number) => (
                           <tr key={i} className="border-t border-border align-top">
                             <td className="px-3 py-2 text-foreground font-medium">{w.workstream}</td>
-                            <td className="px-3 py-2 text-muted-foreground">{w.owner}</td>
+                            <td className="px-3 py-2 text-muted-foreground">
+                              <div>{w.owner}</div>
+                              {w.reassignment_reason && (
+                                <Badge variant="outline" className="mt-1 text-[9px] font-mono uppercase border-amber-500/40 text-amber-600 dark:text-amber-400">
+                                  Reassigned — single-owner cap
+                                </Badge>
+                              )}
+                            </td>
                             <td className="px-3 py-2 text-muted-foreground">{w.status}</td>
                             <td className="px-3 py-2 text-muted-foreground">{w.good_looks_like || "—"}</td>
                             <td className="px-3 py-2 text-muted-foreground">{w.missing}</td>
