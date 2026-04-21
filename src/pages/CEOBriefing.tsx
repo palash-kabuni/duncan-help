@@ -211,7 +211,7 @@ const CEOBriefing = () => {
                   </div>
                 </Section>
 
-                <Section n={5} title="Strategic Risk Radar">
+                <Section n={2} title="Strategic Risk Radar">
                   <RiskRadar risks={p.risks || []} reconciliation={p.risk_reconciliation || null} />
                 </Section>
 
