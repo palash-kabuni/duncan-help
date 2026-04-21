@@ -1655,7 +1655,9 @@ ${JSON.stringify(context).slice(0, 60000)}
 If previous_briefing is non-null, explain probability/score deltas vs it. Keep prose tight, executive, no fluff. If a data source is empty, say so — do not invent activity. Remember: workstream_scores ⊆ available_workstreams; missing priorities → coverage_gaps, NOT fabricated scores.`;
 
     const apiKey = Deno.env.get("OPENAI_API_KEY");
-    if (!apiKey) return json({ error: "OPENAI_API_KEY not configured" }, 500);
+    if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
+
+    await updateJob({ status: "synthesising", phase: "Synthesising briefing", progress: 55 });
 
     let aiData: any;
     try {
@@ -1666,18 +1668,21 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.3,
+        // temperature omitted — GPT-5 fallback only supports default (1) and
+        // Sonnet 4.5 produces structurally cleaner JSON without an explicit value.
         max_tokens: 4096,
       });
     } catch (err: any) {
       console.error("LLM error:", err?.status, err?.message);
-      return json({ error: "AI generation failed", details: String(err?.message || "").slice(0, 500) }, 502);
+      throw new Error(`AI generation failed: ${String(err?.message || "").slice(0, 300)}`);
     }
+
+    await updateJob({ phase: "Applying guardrails", progress: 80 });
 
     const raw = aiData?.choices?.[0]?.message?.content ?? "{}";
     let parsed: any;
     try { parsed = JSON.parse(raw); }
-    catch (e) { return json({ error: "Invalid JSON from model", raw: raw.slice(0, 500) }, 502); }
+    catch (e) { throw new Error(`Invalid JSON from model: ${raw.slice(0, 300)}`); }
 
     // ─── Server-side guardrails ─────────────────────────────────
     // 1. Workstream scores: strip fabrications, force baseline RAG, backfill missing, clamp green-vs-red.
