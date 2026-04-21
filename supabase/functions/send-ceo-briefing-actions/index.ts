@@ -9,7 +9,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-authorization",
 };
 
-const CEO_EMAIL = "nimesh@kabuni.com";
+const CEO_EMAILS = ["nimesh@kabuni.com", "palash@kabuni.com"];
 
 interface ActionItem {
   source: "coverage_gap" | "risk" | "workstream";
@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
     const { data: userData, error: userErr } = await userClient.auth.getUser();
-    if (userErr || !userData.user || userData.user.email !== CEO_EMAIL) {
+    if (userErr || !userData.user || !CEO_EMAILS.includes((userData.user.email ?? "").toLowerCase())) {
       return new Response(JSON.stringify({ error: "Forbidden" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
