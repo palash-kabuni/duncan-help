@@ -1,65 +1,63 @@
 
 
 ## Goal
-Add a **GitHub commit activity** block to Section 07 (Duncan Adoption & Automation) showing how much code each Kabuni team member has shipped to the Duncan repo over the last 30 days.
+Add a **Lovable Contributors leaderboard** to Section 07 (Duncan Adoption & Automation) on the Team Briefing, ranking Kabuni members by commits and lines changed in `kabuni/duncan` over the last 30 days.
 
-## Why this proxy
-Lovable.dev does not expose a public API for per-user credit or token usage on a project. The closest honest signal is **commits authored on the connected GitHub repo** — every Lovable change is auto-committed, and direct IDE/local commits also flow through. So "code shipped" = commits + lines changed per author.
+## Approach
+GitHub commits are the only honest proxy for "who shipped what via Lovable" — Lovable does not expose per-user credit/token data. Lovable-originated commits land under a single bot author; direct IDE commits land under each developer's GitHub email. Both are surfaced.
 
 ## Changes
 
-### 1. Connect GitHub
-Add the GitHub connector to the project (gateway-enabled, OAuth). Once linked, `LOVABLE_API_KEY` + `GITHUB_API_KEY` are available to edge functions. User picks the Duncan repo during connect.
+### 1. Connect GitHub + add secret
+- Direct user to **Connectors → GitHub → Connect** to link the Duncan repo (`kabuni/duncan`).
+- Add a runtime secret `GITHUB_TOKEN` (PAT with `repo:read` scope) for REST API auth, since GitHub is not in the gateway connector list. Repo path is hardcoded to `kabuni/duncan` (no env vars needed — single known repo).
 
-### 2. Store repo identity
-Add two env-driven constants in `ceo-briefing/index.ts`:
-- `GITHUB_REPO_OWNER` (e.g. `kabuni`)
-- `GITHUB_REPO_NAME` (e.g. `duncan`)
+### 2. Server: `gatherGithubContributors()` in `supabase/functions/ceo-briefing/index.ts`
+Run in parallel with existing `automation_leverage` gather. For the last 30 days:
 
-Read from `Deno.env`. If not set, the new block is silently skipped (no failure).
+- `GET /repos/kabuni/duncan/commits?since=<iso>&per_page=100` — paginate up to 5 pages (cap 500 commits).
+- Aggregate per author email: `commits` count.
+- For top 10 authors by commit count, fetch detail commits (`GET /commits/{sha}`) — capped at 50 detail calls total — to sum `additions` + `deletions`. Remaining authors show commits only with `lines_changed: null`.
+- Map `commit.author.email` → Kabuni profile via case-insensitive match against `auth.users.email` (joined through `profiles.user_id`). Unmapped → fallback to GitHub `login` with `is_kabuni: false`.
+- Collapse all non-Kabuni authors (bots, externals) into one `"Other contributors"` row.
+- Return `{ contributors, window_days: 30, total_commits, fetched_at }`.
 
-### 3. New server-side helper: `gatherGithubContributors()`
-Runs in parallel with the existing `automation_leverage` gather step. For the last 30 days:
+After LLM parse, write to `parsed.payload.github_activity`. Wrap in try/catch — failure logs `briefing_warnings.push("github_activity_failed: …")` and skips the block. If `GITHUB_TOKEN` missing, return `{ unavailable: true, reason: "not_connected" }`.
 
-- Call `GET /repos/{owner}/{repo}/commits?since=...&per_page=100` (paginated, cap 5 pages = 500 commits).
-- For each unique author email/login, aggregate:
-  - `commits` (count)
-  - `additions` + `deletions` (sum, fetched lazily via `GET /repos/{owner}/{repo}/commits/{sha}` for the top N authors only, to avoid 500 extra API calls)
-- Map GitHub login → Kabuni profile by matching `commit.author.email` against `profiles.user_id` → auth.users.email (case-insensitive). Unmapped authors fall back to their GitHub login + a `(external)` tag.
-- Return `{ contributors: [{ name, github_login, email, commits, additions, deletions, lines_changed, is_kabuni }], window_days: 30, total_commits, fetched_at }`.
-
-Cap and sort: keep all Kabuni contributors with ≥1 commit, sort descending by `lines_changed`. External authors (bots, non-Kabuni) collapsed into a single `"Other contributors"` row.
-
-### 4. Persist into briefing payload
-After the LLM parse, write the result to `parsed.payload.github_activity` (alongside the existing `automation_progress` overwrite at line ~3309). LLM is **not** asked to author this — purely server-computed, like `top_users`.
-
-### 5. Frontend block in Section 07
-Below the existing "Top 3 power users" block in `src/pages/CEOBriefing.tsx`, add a new card:
+### 3. Frontend: leaderboard card in `src/pages/CEOBriefing.tsx`
+Insert below "Top 3 power users" in Section 07:
 
 ```
-GITHUB CONTRIBUTIONS · last 30d
-─────────────────────────────────
-{total_commits} commits across {N} contributors
+LOVABLE CONTRIBUTORS · last 30d
+────────────────────────────────────────
+{total_commits} commits · {N} contributors
 
-Name                Commits   +/- lines
-─────────────────────────────────
-Nimesh Patel        42        +3,210 / -812
-Palash Soundarkar   18        +1,540 / -204
+Name                  Commits   +/- lines
+────────────────────────────────────────
+Nimesh Patel             42     +3,210 / −812
+Palash Soundarkar        18     +1,540 / −204
+Lovable bot              97     +8,420 / −2,103
 …
-Other contributors  9         +610 / -120
+Other contributors        9          —
 ```
 
-Match existing card styling (`rounded-lg border border-border bg-card p-4`, mono labels, tabular-nums). Show empty state if `github_activity` missing or `contributors.length === 0`: muted "GitHub repo not connected — connect via Connectors → GitHub to see contribution stats."
+- Styling matches existing cards: `rounded-lg border border-border bg-card p-4`, `font-mono tabular-nums` for numbers.
+- Kabuni rows highlighted with subtle accent; bot/external rows muted.
+- Empty/unavailable state: muted message *"GitHub not connected — link kabuni/duncan via Connectors → GitHub and add a `GITHUB_TOKEN` secret to enable this leaderboard."*
 
-### 6. Caching / cost
-GitHub API allows 5,000 req/hr authenticated — well within budget (one briefing run = ~10-20 calls). No caching layer needed. Failure is non-fatal: wrap the helper in try/catch and log `briefing_warnings.push("github_activity_failed: ...")`.
+### 4. Caching
+None needed — one briefing run uses ~10–20 GitHub API calls, well under the 5,000/hr authenticated limit.
 
 ## Out of scope
-- Lovable per-user credit/token consumption — no API exists.
-- Linking GitHub commits to specific Lovable sessions (Lovable's commit author is a single bot account, not the prompting user).
-- Per-PR, per-branch, or per-file breakdowns.
-- A separate "code shipped via Lovable vs IDE" split.
+- Lovable per-user credit/token consumption (no API exists).
+- Splitting Lovable-bot commits back to the prompting user (Lovable doesn't tag this).
+- Per-PR or per-file breakdowns.
 
-## Open question
-The GitHub connector needs to be linked before this works. After approval, the first step in implementation will prompt you to authorize the GitHub connector and pick the Duncan repo. Confirm now if the repo is `kabuni/duncan` or a different `owner/name` so the env defaults can be set correctly.
+## Files touched
+- `supabase/functions/ceo-briefing/index.ts` — add `gatherGithubContributors()`, post-parse overwrite.
+- `src/pages/CEOBriefing.tsx` — new leaderboard card in Section 07.
+
+## Required from you before implementation
+1. Link GitHub via **Connectors → GitHub** to `kabuni/duncan`.
+2. Approve the `GITHUB_TOKEN` secret request (PAT with `repo:read`).
 
