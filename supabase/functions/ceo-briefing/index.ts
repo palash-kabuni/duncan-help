@@ -33,14 +33,14 @@ const PRIORITY_DEFINITIONS = [
     title: "Trials October & November 2026",
     aliases: ["selection trials", "trials 2026", "october trials", "november trials"],
     why_it_matters: "Conversion event from 1M registrations to the 10-team selection.",
-    expected_owner: "Simon (Ops Director)",
+    expected_owner: "Simon (Ops Director) + Alex (CMO)",
   },
   {
     id: "team_selection",
     title: "Final 10-team selection — December 2026 (10 Super Coaches)",
     aliases: ["10 team selection", "10-team selection", "super coaches", "december selection"],
     why_it_matters: "The product output of the entire trials funnel. Defines the league.",
-    expected_owner: "Simon (Ops Director) + Matt (CPO)",
+    expected_owner: "Matt (CPO) + Simon (Ops Director)",
   },
   {
     id: "preorders",
