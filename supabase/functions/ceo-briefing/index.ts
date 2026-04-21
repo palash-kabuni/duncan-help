@@ -1184,6 +1184,78 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       }
     }
 
+    // 4d-bis. Leadership roster enforcement — every direct report must appear,
+    //         silent leaders auto-flagged for CEO intervention.
+    if (briefing_type === "morning") {
+      const aiLeaders: any[] = Array.isArray(parsed.payload?.leadership) ? parsed.payload.leadership : [];
+      const norm = (s: string) => String(s || "").toLowerCase().trim();
+      const findAi = (rosterName: string) =>
+        aiLeaders.find((l) => norm(l?.name).includes(norm(rosterName)) || norm(rosterName).includes(norm(l?.name)));
+
+      const fullRoster = LEADERSHIP_ROSTER.map((leader) => {
+        const sig = leader_signal_map.find((s) => s.name === leader.name)!;
+        const ai = findAi(leader.name);
+        const status = sig.signal_status;
+        const isOwnerOfPriority = (leader.owns_priorities ?? []).length > 0;
+
+        if (ai && status !== "silent") {
+          // Trust the AI but stamp deterministic signal fields.
+          return {
+            name: leader.name,
+            role: ai.role || leader.role,
+            output_vs_expectation: ai.output_vs_expectation || `Active in ${sig.sources.join(", ")}.`,
+            risk_level: ai.risk_level || (status === "low_signal" ? "medium" : "low"),
+            blocking: ai.blocking || "",
+            needs_support: ai.needs_support || "",
+            ceo_intervention_required: !!ai.ceo_intervention_required,
+            signal_status: status,
+            evidence_sources: sig.sources,
+          };
+        }
+
+        // Silent OR omitted — synthesize the stub.
+        return {
+          name: leader.name,
+          role: leader.role,
+          output_vs_expectation:
+            status === "silent"
+              ? "No operational signal in 7 days — no meetings, workstream cards, Azure items or releases attributed to this leader."
+              : (ai?.output_vs_expectation || `Single-source signal only (${sig.sources.join(", ") || "none"}).`),
+          risk_level:
+            status === "silent"
+              ? (isOwnerOfPriority ? "high" : "medium")
+              : (ai?.risk_level || "medium"),
+          blocking: status === "silent" ? "Invisible to Duncan — unknown." : (ai?.blocking || ""),
+          needs_support:
+            status === "silent"
+              ? "CEO check-in to surface what they are actually working on, blocked by, or capacity-constrained on."
+              : (ai?.needs_support || ""),
+          ceo_intervention_required: status === "silent" ? true : !!ai?.ceo_intervention_required,
+          signal_status: status,
+          evidence_sources: sig.sources,
+        };
+      });
+
+      // Sort: intervention → high risk → silent → low_signal → active
+      const riskRank: Record<string, number> = { high: 0, medium: 1, low: 2 };
+      const sigRank: Record<string, number> = { silent: 0, low_signal: 1, active: 2 };
+      fullRoster.sort((a, b) => {
+        if (a.ceo_intervention_required !== b.ceo_intervention_required) return a.ceo_intervention_required ? -1 : 1;
+        const r = (riskRank[a.risk_level] ?? 9) - (riskRank[b.risk_level] ?? 9);
+        if (r !== 0) return r;
+        return (sigRank[a.signal_status] ?? 9) - (sigRank[b.signal_status] ?? 9);
+      });
+
+      parsed.payload.leadership = fullRoster;
+      parsed.payload.leadership_summary = {
+        total: fullRoster.length,
+        active: fullRoster.filter((l) => l.signal_status === "active").length,
+        low_signal: fullRoster.filter((l) => l.signal_status === "low_signal").length,
+        silent: fullRoster.filter((l) => l.signal_status === "silent").length,
+        intervention_required: fullRoster.filter((l) => l.ceo_intervention_required).length,
+      };
+    }
+
     // 4e. Missing artifacts recommendations — clean, cap at 15, link to decisions §9.
     if (briefing_type === "morning") {
       const validDomainIds = new Set(KNOWLEDGE_DOMAINS.map((d) => d.id));
