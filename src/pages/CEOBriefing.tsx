@@ -123,6 +123,8 @@ const CEOBriefing = () => {
               coverageCovered={p.coverage_summary?.covered ?? null}
               coverageTotal={p.coverage_summary?.total ?? null}
               confidenceWarning={p.confidence_warning?.reason ?? null}
+              probabilityMovement={type === "morning" ? (p.probability_movement ?? null) : null}
+              executionExplanation={type === "morning" ? (p.execution_explanation ?? null) : null}
             />
 
             {type === "morning" && p.tldr && <TldrPanel tldr={p.tldr} />}
