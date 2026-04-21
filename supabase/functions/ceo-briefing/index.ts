@@ -1145,6 +1145,70 @@ Deno.serve(async (req) => {
       console.warn("ceo-email-pulse invoke failed:", e);
     }
 
+    // ─── Calendar events for leaders (last 7d) — best-effort, opt-in via google_calendar_tokens ─
+    let leaderCalendarEvents: Array<{ summary: string | null; start: string | null; organiser_alias?: string | null; attendee_aliases?: string[] }> = [];
+    try {
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: calTokenRows } = await admin
+        .from("google_calendar_tokens")
+        .select("user_id, access_token, refresh_token, token_expiry");
+      const calOwnerProfiles = await admin
+        .from("profiles")
+        .select("user_id, display_name")
+        .in("user_id", (calTokenRows || []).map((t: any) => t.user_id).filter(Boolean) as string[]);
+      const userIdToName = new Map<string, string>(
+        ((calOwnerProfiles.data as any[]) || []).map((p) => [p.user_id, String(p.display_name || "")]),
+      );
+      for (const tok of (calTokenRows as any[]) || []) {
+        const ownerName = userIdToName.get(tok.user_id) || "";
+        if (!ownerName) continue;
+        // refresh if needed
+        let accessToken = tok.access_token;
+        if (new Date(tok.token_expiry) <= new Date()) {
+          try {
+            const refreshRes = await fetch("https://oauth2.googleapis.com/token", {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams({
+                client_id: Deno.env.get("GOOGLE_CALENDAR_CLIENT_ID") || "",
+                client_secret: Deno.env.get("GOOGLE_CALENDAR_CLIENT_SECRET") || "",
+                refresh_token: tok.refresh_token,
+                grant_type: "refresh_token",
+              }),
+            });
+            if (refreshRes.ok) {
+              const newTok = await refreshRes.json();
+              accessToken = newTok.access_token;
+            } else continue;
+          } catch { continue; }
+        }
+        try {
+          const url = new URL("https://www.googleapis.com/calendar/v3/calendars/primary/events");
+          url.searchParams.set("timeMin", sevenDaysAgo);
+          url.searchParams.set("timeMax", new Date().toISOString());
+          url.searchParams.set("singleEvents", "true");
+          url.searchParams.set("orderBy", "startTime");
+          url.searchParams.set("maxResults", "100");
+          const evRes = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
+          if (!evRes.ok) continue;
+          const evJson = await evRes.json();
+          for (const ev of (evJson.items || [])) {
+            const attendeeAliases = (ev.attendees || [])
+              .map((a: any) => String(a.displayName || a.email || "").split("@")[0])
+              .filter(Boolean);
+            leaderCalendarEvents.push({
+              summary: ev.summary || null,
+              start: ev.start?.dateTime || ev.start?.date || null,
+              organiser_alias: ev.organizer?.displayName || ev.organizer?.email?.split("@")[0] || ownerName,
+              attendee_aliases: [ownerName, ...attendeeAliases],
+            });
+          }
+        } catch { /* ignore single-leader cal failure */ }
+      }
+    } catch (e) {
+      console.warn("leader calendar fetch failed:", e);
+    }
+
     // ─── Leadership signal map (deterministic, per-leader tally) ───
     const leader_signal_map = computeLeaderSignalMap({
       meetings: meetings as any[],
@@ -1152,6 +1216,9 @@ Deno.serve(async (req) => {
       workItems: workItems as any[],
       releases: releases as any[],
       profiles: profiles as any[],
+      transcripts: recentTranscripts as any[],
+      calendarEvents: leaderCalendarEvents,
+      emailPulsePerMailbox: (email_pulse?.per_mailbox as any[]) || [],
     });
 
 
