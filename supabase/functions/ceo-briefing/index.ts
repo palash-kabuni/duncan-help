@@ -283,7 +283,43 @@ Deno.serve(async (req) => {
       safe(admin.from("integration_audit_logs").select("integration,action,details,created_at").gte("created_at", since).limit(40)),
       safe(admin.from("workstream_cards").select("title,project_tag").is("archived_at", null).limit(500)),
       safe(admin.from("azure_work_items").select("title,project_name").limit(500)),
+      safe(admin.from("meetings").select("title,meeting_date,transcript").not("transcript", "is", null).order("meeting_date", { ascending: false }).limit(10)),
     ]);
+
+    // ─── Scan recent meeting transcripts for priority signals ─────
+    // Detects implicit coverage — work happening on a 2026 priority WITHOUT a workstream.
+    function scanTranscriptsForPriorities(
+      transcripts: Array<{ title: string; meeting_date: string | null; transcript: string | null }>,
+    ) {
+      const PER_TRANSCRIPT_CAP = 6000;
+      const SNIPPET_RADIUS = 200;
+      return PRIORITY_DEFINITIONS.map((p) => {
+        const mentions: Array<{ meeting_title: string; meeting_date: string | null; snippet: string; alias_matched: string }> = [];
+        for (const m of transcripts) {
+          if (!m.transcript) continue;
+          const text = m.transcript.slice(0, PER_TRANSCRIPT_CAP);
+          const lower = text.toLowerCase();
+          for (const alias of p.aliases) {
+            const idx = lower.indexOf(alias.toLowerCase());
+            if (idx >= 0) {
+              const start = Math.max(0, idx - SNIPPET_RADIUS);
+              const end = Math.min(text.length, idx + alias.length + SNIPPET_RADIUS);
+              mentions.push({
+                meeting_title: m.title,
+                meeting_date: m.meeting_date,
+                snippet: text.slice(start, end).replace(/\s+/g, " ").trim(),
+                alias_matched: alias,
+              });
+              break; // one snippet per priority per meeting
+            }
+          }
+          if (mentions.length >= 5) break; // cap mentions per priority
+        }
+        return { priority_id: p.id, priority_title: p.title, mentions };
+      }).filter((s) => s.mentions.length > 0);
+    }
+
+    const meeting_priority_signals = scanTranscriptsForPriorities(recentTranscripts as any[]);
 
     // ─── Canonical workstream list ────────────────────────────────
     const projectTags = Array.from(
