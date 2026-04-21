@@ -1881,7 +1881,97 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       };
     }
 
-    // ─── Persist email pulse summary on payload (counts only, no raw content) ──
+    // ─── 8. Cross-Functional Friction post-processor (deterministic floor) ──
+    if (briefing_type === "morning") {
+      parsed.payload = parsed.payload || {};
+      let friction: any[] = Array.isArray(parsed.payload.friction) ? [...parsed.payload.friction] : [];
+      let frictionAutoInjected = 0;
+
+      const frictionMentions = (needle: string): boolean => {
+        if (!needle) return false;
+        const n = needle.toLowerCase();
+        return friction.some((f: any) => {
+          const blob = `${f?.issue || ""} ${f?.consequence || ""} ${(Array.isArray(f?.teams) ? f.teams.join(" ") : f?.teams) || ""}`.toLowerCase();
+          return blob.includes(n);
+        });
+      };
+
+      // 8a. Inject friction for every silent priority not already covered.
+      for (const sm of silentMissing) {
+        const priorityName = sm.priority || "";
+        const firstWord = priorityName.toLowerCase().split(/[\s—-]+/)[0] || "";
+        if (firstWord && frictionMentions(firstWord)) continue;
+        const ownerName = sm.expected_owner || "Unassigned";
+        friction.push({
+          issue: `${priorityName} has no visible activity, yet remains a 2026 non-negotiable — handoff between strategy and execution is broken`,
+          teams: [ownerName, "Cross-functional"],
+          consequence: `${priorityName} target at risk; no team is structurally accountable.`,
+          evidence_source: "silent_leader",
+          recommended_resolver: "CEO",
+          auto_injected: true,
+          auto_injected_reason: "silent_priority",
+        });
+        frictionAutoInjected++;
+      }
+
+      // 8b. Inject friction for cross-function email escalations not already covered.
+      try {
+        const escalations = email_pulse?.signals?.escalations;
+        if (Array.isArray(escalations)) {
+          for (const esc of escalations) {
+            const fromFn = String(esc?.from_function || esc?.from || "").trim();
+            const toFn = String(esc?.to_function || esc?.to || "").trim();
+            const topic = String(esc?.topic || "").trim();
+            if (!fromFn || !toFn || fromFn.toLowerCase() === toFn.toLowerCase()) continue;
+            if (topic && frictionMentions(topic)) continue;
+            friction.push({
+              issue: `Email escalation crossing functions: ${fromFn} → ${toFn}${topic ? ` re "${topic}"` : ""} — no shared owner has resolved it`,
+              teams: [fromFn, toFn],
+              consequence: topic ? `Unresolved cross-team item: ${topic}` : "Cross-functional escalation pending resolution.",
+              evidence_source: "email",
+              recommended_resolver: "CEO",
+              auto_injected: true,
+              auto_injected_reason: "cross_function_email_escalation",
+            });
+            frictionAutoInjected++;
+          }
+        }
+      } catch (_) { /* non-fatal */ }
+
+      // 8c. Red briefing fallback — empty friction on a red briefing is itself a finding.
+      const _outcomeProb = typeof parsed.outcome_probability === "number" ? parsed.outcome_probability : 50;
+      if (_outcomeProb < 50 && friction.length === 0) {
+        friction.push({
+          issue: "Friction detection ran but found no cross-functional blockers — this is unusual on a Red briefing",
+          teams: ["Duncan", "Leadership"],
+          consequence: "Verify Duncan has visibility into cross-team blockers (workstream notes, meeting transcripts, email pulse opt-ins) before trusting harmony as real.",
+          evidence_source: "coverage_gap",
+          recommended_resolver: "CEO",
+          auto_injected: true,
+          auto_injected_reason: "red_briefing_empty_friction",
+        });
+        frictionAutoInjected++;
+      }
+
+      // Normalise: ensure required fields on every entry.
+      friction = friction.map((f: any) => ({
+        issue: String(f?.issue || "").trim() || "Unspecified friction",
+        teams: Array.isArray(f?.teams) ? f.teams.filter(Boolean).map((t: any) => String(t)) : (f?.teams ? [String(f.teams)] : []),
+        consequence: String(f?.consequence || "").trim(),
+        evidence_source: ["workstream_card", "meeting", "email", "coverage_gap", "silent_leader", "doc_conflict"].includes(String(f?.evidence_source))
+          ? f.evidence_source
+          : "workstream_card",
+        recommended_resolver: String(f?.recommended_resolver || "CEO").trim() || "CEO",
+        auto_injected: !!f?.auto_injected,
+        ...(f?.auto_injected_reason ? { auto_injected_reason: f.auto_injected_reason } : {}),
+      }));
+
+      parsed.payload.friction = friction;
+      parsed.payload.friction_meta = {
+        total: friction.length,
+        auto_injected: frictionAutoInjected,
+      };
+    }
     if (email_pulse) {
       const sigs = email_pulse.signals || {};
       const commitments = Array.isArray(sigs.commitments) ? sigs.commitments : [];
