@@ -165,6 +165,9 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
 
 CRITICAL RULES:
 - "workstream_scores[].name" MUST come verbatim from "available_workstreams" in the source data. Do NOT invent workstreams. Do NOT use the function-bucket names in "what_changed" (Launch & India, Product & Technology, etc.) as workstream names — those are reporting lenses, not workstreams. If "available_workstreams" is empty, return "workstream_scores": [] and say so in payload.company_pulse.
+- WORKSTREAM COVERAGE: workstream_scores MUST contain EXACTLY one entry per name in available_workstreams — no omissions, no duplicates, no inventions. If you cannot articulate scores for one, still return the row using the workstream_baseline values for that name and set evidence to "Silent — no cards in the last 7 days" or quote the most recent card.
+- WORKSTREAM RAG TRUTH: workstream_scores[i].rag MUST equal workstream_baseline[name].derived_rag verbatim. The server overwrites any deviation. Justify in evidence; never override.
+- WORKSTREAM ALIGNMENT: when execution_score < 50 OR outcome_probability < 50, NO workstream may simultaneously have progress >= 70 AND risk <= 30 AND rag = "green". Either downgrade progress/risk or cite the contradicting evidence (a green card that justifies it). The server clamps violators.
 - "function_area" in "what_changed" is a REPORTING LENS, not a workstream identifier.
 - For every entry in "coverage_report" where status = "missing", you MUST add an entry to payload.coverage_gaps. Do NOT fabricate scores for missing priorities — flag them as gaps instead.
 - payload.brutal_truth MUST mention any uncovered 2026 priority by name when coverage_gaps is non-empty.
