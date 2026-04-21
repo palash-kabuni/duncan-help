@@ -1226,7 +1226,163 @@ Deno.serve(async (req) => {
       missing_priorities: _preMissing.map((m) => m.priority),
     };
 
-    const context = {
+    // ─── Automation & Leverage signals (last 30d, deterministic) ──
+    // Aggregates token_usage rows + joins profiles + lightweight surface
+    // counts so Section 07 can be grounded, not hallucinated.
+    const automation_leverage = await (async () => {
+      const rows = (tokenUsage as any[]) || [];
+      const today = new Date();
+      const dayKey = (d: Date) => d.toISOString().slice(0, 10);
+      const keys30 = new Set<string>();
+      for (let i = 0; i < 30; i++) {
+        const d = new Date(today.getTime() - i * 86400000);
+        keys30.add(dayKey(d));
+      }
+
+      // Aggregate per-user totals over last 30d
+      const perUser = new Map<string, { total_tokens: number; request_count: number }>();
+      let total_tokens = 0;
+      let request_count = 0;
+      for (const r of rows) {
+        if (!keys30.has(String(r.usage_date))) continue;
+        const t = Number(r.total_tokens) || 0;
+        const rc = Number(r.request_count) || 0;
+        total_tokens += t;
+        request_count += rc;
+        const cur = perUser.get(r.user_id) || { total_tokens: 0, request_count: 0 };
+        cur.total_tokens += t;
+        cur.request_count += rc;
+        perUser.set(r.user_id, cur);
+      }
+      const active_users = perUser.size;
+
+      // Trend buckets: today vs yesterday, last 7d vs prior 7d
+      const todayKey = dayKey(today);
+      const yesterdayKey = dayKey(new Date(today.getTime() - 86400000));
+      let todayTokens = 0, yesterdayTokens = 0;
+      let last7 = 0, prior7 = 0;
+      for (const r of rows) {
+        const d = String(r.usage_date);
+        const t = Number(r.total_tokens) || 0;
+        if (d === todayKey) todayTokens += t;
+        if (d === yesterdayKey) yesterdayTokens += t;
+        const dt = new Date(d).getTime();
+        const ageDays = Math.floor((today.getTime() - dt) / 86400000);
+        if (ageDays >= 0 && ageDays < 7) last7 += t;
+        else if (ageDays >= 7 && ageDays < 14) prior7 += t;
+      }
+      const pctChange = (cur: number, prev: number) =>
+        prev === 0 ? (cur > 0 ? 100 : 0) : Math.round(((cur - prev) / prev) * 100);
+      const dow_change_pct = pctChange(todayTokens, yesterdayTokens);
+      const wow_change_pct = pctChange(last7, prior7);
+      let trend_label: string = "Insufficient data";
+      if (last7 + prior7 > 0) {
+        if (wow_change_pct >= 25) trend_label = "Adoption accelerating";
+        else if (wow_change_pct >= 5) trend_label = "Adoption steady";
+        else if (wow_change_pct > -10) trend_label = "Flat";
+        else trend_label = "Declining";
+      }
+
+      // Top 3 users
+      const top3 = Array.from(perUser.entries())
+        .sort((a, b) => b[1].total_tokens - a[1].total_tokens)
+        .slice(0, 3);
+      const topUserIds = top3.map(([uid]) => uid);
+
+      // Surface counts (parallel, capped) — used to infer "primary_use"
+      const [generalChats, projectChats, gmailProfiles] = await Promise.all([
+        safe(admin.from("general_chats").select("user_id").in("user_id", topUserIds.length ? topUserIds : ["00000000-0000-0000-0000-000000000000"])),
+        safe(admin.from("project_chats").select("project_id, projects!inner(user_id)").in("projects.user_id", topUserIds.length ? topUserIds : ["00000000-0000-0000-0000-000000000000"])),
+        safe(admin.from("gmail_writing_profiles").select("user_id, auto_drafts_created_today, auto_draft_enabled").in("user_id", topUserIds.length ? topUserIds : ["00000000-0000-0000-0000-000000000000"])),
+      ]);
+
+      const profilesByUserId = new Map<string, any>();
+      for (const pr of (profiles as any[]) || []) {
+        if (pr.user_id) profilesByUserId.set(pr.user_id, pr);
+      }
+      // The profiles fetch above doesn't include user_id — re-fetch with user_id for top users
+      const topProfiles = topUserIds.length
+        ? await safe(admin.from("profiles").select("user_id, display_name, role_title, department").in("user_id", topUserIds))
+        : [];
+      const topProfileMap = new Map<string, any>();
+      for (const pr of topProfiles as any[]) topProfileMap.set(pr.user_id, pr);
+
+      const generalChatCount = new Map<string, number>();
+      for (const g of (generalChats as any[]) || []) {
+        generalChatCount.set(g.user_id, (generalChatCount.get(g.user_id) || 0) + 1);
+      }
+      const projectChatCount = new Map<string, number>();
+      for (const pc of (projectChats as any[]) || []) {
+        const uid = pc?.projects?.user_id;
+        if (uid) projectChatCount.set(uid, (projectChatCount.get(uid) || 0) + 1);
+      }
+      const gmailDraftMap = new Map<string, { drafts: number; enabled: boolean }>();
+      for (const gp of (gmailProfiles as any[]) || []) {
+        gmailDraftMap.set(gp.user_id, {
+          drafts: Number(gp.auto_drafts_created_today) || 0,
+          enabled: Boolean(gp.auto_draft_enabled),
+        });
+      }
+
+      const inferPrimaryUse = (uid: string): string => {
+        const g = generalChatCount.get(uid) || 0;
+        const p = projectChatCount.get(uid) || 0;
+        const gm = gmailDraftMap.get(uid);
+        const surfaces: Array<{ label: string; n: number }> = [
+          { label: "general Q&A in Duncan chat", n: g },
+          { label: "project workspaces & RAG", n: p },
+          { label: "Gmail auto-drafting", n: (gm?.drafts || 0) + (gm?.enabled ? 1 : 0) },
+        ];
+        surfaces.sort((a, b) => b.n - a.n);
+        const dominant = surfaces[0];
+        if (!dominant || dominant.n === 0) return "Mixed usage across surfaces";
+        return `Primarily ${dominant.label}`;
+      };
+
+      const top_users = top3.map(([uid, agg], i) => {
+        const pr = topProfileMap.get(uid);
+        // Estimate hours saved: tokens → ~4 chars/token → words at ~5 chars → reading at 250 wpm
+        const est_hours_saved = Math.round((agg.total_tokens * 4) / 5 / 250 / 60);
+        return {
+          rank: i + 1,
+          name: pr?.display_name || "Unknown user",
+          role: pr?.role_title || "—",
+          department: pr?.department || "—",
+          total_tokens: agg.total_tokens,
+          request_count: agg.request_count,
+          primary_use: inferPrimaryUse(uid),
+          est_hours_saved,
+        };
+      });
+
+      // Heaviest manual surfaces (company-wide, last 30d) — for recommendation floor
+      const totalGmailDrafts = ((gmailProfiles as any[]) || []).reduce(
+        (acc, gp) => acc + (Number(gp.auto_drafts_created_today) || 0),
+        0,
+      );
+
+      return {
+        company_usage: {
+          total_tokens,
+          request_count,
+          active_users,
+          dow_change_pct,
+          wow_change_pct,
+          trend_label,
+          today_tokens: todayTokens,
+          last_7d_tokens: last7,
+          prior_7d_tokens: prior7,
+        },
+        top_users,
+        heavy_surfaces: {
+          gmail_auto_drafts_today: totalGmailDrafts,
+          general_chats_top_users: Array.from(generalChatCount.values()).reduce((a, b) => a + b, 0),
+          project_chats_top_users: Array.from(projectChatCount.values()).reduce((a, b) => a + b, 0),
+        },
+      };
+    })();
+
+
       now_utc: new Date().toISOString(),
       window: "last 24h",
       available_workstreams,
