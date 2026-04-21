@@ -4,7 +4,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const CEO_EMAIL = "nimesh@kabuni.com";
+const CEO_EMAILS = ["nimesh@kabuni.com", "palash@kabuni.com"];
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
     if (claimsErr || !claimsData?.claims) return json({ error: "Unauthorized" }, 401);
 
     const email = (claimsData.claims.email as string | undefined)?.toLowerCase() ?? "";
-    if (email !== CEO_EMAIL) return json({ error: "Forbidden — CEO only" }, 403);
+    if (!CEO_EMAILS.includes(email)) return json({ error: "Forbidden — CEO only" }, 403);
 
     const userId = claimsData.claims.sub as string;
 
