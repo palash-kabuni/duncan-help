@@ -1097,7 +1097,69 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       }
     }
 
-    //    against server-truth coverage count and append a corrective sentence.
+    // 4e. Missing artifacts recommendations — clean, cap at 15, link to decisions §9.
+    if (briefing_type === "morning") {
+      const validDomainIds = new Set(KNOWLEDGE_DOMAINS.map((d) => d.id));
+      const validPrio = new Set(["critical", "high", "medium", "low"]);
+      const rawRec = Array.isArray(parsed.payload?.missing_artifacts_recommendations)
+        ? parsed.payload.missing_artifacts_recommendations : [];
+      const cleanedRec = rawRec
+        .filter((r: any) => r && validDomainIds.has(r.domain) && validPrio.has((r.priority || "").toLowerCase()))
+        .map((r: any) => ({
+          domain: r.domain,
+          priority: String(r.priority).toLowerCase(),
+          artifacts: Array.isArray(r.artifacts) ? r.artifacts.filter((a: any) => a && typeof a.name === "string").slice(0, 6) : [],
+        }))
+        .filter((r: any) => r.artifacts.length > 0);
+
+      // Cap at 15 artifacts total, ranked by priority.
+      const prioRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+      const flat: Array<{ domain: string; priority: string; artifact: any }> = [];
+      for (const r of cleanedRec) for (const a of r.artifacts) flat.push({ domain: r.domain, priority: r.priority, artifact: a });
+      flat.sort((a, b) => (prioRank[a.priority] ?? 9) - (prioRank[b.priority] ?? 9));
+      const capped = flat.slice(0, 15);
+      const regrouped = new Map<string, { domain: string; priority: string; artifacts: any[] }>();
+      for (const f of capped) {
+        const key = `${f.domain}::${f.priority}`;
+        if (!regrouped.has(key)) regrouped.set(key, { domain: f.domain, priority: f.priority, artifacts: [] });
+        regrouped.get(key)!.artifacts.push(f.artifact);
+      }
+      parsed.payload.missing_artifacts_recommendations = Array.from(regrouped.values());
+
+      // Counter for the UI.
+      const counter = { total: capped.length, critical: 0, high: 0, medium: 0, low: 0 };
+      for (const f of capped) (counter as any)[f.priority]++;
+      parsed.payload.missing_artifacts_summary = counter;
+
+      // Decisions §9 — enrich blocked_by_missing_data with specific artifact names.
+      if (Array.isArray(parsed.payload.decisions) && capped.length > 0) {
+        const domainLabelById = new Map(KNOWLEDGE_DOMAINS.map((d) => [d.id, d.label]));
+        const criticalByDomain = new Map<string, string[]>();
+        for (const f of capped) {
+          if (f.priority !== "critical" && f.priority !== "high") continue;
+          const arr = criticalByDomain.get(f.domain) || [];
+          if (arr.length < 3) arr.push(f.artifact.name);
+          criticalByDomain.set(f.domain, arr);
+        }
+        for (const dec of parsed.payload.decisions) {
+          if (!dec?.blocked_by_missing_data || typeof dec.blocked_by_missing_data !== "string") continue;
+          const txt = dec.blocked_by_missing_data.toLowerCase();
+          // Already includes "needs:" prefix — leave alone.
+          if (txt.startsWith("needs:")) continue;
+          // Find which domain this decision references.
+          for (const [domId, label] of domainLabelById.entries()) {
+            if (!txt.includes(label.toLowerCase())) continue;
+            const artNames = criticalByDomain.get(domId);
+            if (!artNames || artNames.length === 0) break;
+            const blockedArtifacts = artNames.map((n) => n).join(", ");
+            dec.blocked_artifact_names = artNames;
+            dec.blocked_by_missing_data = `Needs: ${blockedArtifacts} — ${dec.blocked_by_missing_data}`;
+            break;
+          }
+        }
+      }
+    }
+
     const trueCovered = covered.length;
     const proseFields = ["company_pulse", "brutal_truth", "execution_explanation", "probability_movement"] as const;
     for (const field of proseFields) {
