@@ -280,7 +280,8 @@ function buildBundles(briefing: any, routing: any[]): OwnerBundle[] {
   // 3) Workstream scores (Red/Yellow only)
   const ws: any[] = Array.isArray(briefing.workstream_scores) ? briefing.workstream_scores : [];
   for (const w of ws) {
-    const status = (w.status || w.risk || "").toLowerCase();
+    const rawStatus = w.status ?? w.risk ?? "";
+    const status = (typeof rawStatus === "string" ? rawStatus : String(rawStatus)).toLowerCase();
     if (!status.includes("red") && !status.includes("yellow") && !status.includes("amber")) continue;
     const keys = resolveOwnerKeys(w.owner || w.expected_owner);
     if (keys.length === 0) continue;
