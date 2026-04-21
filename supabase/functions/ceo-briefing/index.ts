@@ -1155,6 +1155,8 @@ Deno.serve(async (req) => {
       releases: releases as any[],
     });
 
+    await updateJob({ phase: "Scanning email signals", progress: 35 });
+
     // ─── Company-wide email pulse (opt-in mailboxes, last 24h) ────
     let email_pulse: any = null;
     try {
