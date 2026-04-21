@@ -163,7 +163,7 @@ const CEOBriefing = () => {
                   <div className="space-y-3">
                     {(p.what_changed || []).map((g: any, i: number) => (
                       <div key={i} className="rounded-lg border border-border bg-card p-4 space-y-2">
-                        <h4 className="text-sm font-semibold text-foreground">{g.function}</h4>
+                        <h4 className="text-sm font-semibold text-foreground">{g.function_area || g.function}</h4>
                         {g.moved && <p className="text-xs text-muted-foreground"><span className="text-green-500 font-mono">MOVED:</span> {g.moved}</p>}
                         {g.did_not_move && <p className="text-xs text-muted-foreground"><span className="text-yellow-500 font-mono">STALLED:</span> {g.did_not_move}</p>}
                         {g.needs_attention && <p className="text-xs text-muted-foreground"><span className="text-red-500 font-mono">ATTENTION:</span> {g.needs_attention}</p>}
