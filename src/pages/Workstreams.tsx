@@ -211,7 +211,11 @@ const Workstreams = () => {
         </div>
 
         {/* Modals */}
-        <CreateCardDialog open={showCreate} onOpenChange={setShowCreate} />
+        <CreateCardDialog
+          open={showCreate}
+          onOpenChange={(v) => { setShowCreate(v); if (!v) setPrefillTag(undefined); }}
+          prefillTag={prefillTag}
+        />
         <CardDetailModal cardId={selectedCardId} onClose={() => setSelectedCardId(null)} />
       </main>
     </AppLayout>
