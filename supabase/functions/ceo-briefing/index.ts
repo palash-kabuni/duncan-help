@@ -871,8 +871,6 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
           parsed.payload.tldr.where_to_act = `${wta ? wta + " " : ""}${worst.recommendation || `Upload ${worst.label} documents to /projects to remove this blind spot.`}`;
         }
       }
-        parsed.payload.company_pulse = `${label.toUpperCase()} — ${reason}`;
-      }
     }
 
     const briefing_date = new Date().toISOString().slice(0, 10);
