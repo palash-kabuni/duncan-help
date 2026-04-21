@@ -64,7 +64,7 @@ const OPENAI_MODEL_DEGRADE = "gpt-5-mini";
 
 // Per-attempt provider timeout. If the LLM doesn't respond in this window we
 // abort and let callLLMWithFallback try the other provider.
-const PROVIDER_TIMEOUT_MS = 90_000;
+const PROVIDER_TIMEOUT_MS = 60_000;
 
 export interface LLMMessage {
   role: "system" | "user" | "assistant" | "tool";
