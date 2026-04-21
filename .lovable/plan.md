@@ -1,20 +1,24 @@
 
 
 ## Goal
-Stop the Team Briefing Section 04 (Initiative Snapshot) from listing workstream tags that have **no cards** (`duncan`, `kabuni-helpdesk`, `kabuni-mvp`). Only show workstreams that actually have activity.
+Publish a new "What's New" release covering everything shipped today since the last published release.
 
-## Root cause
-`supabase/functions/ceo-briefing/index.ts` builds `available_workstreams` from a `DISTINCT project_tag` query on `workstream_cards`. Any tag that ever existed (even on archived/deleted cards) flows into the briefing. The post-LLM overwrite block then forcibly stamps each one with `"0 cards · silent"` so they appear as empty rows.
+## Today's changes to log
+1. **Lovable Contributors leaderboard (Section 07)** — new `lovable_usage_snapshots` table, `update_lovable_contributors` Duncan tool, `LovableContributorsCard` mounted in CEO/Team Briefing. Paste a Lovable People screenshot in chat and ask Duncan to refresh.
+2. **Initiative Snapshot cleanup (Section 04)** — silent workstream tags (`duncan`, `kabuni-helpdesk`, `kabuni-mvp`) with zero cards no longer appear as empty "0 cards · silent" rows in the Team Briefing.
 
-## Fix
-In `supabase/functions/ceo-briefing/index.ts`:
+## How it ships
+1. Read the latest published release from `releases` to confirm the previous version and pick the next semver bump (patch bump unless you want minor).
+2. Either:
+   - **(a)** Insert a new draft via `log_release_change` tool calls (one per change), then call the `finalize-release` Edge Function to publish, **or**
+   - **(b)** Insert directly: create a `releases` row with `status='published'`, `published_at=now()`, auto-generated title + summary, and a `changes` JSON array containing the two items above (types: `feature`, `improvement`).
+3. Verify the new entry appears at the top of `/whats-new` as "Latest".
 
-1. **Filter the workstream list at source.** When building `workstream_baseline`, drop any tag where `card_count === 0`. Pass only active workstreams into the LLM prompt and into `available_workstreams`.
-2. **Filter the overwrite block.** In the server-side overwrite (~lines 1983-2009), skip any workstream that isn't in the active set, so the LLM can't reintroduce silent rows.
-3. **Empty-state copy.** If zero active workstreams remain, render Section 04 with a single line: *"No active workstreams in the last 7 days."* instead of an empty table.
-
-No schema changes. No UI changes. No effect on the Workstreams board itself — silent tags remain available there for future cards; they just stop polluting the briefing.
+No UI or schema changes — this is a content publish only.
 
 ## Files touched
-- Edit: `supabase/functions/ceo-briefing/index.ts` — filter `workstream_baseline` and the overwrite block to active workstreams only; add empty-state copy.
+- None. Database insert into `releases` (and optional `release_changes` if that's the schema) via the existing release pipeline.
+
+## Open question
+Should I also trigger **Send Notification** (email blast via `send-release-emails`) once published, or leave that for you to fire manually from `/whats-new`?
 
