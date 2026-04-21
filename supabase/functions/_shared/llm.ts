@@ -464,7 +464,10 @@ async function openaiStream(opts: CallLLMOptions, model: string): Promise<Readab
   };
   if (opts.tools) body.tools = opts.tools;
   if (opts.tool_choice) body.tool_choice = opts.tool_choice;
-  if (opts.max_tokens) body.max_tokens = opts.max_tokens;
+  if (opts.max_tokens) {
+    if (model.startsWith("gpt-5")) body.max_completion_tokens = opts.max_tokens;
+    else body.max_tokens = opts.max_tokens;
+  }
   if (opts.temperature !== undefined) body.temperature = opts.temperature;
 
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
