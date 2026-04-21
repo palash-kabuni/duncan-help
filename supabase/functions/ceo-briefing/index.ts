@@ -102,7 +102,7 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
       "confidence": number,
       "probability_impact_pts": number
     }],
-    "friction": [{"issue": string, "teams": string[], "consequence": string}],
+    "friction": [{"issue": string, "teams": string[], "consequence": string, "evidence_source": "workstream_card"|"meeting"|"email"|"coverage_gap"|"silent_leader"|"doc_conflict", "recommended_resolver": string, "auto_injected": boolean}],
     "leadership": [{"name": string, "role": string, "output_vs_expectation": string, "risk_level": "low"|"medium"|"high", "blocking": string, "needs_support": string, "ceo_intervention_required": boolean, "signal_status": "active"|"low_signal"|"silent", "evidence_sources": [string]}],
     "watchlist": [{"workstream": string, "owner": string, "status": string, "good_looks_like": string, "missing": string, "data_blind_spot": string|null}],
     "decisions": [{"decision": string, "why_it_matters": string, "consequence": string, "who_to_involve": string, "confidence": "high"|"medium"|"low", "blocked_by_missing_data": string|null}],
