@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Upload, AlertTriangle, CheckCircle2, MinusCircle, FileText } from "lucide-react";
+import { Upload, AlertTriangle, CheckCircle2, MinusCircle, FileText, ShoppingBag, MapPin, Zap } from "lucide-react";
 import { useState } from "react";
 
 export type DocumentIntelligenceEntry = {
@@ -13,6 +13,29 @@ export type DocumentIntelligenceEntry = {
   contradicted_by?: string[];
   reinforced_by?: string[];
   critical_gaps_to_fix?: string[];
+};
+
+export type MissingArtifact = {
+  name: string;
+  why_duncan_needs_it?: string;
+  what_it_unlocks?: string;
+  where_to_find_it?: string;
+  suggested_filename_pattern?: string;
+  blast_radius?: string[];
+};
+
+export type MissingArtifactsRecommendation = {
+  domain: string;
+  priority: "critical" | "high" | "medium" | "low";
+  artifacts: MissingArtifact[];
+};
+
+export type MissingArtifactsSummary = {
+  total: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
 };
 
 export type DataCoverageDomain = {
