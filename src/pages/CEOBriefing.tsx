@@ -12,6 +12,7 @@ import { useCEOBriefing, type BriefingType } from "@/hooks/useCEOBriefing";
 import PulseBanner from "@/components/ceo/PulseBanner";
 import RiskRadar from "@/components/ceo/RiskRadar";
 import LeadershipGrid from "@/components/ceo/LeadershipGrid";
+import TldrPanel from "@/components/ceo/TldrPanel";
 
 const Section = ({ n, title, children }: { n: number; title: string; children: React.ReactNode }) => (
   <section className="space-y-3">
@@ -85,6 +86,43 @@ const CEOBriefing = () => {
               executionScore={briefing.execution_score ?? 0}
               executionDelta={execDelta}
             />
+
+            {type === "morning" && p.tldr && <TldrPanel tldr={p.tldr} />}
+
+            {type === "morning" && Array.isArray(briefing.workstream_scores) && briefing.workstream_scores.length > 0 && (
+              <Section n={0} title="Workstream Scorecard">
+                <div className="rounded-lg border border-border bg-card overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/50">
+                      <tr className="text-left">
+                        <th className="px-3 py-2 font-mono uppercase tracking-wider">Workstream</th>
+                        <th className="px-3 py-2 font-mono uppercase tracking-wider">Prog</th>
+                        <th className="px-3 py-2 font-mono uppercase tracking-wider">Conf</th>
+                        <th className="px-3 py-2 font-mono uppercase tracking-wider">Risk</th>
+                        <th className="px-3 py-2 font-mono uppercase tracking-wider">Framework axes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(briefing.workstream_scores as any[]).map((w, i) => (
+                        <tr key={i} className="border-t border-border align-top">
+                          <td className="px-3 py-2 text-foreground font-medium">{w.name}</td>
+                          <td className="px-3 py-2 tabular-nums text-foreground">{w.progress ?? "—"}</td>
+                          <td className="px-3 py-2 tabular-nums text-foreground">{w.confidence ?? "—"}</td>
+                          <td className="px-3 py-2 tabular-nums text-foreground">{w.risk ?? "—"}</td>
+                          <td className="px-3 py-2 text-muted-foreground space-y-1">
+                            {w.progress_vs_goal && <div><span className="font-mono text-[10px] uppercase">Goal:</span> {w.progress_vs_goal}</div>}
+                            {w.execution_quality && <div><span className="font-mono text-[10px] uppercase">Exec:</span> {w.execution_quality}</div>}
+                            {w.commercial_impact && <div><span className="font-mono text-[10px] uppercase">$:</span> {w.commercial_impact}</div>}
+                            {w.dependency_strength && <div><span className="font-mono text-[10px] uppercase">Deps:</span> {w.dependency_strength}</div>}
+                            {w.evidence && <div className="text-[11px] italic">{w.evidence}</div>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Section>
+            )}
 
             {type === "morning" ? (
               <>
