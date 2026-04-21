@@ -855,6 +855,24 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       if (!aiPulse || !startsWithStatus) {
         parsed.payload.company_pulse = `${label.toUpperCase()} — ${reason}`;
       }
+
+      // Force brutal_truth + tldr.where_to_act to mention worst critical-red domain.
+      const worst = data_coverage_audit.worst_red_domain;
+      if (worst && data_coverage_audit.critical_reds.length > 0) {
+        const bt = typeof parsed.payload.brutal_truth === "string" ? parsed.payload.brutal_truth.trim() : "";
+        const mentionsDomain = bt.toLowerCase().includes(worst.label.toLowerCase());
+        if (!bt || !mentionsDomain) {
+          parsed.payload.brutal_truth = `${bt ? bt + " " : ""}Duncan is flying blind on ${worst.label} — no data exists for it, so any confidence projected here is theatre, not analysis.`;
+        }
+        parsed.payload.tldr = parsed.payload.tldr || {};
+        const wta = typeof parsed.payload.tldr.where_to_act === "string" ? parsed.payload.tldr.where_to_act.trim() : "";
+        const mentionsUpload = wta.toLowerCase().includes(worst.label.toLowerCase());
+        if (!wta || !mentionsUpload) {
+          parsed.payload.tldr.where_to_act = `${wta ? wta + " " : ""}${worst.recommendation || `Upload ${worst.label} documents to /projects to remove this blind spot.`}`;
+        }
+      }
+        parsed.payload.company_pulse = `${label.toUpperCase()} — ${reason}`;
+      }
     }
 
     const briefing_date = new Date().toISOString().slice(0, 10);
