@@ -1040,6 +1040,18 @@ Deno.serve(async (req) => {
 
     // ─── Hybrid async: create a job row, then run the heavy pipeline in the
     // background. Return immediately so the client can poll ceo-briefing-status.
+
+    // Sweep stale in-flight jobs for this user (>5 min, non-terminal). The worker
+    // can die silently on a runtime crash; without this they sit "synthesising"
+    // forever and the next /generate appears to hang at the same percentage.
+    const staleCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    await admin
+      .from("ceo_briefing_jobs")
+      .update({ status: "failed", error: "Worker timed out (>5min, no completion)", phase: "Failed" })
+      .eq("user_id", userId)
+      .in("status", ["queued", "gathering", "synthesising"])
+      .lt("updated_at", staleCutoff);
+
     const { data: jobRow, error: jobErr } = await admin
       .from("ceo_briefing_jobs")
       .insert({
