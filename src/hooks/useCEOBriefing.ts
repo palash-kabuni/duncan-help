@@ -72,16 +72,21 @@ export const useCEOBriefing = (type: BriefingType) => {
           body: { job_id: jobId },
         });
         if (error) throw error;
-        if (data?.error) throw new Error(data.error);
+
+        const status = data?.status as JobState["status"] | undefined;
+        const jobError = typeof data?.error === "string" ? data.error : null;
+        if (!status) {
+          throw new Error(jobError || "Invalid status response from briefing job");
+        }
 
         setJob({
           jobId,
-          status: data.status,
-          progress: data.progress ?? 0,
-          phase: data.phase ?? "",
+          status,
+          progress: data?.progress ?? 0,
+          phase: data?.phase ?? "",
         });
 
-        if (data.status === "completed") {
+        if (status === "completed") {
           clearPoll();
           await load();
           toast.success("Briefing generated");
@@ -89,9 +94,9 @@ export const useCEOBriefing = (type: BriefingType) => {
           setJob(null);
           return;
         }
-        if (data.status === "failed") {
+        if (status === "failed") {
           clearPoll();
-          toast.error(data.error || "Briefing generation failed");
+          toast.error(jobError || "Briefing generation failed");
           setGenerating(false);
           setJob(null);
           return;
