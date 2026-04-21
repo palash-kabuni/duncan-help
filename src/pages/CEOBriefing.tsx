@@ -378,50 +378,82 @@ const CEOBriefing = () => {
                 </Section>
 
                 <Section n={9} title="Decisions the CEO Must Make">
-                  <div className="space-y-3">
-                    {(p.decisions || []).slice(0, 3).map((d: any, i: number) => {
-                      const conf = (d.confidence || "").toLowerCase();
-                      const confClass =
-                        conf === "high"
-                          ? "border-green-500/40 text-green-600 dark:text-green-400"
-                          : conf === "medium"
-                          ? "border-yellow-500/40 text-yellow-600 dark:text-yellow-400"
-                          : conf === "low"
-                          ? "border-red-500/40 text-red-600 dark:text-red-400"
-                          : "border-border text-muted-foreground";
+                  {(() => {
+                    const decisions = (p.decisions || []) as any[];
+                    const trajectory = String(b.trajectory || "").toLowerCase();
+                    const isGreen = trajectory.includes("on track");
+                    if (decisions.length === 0) {
                       return (
-                        <div key={i} className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-2">
-                          <div className="flex items-start justify-between gap-3">
-                            <h4 className="text-sm font-semibold text-foreground">{i + 1}. {d.decision}</h4>
-                            {conf && (
-                              <Badge variant="outline" className={`text-[10px] font-mono uppercase shrink-0 ${confClass}`}>
-                                {conf} confidence
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground">{d.why_it_matters}</p>
-                          {d.consequence && <p className="text-xs text-red-500">If ignored 7d: {d.consequence}</p>}
-                          {d.who_to_involve && <p className="text-[11px] font-mono text-muted-foreground">Involve: {d.who_to_involve}</p>}
-                          {d.blocked_by_missing_data && (
-                            <div className="mt-2 rounded border border-amber-500/40 bg-amber-500/5 p-2.5 flex items-start gap-2">
-                              <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                              <div className="flex-1 space-y-1.5">
-                                <p className="text-[11px] text-amber-700 dark:text-amber-300">
-                                  <span className="font-semibold">Decide blind?</span> {d.blocked_by_missing_data}
-                                </p>
-                                <Link
-                                  to="/projects"
-                                  className="text-[11px] font-mono text-primary hover:underline inline-flex items-center gap-1"
-                                >
-                                  Upload to fix →
-                                </Link>
-                              </div>
-                            </div>
-                          )}
+                        <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4 text-xs text-muted-foreground">
+                          {isGreen
+                            ? "No CEO-grade decisions outstanding — trajectory is on track and all priorities have accountable owners."
+                            : "Duncan could not detect any CEO-grade decisions from coverage gaps, risks, friction, email or leader signals — verify visibility into priorities and inboxes."}
                         </div>
                       );
-                    })}
-                  </div>
+                    }
+                    return (
+                      <div className="space-y-3">
+                        {decisions.slice(0, 3).map((d: any, i: number) => {
+                          const conf = (d.confidence || "").toLowerCase();
+                          const confClass =
+                            conf === "high"
+                              ? "border-green-500/40 text-green-600 dark:text-green-400"
+                              : conf === "medium"
+                              ? "border-yellow-500/40 text-yellow-600 dark:text-yellow-400"
+                              : conf === "low"
+                              ? "border-red-500/40 text-red-600 dark:text-red-400"
+                              : "border-border text-muted-foreground";
+                          const isAuto = !!d.auto_injected;
+                          const cardClass = isAuto
+                            ? "rounded-lg border border-l-4 border-l-amber-500/60 border-primary/30 bg-primary/5 p-4 space-y-2"
+                            : "rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-2";
+                          return (
+                            <div key={i} className={cardClass}>
+                              <div className="flex items-start justify-between gap-3 flex-wrap">
+                                <h4 className="text-sm font-semibold text-foreground flex-1 min-w-0">{i + 1}. {d.decision}</h4>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {isAuto && (
+                                    <Badge variant="outline" className="text-[10px] font-mono uppercase border-amber-500/40 text-amber-600 dark:text-amber-400">
+                                      Auto-flagged
+                                    </Badge>
+                                  )}
+                                  {d.evidence_source && (
+                                    <Badge variant="outline" className="text-[10px] font-mono uppercase border-border text-muted-foreground">
+                                      {String(d.evidence_source).replace(/_/g, " ")}
+                                    </Badge>
+                                  )}
+                                  {conf && (
+                                    <Badge variant="outline" className={`text-[10px] font-mono uppercase ${confClass}`}>
+                                      {conf} confidence
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                              <p className="text-xs text-muted-foreground">{d.why_it_matters}</p>
+                              {d.consequence && <p className="text-xs text-red-500">If ignored 7d: {d.consequence}</p>}
+                              {d.who_to_involve && <p className="text-[11px] font-mono text-muted-foreground">Involve: {d.who_to_involve}</p>}
+                              {d.blocked_by_missing_data && (
+                                <div className="mt-2 rounded border border-amber-500/40 bg-amber-500/5 p-2.5 flex items-start gap-2">
+                                  <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                                  <div className="flex-1 space-y-1.5">
+                                    <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                                      <span className="font-semibold">Decide blind?</span> {d.blocked_by_missing_data}
+                                    </p>
+                                    <Link
+                                      to="/projects"
+                                      className="text-[11px] font-mono text-primary hover:underline inline-flex items-center gap-1"
+                                    >
+                                      Upload to fix →
+                                    </Link>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </Section>
 
                 <Section n={10} title="Automation Progress">
