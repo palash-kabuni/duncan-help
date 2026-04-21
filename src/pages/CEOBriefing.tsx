@@ -13,6 +13,7 @@ import PulseBanner from "@/components/ceo/PulseBanner";
 import RiskRadar from "@/components/ceo/RiskRadar";
 import LeadershipGrid from "@/components/ceo/LeadershipGrid";
 import TldrPanel from "@/components/ceo/TldrPanel";
+import CoverageGaps from "@/components/ceo/CoverageGaps";
 
 const Section = ({ n, title, children }: { n: number; title: string; children: React.ReactNode }) => (
   <section className="space-y-3">
