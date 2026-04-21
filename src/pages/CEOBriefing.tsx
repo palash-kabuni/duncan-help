@@ -86,15 +86,19 @@ const CEOBriefing = () => {
               probabilityDelta={probDelta}
               executionScore={briefing.execution_score ?? 0}
               executionDelta={execDelta}
+              coverageRatio={p.coverage_summary?.ratio ?? null}
+              coverageCovered={p.coverage_summary?.covered ?? null}
+              coverageTotal={p.coverage_summary?.total ?? null}
+              confidenceWarning={p.confidence_warning?.reason ?? null}
             />
 
             {type === "morning" && p.tldr && <TldrPanel tldr={p.tldr} />}
 
             {type === "morning" && (
-              <CoverageGaps gaps={p.coverage_gaps} totalPriorities={6} />
+              <CoverageGaps gaps={p.coverage_gaps} totalPriorities={6} summary={p.coverage_summary} />
             )}
 
-            {type === "morning" && Array.isArray(briefing.workstream_scores) && briefing.workstream_scores.length === 0 && (
+            {type === "morning" && Array.isArray(p.available_workstreams) && p.available_workstreams.length === 0 && (
               <div className="rounded-lg border border-dashed border-border bg-card p-6 text-center">
                 <p className="text-sm text-muted-foreground">
                   No workstreams configured in Duncan — add cards under{" "}

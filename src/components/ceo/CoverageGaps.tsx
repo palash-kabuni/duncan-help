@@ -11,23 +11,41 @@ interface CoverageGap {
   recommended_workstream_name?: string;
 }
 
+interface CoverageSummary {
+  covered: number;
+  total: number;
+  ratio: number;
+  covered_priorities?: { priority: string; matched_workstream: string | null }[];
+  missing_priorities?: string[];
+}
+
 interface Props {
   gaps?: CoverageGap[];
   totalPriorities?: number;
+  summary?: CoverageSummary;
 }
 
-const CoverageGaps = ({ gaps, totalPriorities = 6 }: Props) => {
+const CoverageGaps = ({ gaps, totalPriorities = 6, summary }: Props) => {
   const list = Array.isArray(gaps) ? gaps : [];
+  const total = summary?.total ?? totalPriorities;
+  const covered = summary?.covered ?? (total - list.length);
+  const ratioPct = Math.round(((summary?.ratio ?? covered / total) * 100));
+  const fullyCovered = covered === total && list.length === 0;
 
-  if (list.length === 0) {
+  if (fullyCovered) {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-4 py-2.5">
         <ShieldCheck className="h-4 w-4 text-emerald-500" />
         <p className="text-xs font-medium text-foreground">
-          All {totalPriorities} 2026 priorities have an active workstream.
+          All {total} 2026 priorities have an active workstream.
         </p>
       </div>
     );
+  }
+
+  if (list.length === 0) {
+    // Defensive: no gaps array but not fully covered — show neutral state.
+    return null;
   }
 
   return (
@@ -35,7 +53,7 @@ const CoverageGaps = ({ gaps, totalPriorities = 6 }: Props) => {
       <div className="flex items-center gap-2">
         <AlertTriangle className="h-4 w-4 text-destructive" />
         <h3 className="text-sm font-semibold text-foreground">
-          Coverage Gaps — {list.length} of {totalPriorities} priorities have NO workstream
+          Coverage Gaps — {list.length} of {total} priorities have NO workstream ({ratioPct}% covered)
         </h3>
       </div>
 
