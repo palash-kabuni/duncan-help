@@ -1,63 +1,60 @@
 
 
 ## Goal
-Add a **Lovable Contributors leaderboard** to Section 07 (Duncan Adoption & Automation) on the Team Briefing, ranking Kabuni members by commits and lines changed in `kabuni/duncan` over the last 30 days.
+Show a **Lovable Contributors** leaderboard in Section 07 of the Team Briefing. You drop the Lovable People-page screenshot directly into the chat (no upload UI in the briefing); Duncan parses it with vision and stores the rows.
 
-## Approach
-GitHub commits are the only honest proxy for "who shipped what via Lovable" — Lovable does not expose per-user credit/token data. Lovable-originated commits land under a single bot author; direct IDE commits land under each developer's GitHub email. Both are surfaced.
+## How it works
+1. In any chat, you paste/attach the Lovable People screenshot and say something like *"refresh Lovable contributors"*.
+2. Duncan recognises this via a new tool `update_lovable_contributors` in `norman-chat`.
+3. The tool sends the attached image to the vision LLM (Claude Sonnet 4.5 via the shared router) with a strict JSON schema → rows of `{name, role, period_credits, total_credits, credit_limit}`.
+4. Rows are written to a new `lovable_usage_snapshots` table, dated today.
+5. Section 07 renders the most recent snapshot as a ranked leaderboard, captioned *"As of {date} · parsed from Lovable People page"*.
+6. Re-running with a new screenshot creates a new dated snapshot; the card always shows the latest.
+
+No upload button in the UI. No new bucket. Image flows through the existing chat multimodal path.
 
 ## Changes
 
-### 1. Connect GitHub + add secret
-- Direct user to **Connectors → GitHub → Connect** to link the Duncan repo (`kabuni/duncan`).
-- Add a runtime secret `GITHUB_TOKEN` (PAT with `repo:read` scope) for REST API auth, since GitHub is not in the gateway connector list. Repo path is hardcoded to `kabuni/duncan` (no env vars needed — single known repo).
-
-### 2. Server: `gatherGithubContributors()` in `supabase/functions/ceo-briefing/index.ts`
-Run in parallel with existing `automation_leverage` gather. For the last 30 days:
-
-- `GET /repos/kabuni/duncan/commits?since=<iso>&per_page=100` — paginate up to 5 pages (cap 500 commits).
-- Aggregate per author email: `commits` count.
-- For top 10 authors by commit count, fetch detail commits (`GET /commits/{sha}`) — capped at 50 detail calls total — to sum `additions` + `deletions`. Remaining authors show commits only with `lines_changed: null`.
-- Map `commit.author.email` → Kabuni profile via case-insensitive match against `auth.users.email` (joined through `profiles.user_id`). Unmapped → fallback to GitHub `login` with `is_kabuni: false`.
-- Collapse all non-Kabuni authors (bots, externals) into one `"Other contributors"` row.
-- Return `{ contributors, window_days: 30, total_commits, fetched_at }`.
-
-After LLM parse, write to `parsed.payload.github_activity`. Wrap in try/catch — failure logs `briefing_warnings.push("github_activity_failed: …")` and skips the block. If `GITHUB_TOKEN` missing, return `{ unavailable: true, reason: "not_connected" }`.
-
-### 3. Frontend: leaderboard card in `src/pages/CEOBriefing.tsx`
-Insert below "Top 3 power users" in Section 07:
-
+### 1. New table `lovable_usage_snapshots`
 ```
-LOVABLE CONTRIBUTORS · last 30d
-────────────────────────────────────────
-{total_commits} commits · {N} contributors
-
-Name                  Commits   +/- lines
-────────────────────────────────────────
-Nimesh Patel             42     +3,210 / −812
-Palash Soundarkar        18     +1,540 / −204
-Lovable bot              97     +8,420 / −2,103
-…
-Other contributors        9          —
+id              uuid pk
+snapshot_date   date
+member_name     text
+role            text
+period_credits  int
+period_label    text         -- e.g. "Apr usage"
+total_credits   int
+credit_limit    int nullable
+created_by      uuid → auth.users
+created_at      timestamptz
 ```
+RLS: any authenticated Kabuni user can `select`; only admins (`has_role(auth.uid(),'admin')`) can `insert/delete`.
 
-- Styling matches existing cards: `rounded-lg border border-border bg-card p-4`, `font-mono tabular-nums` for numbers.
-- Kabuni rows highlighted with subtle accent; bot/external rows muted.
-- Empty/unavailable state: muted message *"GitHub not connected — link kabuni/duncan via Connectors → GitHub and add a `GITHUB_TOKEN` secret to enable this leaderboard."*
+### 2. New tool `update_lovable_contributors` in `supabase/functions/norman-chat/index.ts`
+- Triggered when the user attaches an image and asks to refresh Lovable contributors (admin-only; non-admins get a polite refusal).
+- Sends the attached image to the vision LLM with a strict JSON-row schema.
+- Validates rows (drop any missing `name` or `period_credits`).
+- Inserts rows into `lovable_usage_snapshots` with today's date.
+- Replies with a short confirmation: *"Saved {N} contributors as of {date}."*
 
-### 4. Caching
-None needed — one briefing run uses ~10–20 GitHub API calls, well under the 5,000/hr authenticated limit.
+### 3. New component `src/components/ceo/LovableContributorsCard.tsx`
+- Fetches the latest `snapshot_date` and its rows, sorted by `period_credits` desc.
+- Renders a ranked table (mono, tabular-nums, matching Section 07): Rank · Name · Role · Period credits · Total credits.
+- Caption: *"As of {snapshot_date} · parsed from Lovable People page in chat"*.
+- Empty state: *"No Lovable usage snapshot yet. Paste the Lovable → Project settings → People screenshot in chat and ask Duncan to refresh."*
+- Read-only — no edit/upload controls.
+
+### 4. Mount in `src/pages/CEOBriefing.tsx`
+Insert the card in Section 07, directly under "Top 3 power users". No changes to the `ceo-briefing` Edge Function — this data is independent of the LLM-generated payload.
 
 ## Out of scope
-- Lovable per-user credit/token consumption (no API exists).
-- Splitting Lovable-bot commits back to the prompting user (Lovable doesn't tag this).
-- Per-PR or per-file breakdowns.
+- GitHub commits leaderboard (deferred until PAT is supplied).
+- Trend/sparkline across snapshots (data captured for it; UI later).
+- Auto-mapping Lovable names to Kabuni `profiles` (kept as plain text).
 
 ## Files touched
-- `supabase/functions/ceo-briefing/index.ts` — add `gatherGithubContributors()`, post-parse overwrite.
-- `src/pages/CEOBriefing.tsx` — new leaderboard card in Section 07.
-
-## Required from you before implementation
-1. Link GitHub via **Connectors → GitHub** to `kabuni/duncan`.
-2. Approve the `GITHUB_TOKEN` secret request (PAT with `repo:read`).
+- New migration: `lovable_usage_snapshots` + RLS policies.
+- Edit: `supabase/functions/norman-chat/index.ts` — add `update_lovable_contributors` tool.
+- New: `src/components/ceo/LovableContributorsCard.tsx`.
+- Edit: `src/pages/CEOBriefing.tsx` — mount card in Section 07.
 
