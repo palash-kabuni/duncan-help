@@ -264,6 +264,8 @@ DATA RULES:
 - Pressure Rule: if drifting or at risk → increase urgency, make consequences explicit, never normalise underperformance.
 - If data is weak → LOWER confidence and say so explicitly.
 - WORKSTREAM INTEGRITY: only score workstreams that exist in available_workstreams. Never fabricate. If a 2026 priority has no workstream, surface it as a coverage_gap — that gap is itself the most important signal.
+- RESPONSE DISCIPLINE: return compact, valid JSON only. Keep every prose field to 1-2 sentences. Prefer the shortest wording that preserves meaning.
+- ARRAY BUDGETS: cap workstream_scores to the provided workstreams only; cap risks to 6, friction to 5, leadership to 8, watchlist to 8, decisions to 6, document_intelligence to 6, missing_artifacts_recommendations domains to 5 with max 2 artifacts each.
 
 ANALYTICAL FRAMEWORK (apply to every workstream):
 1. Progress vs company goals
@@ -1673,7 +1675,39 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
 
     await updateJob({ status: "synthesising", phase: "Synthesising briefing", progress: 55 });
 
+    const parseBriefingJson = (aiData: any) => {
+      const raw = aiData?.choices?.[0]?.message?.content ?? "{}";
+      const finishReason = aiData?.choices?.[0]?.finish_reason;
+      const cleaned = raw
+        .trim()
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/```\s*$/i, "")
+        .trim();
+      try {
+        return JSON.parse(cleaned);
+      } catch {
+        if (finishReason === "length") {
+          const err: any = new Error(
+            `Model output truncated at max_tokens — retry with compact mode. Last 200 chars: ${cleaned.slice(-200)}`,
+          );
+          err.code = "MODEL_TRUNCATED";
+          throw err;
+        }
+        throw new Error(`Invalid JSON from model (finish=${finishReason}): ${cleaned.slice(0, 300)}`);
+      }
+    };
+
+    const compactPromptSuffix = `
+
+COMPACT MODE (MANDATORY FOR THIS RUN):
+- Keep all required keys, but minimise prose aggressively.
+- Return at most 4 workstream_scores if available_workstreams exceeds 4: prioritise non-green workstreams first, then the most strategic remaining ones.
+- Return at most 4 risks, 4 friction items, 5 leadership rows, 6 watchlist rows, 5 decisions, 3 document_intelligence rows, and 3 missing_artifacts_recommendations domains with max 2 artifacts each.
+- For low-value narrative fields, use a single short sentence.
+- Do not use markdown fences.`;
+
     let aiData: any;
+    let parsed: any;
     try {
       aiData = await callLLMWithFallback({
         workflow: "ceo-briefing",
@@ -1682,38 +1716,34 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
         ],
-        // temperature omitted — GPT-5 fallback only supports default (1) and
-        // Sonnet 4.5 produces structurally cleaner JSON without an explicit value.
-        // 8192 tokens needed: full workstream_scores + risks + tldr + coverage_gaps
-        // routinely exceed 4k and were causing mid-JSON truncation ("Invalid JSON from model").
         max_tokens: 8192,
       });
+      parsed = parseBriefingJson(aiData);
     } catch (err: any) {
-      console.error("LLM error:", err?.status, err?.message);
-      throw new Error(`AI generation failed: ${String(err?.message || "").slice(0, 300)}`);
+      if (err?.code === "MODEL_TRUNCATED") {
+        await updateJob({ phase: "Retrying compact briefing", progress: 68 });
+        try {
+          aiData = await callLLMWithFallback({
+            workflow: "ceo-briefing",
+            response_format: { type: "json_object" },
+            messages: [
+              { role: "system", content: SYSTEM_PROMPT },
+              { role: "user", content: `${userPrompt}${compactPromptSuffix}` },
+            ],
+            max_tokens: 6144,
+          });
+          parsed = parseBriefingJson(aiData);
+        } catch (retryErr: any) {
+          console.error("LLM compact retry error:", retryErr?.status, retryErr?.message);
+          throw new Error(`AI generation failed: ${String(retryErr?.message || "").slice(0, 300)}`);
+        }
+      } else {
+        console.error("LLM error:", err?.status, err?.message);
+        throw new Error(`AI generation failed: ${String(err?.message || "").slice(0, 300)}`);
+      }
     }
 
     await updateJob({ phase: "Applying guardrails", progress: 80 });
-
-    const raw = aiData?.choices?.[0]?.message?.content ?? "{}";
-    const finishReason = aiData?.choices?.[0]?.finish_reason;
-    // Strip markdown code fences if the model wrapped its JSON output.
-    const cleaned = raw
-      .trim()
-      .replace(/^```(?:json)?\s*/i, "")
-      .replace(/```\s*$/i, "")
-      .trim();
-    let parsed: any;
-    try { parsed = JSON.parse(cleaned); }
-    catch (e) {
-      // Detect output-cap truncation explicitly so the next run can be tuned.
-      if (finishReason === "length") {
-        throw new Error(
-          `Model output truncated at max_tokens — increase the cap. Last 200 chars: ${cleaned.slice(-200)}`,
-        );
-      }
-      throw new Error(`Invalid JSON from model (finish=${finishReason}): ${cleaned.slice(0, 300)}`);
-    }
 
     // ─── Server-side guardrails ─────────────────────────────────
     // 1. Workstream scores: strip fabrications, force baseline RAG, backfill missing, clamp green-vs-red.
