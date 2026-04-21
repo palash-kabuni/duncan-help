@@ -1,78 +1,92 @@
 
 
-## Duncan CEO Operating System — Implementation Plan (v2)
+## CEO Operating System — Coverage Audit & Tightening Plan
 
-Transforms Duncan into a CEO-grade decision engine. **Access is locked to `nimesh@kabuni.com` exclusively** — not admins, not leadership, not other execs.
+### What's already covered ✅
 
-### Access control (locked)
+| Prompt section | Status | Where |
+|---|---|---|
+| Identity (decision engine, not summariser) | ✅ | `ceo-briefing` system prompt + `norman-chat` CEO mode |
+| 6 Non-Negotiable 2026 Priorities | ✅ | Both prompts, verbatim |
+| Org map (8 leaders) | ✅ | Both prompts |
+| Decision/Escalation logic | ✅ | `norman-chat` CEO block |
+| Truth Over Narrative | ✅ | Both |
+| Illusion Detection | ✅ | Both |
+| Pattern Recognition (today vs prior) | ✅ | Both — previous_briefing row injected |
+| Pressure Rule | ✅ | Both |
+| Outcome Probability (% + movement) | ✅ | `outcome_probability` field + delta vs prev |
+| Scoring system (Progress/Confidence/Risk + Exec Score) | ✅ | `workstream_scores` + `execution_score` |
+| 11-section morning briefing | ✅ | All 11 fields in MORNING_SCHEMA_HINT |
+| 6-section evening briefing | ✅ | EVENING_SCHEMA_HINT |
+| Nimesh-only access | ✅ | RLS + edge function + route guard |
+| Persistent scoring history | ✅ | `ceo_briefings` table |
 
-- `/ceo` route + sidebar entry are gated by an email check: `user.email === 'nimesh@kabuni.com'`.
-- `ceo-briefing` Edge Function validates the JWT and rejects any caller whose email is not `nimesh@kabuni.com` (returns 403).
-- `ceo_briefings` table RLS: SELECT/INSERT only when `auth.jwt() ->> 'email' = 'nimesh@kabuni.com'`.
-- The CEO-mode prompt layer in `norman-chat` only activates when the requesting user's email is `nimesh@kabuni.com`. All other users see Duncan's normal behaviour unchanged.
+### Gaps vs final prompt — needs tightening 🔧
 
-If Nimesh's email ever changes or a second exec needs access, it's a one-line constant update in three places (route guard, edge function, RLS policy).
+The current implementation works but is **lighter than the final prompt demands**. Five gaps to close:
 
-### What gets built
+**1. Data ingestion is incomplete.** Final prompt requires emails, Slack, CRM, financial, and "Duncan system logs". Current edge function pulls 11 sources but **misses**:
+- Recent Gmail messages (emails in/out last 24h for Nimesh)
+- Slack activity (we have the connector — currently unused for briefing)
+- Token usage stats (Duncan system logs / automation footprint)
+- Xero financial data (we sync it but don't feed it in)
+- Integration audit logs (system health signal)
 
-1. **CEO mode prompt layer** (Nimesh-only) injected into `norman-chat`: company priorities, org accountability map, Truth-Over-Narrative, scoring contract.
-2. **`/ceo` page** — single-user dashboard rendering the 11-section morning briefing + 6-section evening variant.
-3. **`ceo-briefing` Edge Function** — pulls 24h of data (meetings, workstreams, Azure work items, releases, hiring, POs, sync logs), sends one structured prompt to gpt-4o, returns strict JSON.
-4. **`ceo_briefings` table** — persists daily scores so "what moved probability up/down" uses real deltas vs yesterday.
+**2. Analytical Framework dimensions not enforced.** Prompt mandates evaluation against six axes (Progress vs goals, Execution quality, Risk exposure, Commercial impact, Dependency strength, Cross-functional alignment). Current schema doesn't ask for these explicitly per workstream.
 
-### Page layout
+**3. Risk Radar severity uses 4 levels but prompt says severity + confidence are both mandatory** — already there, but the prompt also wants 7d/30d/90d **as separate quantified impacts**, not loose strings. Current schema has them as `string`; tightening to short structured statements.
 
-```text
-┌────────────────────────────────────────────────────┐
-│ CEO Briefing — 21 Apr 2026   [Morning|Evening] [↻]│
-├────────────────────────────────────────────────────┤
-│ Trajectory · Probability % (Δ) · Exec Score /100  │
-├────────────────────────────────────────────────────┤
-│ 1. Company Pulse                                   │
-│ 2. Outcome Probability (June 7)                    │
-│ 3. Execution Score                                 │
-│ 4. What Changed Yesterday (6 function tabs)        │
-│ 5. Strategic Risk Radar (top 5)                    │
-│ 6. Cross-Functional Friction                       │
-│ 7. Leadership Performance Assessment               │
-│ 8. Accountability Watchlist                        │
-│ 9. Decisions the CEO Must Make (top 3)             │
-│ 10. Automation Progress                            │
-│ 11. One Brutal Truth                               │
-└────────────────────────────────────────────────────┘
-```
+**4. Final Instruction question-answer framing missing.** Prompt ends with "Are we on track / What will break / Where must I act". The morning briefing should explicitly answer those three at the top, before Section 1, as a TL;DR. Currently absent.
 
-### Database
+**5. CEO mode in `norman-chat` doesn't enforce the Analytical Framework or Final Instruction.** It has the rules block but no explicit response shape for ad-hoc questions.
+
+### What this plan changes
 
 ```text
-ceo_briefings
-  id, briefing_date, briefing_type ('morning'|'evening'),
-  trajectory, outcome_probability, execution_score,
-  workstream_scores jsonb, payload jsonb,
-  generated_by uuid, created_at
-  unique(briefing_date, briefing_type)
+EDIT supabase/functions/ceo-briefing/index.ts
+  - Add Gmail (last 24h subject/from/snippet for nimesh@kabuni.com) via service-role read of gmail_messages
+  - Add Slack signal (recent slack_messages if table exists; else skip gracefully)
+  - Add token_usage (last 24h aggregate — automation footprint)
+  - Add xero_invoices / xero_bills (financial pulse, last 24h)
+  - Add integration_audit_logs (system health)
+  - Tighten MORNING_SCHEMA_HINT:
+      • Add top-level "tldr": { "on_track": string, "what_will_break": string, "where_to_act": string }
+      • Add per-workstream: progress_vs_goal, execution_quality, commercial_impact, dependency_strength
+      • Risks 7d/30d/90d become structured: { window, impact, mitigation }
+  - Strengthen system prompt: include full Analytical Framework + Final Instruction verbatim
+  - Add explicit "If data is weak, lower confidence and say so" reminder
+  - Bump context cap from 60k → 120k chars to fit added sources
 
-RLS: SELECT + INSERT only when auth.jwt()->>'email' = 'nimesh@kabuni.com'
+EDIT supabase/functions/norman-chat/index.ts (CEO block only)
+  - Append Analytical Framework (6 axes)
+  - Append Final Instruction (3 questions Duncan must answer)
+  - Add response shape rule: every CEO answer ends with "On track? · What breaks? · Where to act?"
+
+EDIT src/pages/CEOBriefing.tsx
+  - Render new "TL;DR" panel above Section 1 (3 bold answers)
+  - Show new analytical-framework fields under each workstream score row
+
+EDIT src/components/ceo/RiskRadar.tsx
+  - Render structured 7d/30d/90d (window · impact · mitigation) instead of free text
+
+NEW   src/components/ceo/TldrPanel.tsx
+  - Three-question executive header
+
+EDIT mem://features/ceo-operating-system.md
+  - Note: CEO mode now enforces Analytical Framework + Final Instruction shape
 ```
 
-### Files
+### What stays out of scope
 
-```text
-NEW  supabase/functions/ceo-briefing/index.ts
-NEW  supabase/migrations/<ts>_ceo_briefings.sql
-NEW  src/pages/CEOBriefing.tsx
-NEW  src/hooks/useCEOBriefing.ts
-NEW  src/components/ceo/{PulseBanner,RiskRadar,LeadershipGrid,ScoreGauge}.tsx
-NEW  src/lib/ceoAccess.ts            (single source of truth: CEO_EMAIL constant)
-EDIT src/App.tsx                     (guarded /ceo route)
-EDIT src/components/Sidebar.tsx      (entry shown only if email matches)
-EDIT supabase/functions/norman-chat/index.ts  (CEO prompt layer, email-gated)
-NEW  mem://features/ceo-operating-system
-```
+- Cron auto-generation (morning 07:00 UTC, evening 19:00 UTC) + Slack DM to Nimesh
+- PDF export
+- 30-day probability trend chart
+- Email/Slack ingestion for non-CEO users (Nimesh-only by design)
 
-### Out of scope (next steps if wanted)
+### Technical notes
 
-- Automated morning (07:00 UTC) + evening (19:00 UTC) cron with Slack DM to Nimesh.
-- PDF export of briefing.
-- 30-day probability trend chart.
+- All new data sources read with service-role inside the edge function — RLS unaffected.
+- If `gmail_messages` / `xero_invoices` / `slack_messages` tables don't exist or are empty for Nimesh, the function degrades silently (returns `[]` for that source) — no breaking change.
+- Token cost rises ~30% per briefing due to richer context; gpt-4o handles 128k context comfortably.
+- No DB migration needed — schema additions are inside `payload jsonb`.
 
