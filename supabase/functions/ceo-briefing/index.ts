@@ -261,6 +261,8 @@ Deno.serve(async (req) => {
       slackLogs, tokenUsage, xeroInvoices, xeroContacts, auditLogs,
       // Canonical workstream sources (full sets, not just 24h)
       allCards, allWorkItems,
+      // Recent transcripts for implicit-coverage scanning (last 10, any date)
+      recentTranscripts,
     ] = await Promise.all([
       safe(admin.from("meetings").select("title,meeting_date,summary,action_items,participants").gte("meeting_date", since).limit(20)),
       safe(admin.from("workstream_cards").select("title,status,priority,project_tag,owner_id,due_date,updated_at").gte("updated_at", since).limit(50)),
