@@ -123,9 +123,9 @@ const RiskRadar = ({
             <AlertTriangle className={cn("h-4 w-4 mt-0.5 shrink-0",
               r.severity === "critical" || r.severity === "high" ? "text-red-500" : "text-yellow-500"
             )} />
-            <div className="flex-1 min-w-0 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
-              <h4 className="text-sm font-semibold text-foreground break-words min-w-0 lg:flex-1">{r.risk}</h4>
-              <div className="flex items-center gap-1.5 flex-wrap lg:shrink-0 lg:justify-end">
+            <div className="flex-1 min-w-0 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+              <h4 className="text-sm font-semibold text-foreground break-words min-w-0 sm:flex-1">{r.risk}</h4>
+              <div className="flex items-center gap-1.5 flex-wrap sm:shrink-0 sm:justify-end">
                 {typeof r.probability_impact_pts === "number" && r.probability_impact_pts > 0 && (
                   <Badge variant="outline" className="text-[10px] font-mono border-primary/40 text-primary whitespace-nowrap">
                     −{r.probability_impact_pts} pts
