@@ -157,21 +157,15 @@ RULES:
 - Keep summaries under 20 words each.`;
 
   try {
-    const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0.2,
-      }),
+    const data = await callLLMWithFallback({
+      workflow: "ceo-email-pulse",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.2,
     });
-    if (!aiRes.ok) throw new Error(`OpenAI ${aiRes.status}`);
-    const data = await aiRes.json();
     const raw = data?.choices?.[0]?.message?.content ?? "{}";
     const parsed = JSON.parse(raw);
     return {

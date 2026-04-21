@@ -1624,27 +1624,23 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
     const apiKey = Deno.env.get("OPENAI_API_KEY");
     if (!apiKey) return json({ error: "OPENAI_API_KEY not configured" }, 500);
 
-    const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: "gpt-4o",
+    let aiData: any;
+    try {
+      aiData = await callLLMWithFallback({
+        workflow: "ceo-briefing",
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
         ],
         temperature: 0.3,
-      }),
-    });
-
-    if (!aiRes.ok) {
-      const errText = await aiRes.text();
-      console.error("OpenAI error:", errText);
-      return json({ error: "AI generation failed", details: errText.slice(0, 500) }, 502);
+        max_tokens: 8192,
+      });
+    } catch (err: any) {
+      console.error("LLM error:", err?.status, err?.message);
+      return json({ error: "AI generation failed", details: String(err?.message || "").slice(0, 500) }, 502);
     }
 
-    const aiData = await aiRes.json();
     const raw = aiData?.choices?.[0]?.message?.content ?? "{}";
     let parsed: any;
     try { parsed = JSON.parse(raw); }

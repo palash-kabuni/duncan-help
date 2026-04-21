@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callLLMWithFallback } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -81,14 +82,9 @@ Deno.serve(async (req) => {
         .map((c) => `- [${c.type}] ${c.description}`)
         .join("\n");
 
-      const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${openaiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "gpt-4o",
+      try {
+        const aiData = await callLLMWithFallback({
+          workflow: "finalize-release",
           messages: [
             {
               role: "system",
@@ -102,11 +98,7 @@ Deno.serve(async (req) => {
           ],
           response_format: { type: "json_object" },
           temperature: 0.4,
-        }),
-      });
-
-      if (aiRes.ok) {
-        const aiData = await aiRes.json();
+        });
         try {
           const parsed = JSON.parse(aiData.choices[0].message.content);
           if (needsTitle && parsed.title) title = parsed.title;
@@ -114,8 +106,8 @@ Deno.serve(async (req) => {
         } catch (e) {
           console.error("Failed to parse AI JSON", e);
         }
-      } else {
-        console.error("OpenAI failed", await aiRes.text());
+      } catch (err: any) {
+        console.error("LLM failed", err?.status, err?.message);
       }
     }
 
