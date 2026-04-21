@@ -54,10 +54,17 @@ export const WORKFLOW_ROUTING: Record<WorkflowName, { primary: Provider; fallbac
   generic:                     { primary: "claude", fallback: "openai" },
 };
 
-const CLAUDE_MODEL_PRIMARY = "claude-opus-4-5";
-const CLAUDE_MODEL_DEGRADE = "claude-sonnet-4-5-20250929";
+// Sonnet stays primary on synchronous workflows: Opus 4.5 averages 150-180s on
+// briefing-grade synthesis, which exceeds the edge runtime HTTP timeout.
+// Promote Opus only behind a background-task pattern (EdgeRuntime.waitUntil).
+const CLAUDE_MODEL_PRIMARY = "claude-sonnet-4-5-20250929";
+const CLAUDE_MODEL_DEGRADE = "claude-haiku-4-5";
 const OPENAI_MODEL_PRIMARY = "gpt-5";
 const OPENAI_MODEL_DEGRADE = "gpt-5-mini";
+
+// Per-attempt provider timeout. If the LLM doesn't respond in this window we
+// abort and let callLLMWithFallback try the other provider.
+const PROVIDER_TIMEOUT_MS = 90_000;
 
 export interface LLMMessage {
   role: "system" | "user" | "assistant" | "tool";
