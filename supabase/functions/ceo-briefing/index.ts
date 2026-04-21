@@ -1659,6 +1659,119 @@ Deno.serve(async (req) => {
       previous_briefing: (prev as any)?.[0] ?? null,
     };
 
+    const minimalMorningSchemaHint = `Return STRICT JSON with this smaller shape:
+{
+  "trajectory": "On Track" | "Slight Drift" | "At Risk" | "Off Track",
+  "outcome_probability": number,
+  "execution_score": number,
+  "workstream_scores": [{
+    "name": string,
+    "progress": number,
+    "confidence": number,
+    "risk": number,
+    "progress_vs_goal": string,
+    "execution_quality": string,
+    "commercial_impact": string,
+    "dependency_strength": string,
+    "evidence": string
+  }],
+  "payload": {
+    "tldr": {
+      "on_track": string,
+      "what_will_break": string,
+      "where_to_act": string
+    },
+    "probability_movement": string,
+    "execution_explanation": string,
+    "what_changed": [{
+      "function_area": "Launch & India" | "Product & Technology" | "Growth & Marketing" | "Operations & Delivery" | "Finance & Legal" | "Duncan Automation",
+      "moved": string,
+      "did_not_move": string,
+      "needs_attention": string
+    }],
+    "risks": [{
+      "risk": string,
+      "why_it_matters": string,
+      "impact_7d": { "window": "7d", "impact": string, "mitigation": string },
+      "impact_30d": { "window": "30d", "impact": string, "mitigation": string },
+      "impact_90d": { "window": "90d", "impact": string, "mitigation": string },
+      "owner": string,
+      "severity": "low"|"medium"|"high"|"critical",
+      "confidence": number,
+      "probability_impact_pts": number
+    }],
+    "friction": [{
+      "issue": string,
+      "teams": string[],
+      "consequence": string,
+      "evidence_source": "workstream_card"|"meeting"|"email"|"coverage_gap"|"silent_leader"|"doc_conflict",
+      "recommended_resolver": string
+    }],
+    "leadership": [{
+      "name": string,
+      "role": string,
+      "output_vs_expectation": string,
+      "risk_level": "low"|"medium"|"high",
+      "blocking": string,
+      "needs_support": string,
+      "ceo_intervention_required": boolean
+    }],
+    "decisions": [{
+      "decision": string,
+      "why_it_matters": string,
+      "consequence": string,
+      "who_to_involve": string,
+      "confidence": "high"|"medium"|"low",
+      "blocked_by_missing_data": string | null,
+      "evidence_source": "coverage_gap"|"silent_priority"|"risk"|"friction"|"email"|"silent_leader"|"data_blind_spot"|"workstream"|null
+    }],
+    "automation": {
+      "percent": number,
+      "working": string,
+      "manual": string,
+      "next": string,
+      "blockers": string
+    },
+    "automation_progress": {
+      "recommendations": [{
+        "title": string,
+        "why_now": string,
+        "expected_leverage": "Low" | "Medium" | "High",
+        "effort": "S" | "M" | "L",
+        "evidence_source": "coverage_gap" | "silent_priority" | "friction" | "stuck_workstream" | "heavy_manual_surface" | "failed_tool_call" | "model"
+      }]
+    },
+    "document_intelligence": [{
+      "domain": string,
+      "file_name": string,
+      "verdict": "weak"|"adequate"|"strong",
+      "what_it_covers": string,
+      "what_is_missing_in_doc": string,
+      "contradicted_by": [string],
+      "reinforced_by": [string],
+      "critical_gaps_to_fix": [string]
+    }],
+    "missing_artifacts_recommendations": [{
+      "domain": string,
+      "priority": "critical"|"high"|"medium"|"low",
+      "artifacts": [{
+        "name": string,
+        "why_duncan_needs_it": string,
+        "what_it_unlocks": string,
+        "where_to_find_it": string,
+        "suggested_filename_pattern": string,
+        "blast_radius": [string]
+      }]
+    }],
+    "brutal_truth": string
+  }
+}
+
+Generate ONLY the fields above.
+- Do NOT emit coverage_gaps, coverage_summary, available_workstreams, data_coverage_audit, company_pulse_status, email_pulse, watchlist, leadership_summary, decisions_meta, friction_meta, risk_reconciliation, missing_artifacts_summary, or any other extra keys — the server computes those.
+- For workstream_scores, return at most the 3 highest-signal workstreams; the server will backfill the rest.
+- For document_intelligence and missing_artifacts_recommendations, return [] when evidence is thin instead of writing long guesses.`;
+
     const brevityPromptSuffix = `
 
 BASE BREVITY RULES (MANDATORY):
@@ -1668,34 +1781,24 @@ BASE BREVITY RULES (MANDATORY):
 - Reuse the server-grounded inputs verbatim wherever possible.
 - JSON only. No markdown fences. No preamble.`;
 
-    const compactContextJson = JSON.stringify(context).slice(0, 22000);
+    const compactContextJson = JSON.stringify(context).slice(0, 16000);
 
     const userPrompt = `Generate the ${briefing_type === "evening" ? "EVENING ACCOUNTABILITY" : "MORNING CEO"} BRIEFING.
 
-${briefing_type === "evening" ? EVENING_SCHEMA_HINT : MORNING_SCHEMA_HINT}
+    ${briefing_type === "evening" ? EVENING_SCHEMA_HINT : minimalMorningSchemaHint}
 
 SERVER-AUTHORITATIVE COVERAGE (USE THESE NUMBERS VERBATIM):
 ${JSON.stringify(coverage_summary_authoritative)}
 
-HARD RULES:
-- coverage_summary above is server-computed truth. You MUST use these exact numbers (covered/total/ratio_pct) verbatim in payload.company_pulse, payload.brutal_truth, and payload.execution_explanation. Do NOT recompute, infer, estimate, or round coverage in prose.
-- Do NOT claim a priority is covered unless it appears in coverage_summary.covered_priorities.
-- Use meeting_priority_signals to detect IMPLICIT coverage — work happening on a 2026 priority WITHOUT a formal workstream. For any priority that has signals but no workstream, the corresponding payload.coverage_gaps entry MUST include:
-    "current_signal": "<one-sentence summary of what's being discussed in meetings>",
-    "signal_sources": [<meeting_title strings>],
-    "recommended_action": "Formalise into a workstream — work is already happening but untracked."
-  Implicit-coverage gaps are MORE URGENT than silent gaps because momentum exists but is invisible to the system.
-- For priorities with NO signal anywhere (no workstream, no meeting mention), set "current_signal": null and "recommended_action": "No activity detected — assign owner immediately."
-- email_pulse_signals (when present) is structured intelligence pulled from leaders' inboxes (last 24h). USE IT:
-    • Merge email commitments into payload.decisions §9 — flag "source: email" and surface ones with no owner.
-    • Add email risks/escalations to payload.risks with "source: email" and a probability_impact_pts that fits the gap.
-    • Surface board_mentions in payload.tldr.where_to_act and the investor section if present.
-    • If a leader appears in email_pulse_silent_leaders AND in leader_signal_map as silent, ESCALATE their leadership entry to risk_level="high" with output_vs_expectation referencing both meeting and email silence.
-- payload.automation_progress MUST be populated for the morning briefing using context.automation_leverage as the GROUND TRUTH:
-    • company_usage = automation_leverage.company_usage VERBATIM (do NOT recompute totals, trends, or active_users).
-    • top_users = automation_leverage.top_users VERBATIM for rank/name/role/department/total_tokens/request_count/primary_use/est_hours_saved. Do NOT invent users not in this array.
-    • recommendations = AT LEAST 3 concrete suggestions for what to improve or build next in Duncan, drawn from: (a) coverage_gaps (e.g. "Auto-ingest missing artifact for {priority}"), (b) headline_context.silent_priorities, (c) friction items where recommended_resolver != "CEO" (automatable handoffs), (d) workstreams stuck Yellow/Red, (e) heaviest manual surfaces in automation_leverage.heavy_surfaces (e.g. high gmail_auto_drafts_today → suggest auto-categorisation). Each recommendation MUST cite the evidence_source from the enum and set auto_injected=false.
-    • Keep the legacy "automation" object too (percent/working/manual/next/blockers) — it still feeds the headline number.
+    HARD RULES:
+    - coverage_summary above is server-computed truth. Reference those numbers in payload.execution_explanation and payload.brutal_truth. Do NOT recompute, infer, estimate, or round them.
+    - Do NOT claim a priority is covered unless it appears in coverage_summary.covered_priorities.
+    - Use meeting_priority_signals to surface untracked but active work inside payload.what_changed, payload.risks, payload.decisions, and payload.brutal_truth. The server will derive coverage_gaps from those signals.
+    - email_pulse_signals (when present) is structured intelligence from leaders' inboxes. Merge unowned commitments / escalations into payload.decisions and payload.risks, and reflect board pressure in payload.tldr.where_to_act.
+    - If a leader appears in email_pulse_silent_leaders AND in leader_signal_map as silent, escalate that leader to risk_level="high".
+    - Keep arrays short and high-signal: what_changed max 4, risks max 4, friction max 3, leadership max 6, decisions max 4, document_intelligence max 3, missing_artifacts_recommendations max 3 domains.
+    - payload.automation_progress.recommendations must include 1-3 concrete Duncan improvements grounded in coverage gaps, silent priorities, friction, stuck workstreams, or heavy manual surfaces.
+    - Keep the legacy "automation" object too — it still feeds the headline number.
 
 Source data (24h activity window; available_workstreams + coverage_report + meeting_priority_signals are full-set):
 ${compactContextJson}
@@ -1738,9 +1841,9 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
 
 COMPACT MODE (MANDATORY FOR THIS RUN):
 - Keep all required keys, but minimise prose aggressively.
-- Every prose field must be 4-12 words max.
+- Every prose field must be 3-10 words max.
 - Prefer [] or "" for non-critical optional sections.
-- Return at most 3 workstream_scores, 2 risks, 2 friction items, 3 leadership rows, 3 watchlist rows, 3 decisions, 2 document_intelligence rows, and 2 missing_artifacts_recommendations domains with 1 artifact each.
+- Return at most 2 workstream_scores, 2 what_changed rows, 2 risks, 1 friction item, 3 leadership rows, 3 decisions, 1 document_intelligence row, and 1 missing_artifacts_recommendations domain with 1 artifact.
 - For low-value narrative fields, use a single short sentence.
 - Do not use markdown fences.`;
 
@@ -1749,7 +1852,8 @@ COMPACT MODE (MANDATORY FOR THIS RUN):
 ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
 - Keep the exact JSON shape only.
 - Use the shortest valid answer possible for every field.
-- Use [] for secondary arrays unless absolutely required.
+- Use [] for optional sections unless absolutely required.
+- Return at most 1 workstream_score, 1 risk, 1 friction item, 3 leadership rows, 2 decisions, and 0 document_intelligence / missing_artifacts_recommendations rows.
 - Limit strings to one clause each.
 - JSON only. No markdown fences. No commentary.`;
 
