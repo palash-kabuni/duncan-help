@@ -1530,7 +1530,13 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       }
 
       // (b) Silent priorities → ensure a row exists (one per silent priority).
-      for (const sm of silentMissing) {
+      // Derive locally from `missing` + `signalsByPriority` (silentMissing is
+      // computed later in section 6; we replicate it here to stay in scope).
+      const silentMissingLocal = (Array.isArray(missing) ? missing : []).filter((mm: any) => {
+        const sig = signalsByPriority?.get?.(mm.priority_id);
+        return !sig || (Array.isArray(sig.mentions) && sig.mentions.length === 0);
+      });
+      for (const sm of silentMissingLocal) {
         const priorityName = sm.priority || "";
         if (!priorityName || hasRowFor(priorityName)) continue;
         wlIn.push({
