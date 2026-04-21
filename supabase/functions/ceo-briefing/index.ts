@@ -2169,6 +2169,243 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
         auto_injected: frictionAutoInjected,
       };
     }
+
+    // 4f. DETERMINISTIC DECISIONS FLOOR — guarantees Section 9 is never empty on a non-green briefing.
+    if (briefing_type === "morning") {
+      parsed.payload = parsed.payload || {};
+      const aiDecisions: any[] = Array.isArray(parsed.payload.decisions) ? [...parsed.payload.decisions] : [];
+      let decisionsAutoInjected = 0;
+
+      const dnorm = (s: any) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      const decisionKey = (d: any) => dnorm(d?.decision).slice(0, 80);
+      const seen = new Set<string>(aiDecisions.map(decisionKey).filter(Boolean));
+      const hasDecision = (text: string) => {
+        const k = dnorm(text).slice(0, 80);
+        if (!k) return false;
+        if (seen.has(k)) return true;
+        for (const ek of seen) {
+          if (!ek) continue;
+          if (ek.includes(k) || k.includes(ek)) return true;
+        }
+        return false;
+      };
+      const pushDecision = (d: any, urgency: number) => {
+        const key = decisionKey(d);
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        aiDecisions.push({ ...d, _urgency: urgency });
+        decisionsAutoInjected++;
+      };
+
+      const cap = (parsed.payload?.data_coverage_audit as any)?.confidence_cap || "medium";
+      const capConfidence = (c: string) => {
+        const order = { high: 3, medium: 2, low: 1 } as const;
+        const want = (order as any)[c] ?? 2;
+        const max = (order as any)[cap] ?? 2;
+        return want <= max ? c : cap;
+      };
+
+      // (a) Coverage gaps + (b) silent priorities → assign owner.
+      const coverageGaps: any[] = Array.isArray(parsed.payload.coverage_gaps) ? parsed.payload.coverage_gaps : [];
+      const silentMissingDec = (Array.isArray(missing) ? missing : []).filter((mm: any) => {
+        const sig = signalsByPriority?.get?.(mm.priority_id);
+        return !sig || (Array.isArray(sig.mentions) && sig.mentions.length === 0);
+      });
+      const allUncovered = [
+        ...coverageGaps.map((g: any) => ({ priority: g?.priority || g?.priority_title || g?.title, priority_id: g?.priority_id, expected_owner: g?.expected_owner })),
+        ...silentMissingDec.map((sm: any) => ({ priority: sm?.priority, priority_id: sm?.priority_id, expected_owner: sm?.expected_owner })),
+      ].filter((x) => x.priority);
+      const seenPriority = new Set<string>();
+      for (const u of allUncovered) {
+        const pk = dnorm(u.priority);
+        if (!pk || seenPriority.has(pk)) continue;
+        seenPriority.add(pk);
+        const def = PRIORITY_DEFINITIONS.find((p) => p.id === u.priority_id);
+        const owner = def?.expected_owner || u.expected_owner || "Cross-functional — escalate to CEO";
+        const decisionText = `Assign accountable owner and stand up workstream for ${u.priority}`;
+        if (hasDecision(decisionText)) continue;
+        pushDecision({
+          decision: decisionText,
+          why_it_matters: `${u.priority} is a 2026 priority with no owned workstream — the company cannot deliver against a plan no-one is running.`,
+          consequence: `Another 7 days of zero attributable activity — risk of missing the priority outright.`,
+          who_to_involve: owner,
+          confidence: capConfidence("high"),
+          blocked_by_missing_data: null,
+          evidence_source: "silent_priority",
+          auto_injected: true,
+        }, 100);
+      }
+
+      // (c) High/critical risks → mitigation call.
+      const risksArr: any[] = Array.isArray(parsed.payload.risks) ? parsed.payload.risks : [];
+      for (const r of risksArr) {
+        const sev = String(r?.severity || "").toLowerCase();
+        if (sev !== "high" && sev !== "critical") continue;
+        const title = String(r?.risk || r?.title || r?.name || "").trim();
+        if (!title) continue;
+        const impact = Number(r?.probability_impact_pts || 0);
+        const decisionText = `Decide mitigation path for "${title}" or accept the ${impact}-pt probability hit`;
+        if (hasDecision(decisionText)) continue;
+        pushDecision({
+          decision: decisionText,
+          why_it_matters: `${sev.toUpperCase()} risk accounting for ${impact} pts of the outcome-probability gap.`,
+          consequence: `If unaddressed for 7 days, baseline outcome probability stays anchored at the lower bound.`,
+          who_to_involve: r?.owner || "CEO + accountable function lead",
+          confidence: capConfidence(sev === "critical" ? "high" : "medium"),
+          blocked_by_missing_data: null,
+          evidence_source: "risk",
+          auto_injected: true,
+        }, 80 + Math.min(impact, 20));
+      }
+
+      // (d) CEO-resolved friction.
+      const frictionArr: any[] = Array.isArray(parsed.payload.friction) ? parsed.payload.friction : [];
+      for (const f of frictionArr) {
+        const resolver = String(f?.recommended_resolver || "").toLowerCase();
+        if (!resolver.includes("ceo")) continue;
+        const teams = Array.isArray(f?.teams) ? f.teams.join("/") : "teams";
+        const issue = String(f?.issue || "").trim();
+        if (!issue) continue;
+        const decisionText = `Break ${teams} deadlock on ${issue}`;
+        if (hasDecision(decisionText)) continue;
+        pushDecision({
+          decision: decisionText,
+          why_it_matters: f?.consequence || "Cross-functional friction with no single owner who can unblock it.",
+          consequence: f?.consequence || "Friction compounds and the dependent priority slips.",
+          who_to_involve: teams,
+          confidence: capConfidence("medium"),
+          blocked_by_missing_data: null,
+          evidence_source: "friction",
+          auto_injected: true,
+        }, 70);
+      }
+
+      // (e) Critical email signals — board mentions, unowned commitments, escalations.
+      try {
+        const sigs = (email_pulse?.signals as any) || {};
+        const board: any[] = Array.isArray(sigs.board_mentions) ? sigs.board_mentions : [];
+        for (const b of board.slice(0, 2)) {
+          const topic = String(b?.topic || b?.subject || b?.summary || "board mention").trim();
+          const decisionText = `Decide CEO response to board signal: ${topic}`;
+          if (hasDecision(decisionText)) continue;
+          pushDecision({
+            decision: decisionText,
+            why_it_matters: "Board-level mention surfaced in leadership inbox in the last 24h.",
+            consequence: "Silence reads as misalignment to the board.",
+            who_to_involve: b?.from || "CEO + Chair",
+            confidence: capConfidence("medium"),
+            blocked_by_missing_data: null,
+            evidence_source: "email",
+            auto_injected: true,
+          }, 75);
+        }
+        const unownedC: any[] = (Array.isArray(sigs.commitments) ? sigs.commitments : [])
+          .filter((c: any) => !c?.owner || /unknown|tbd|n\/?a/i.test(String(c.owner)));
+        for (const c of unownedC.slice(0, 2)) {
+          const topic = String(c?.topic || c?.commitment || c?.summary || "ownerless commitment").trim();
+          const decisionText = `Assign owner for ownerless commitment: ${topic}`;
+          if (hasDecision(decisionText)) continue;
+          pushDecision({
+            decision: decisionText,
+            why_it_matters: "Commitment made externally with no internal owner — accountability gap.",
+            consequence: "Commitment slips silently with no-one tracking delivery.",
+            who_to_involve: "CEO to allocate",
+            confidence: capConfidence("medium"),
+            blocked_by_missing_data: null,
+            evidence_source: "email",
+            auto_injected: true,
+          }, 60);
+        }
+      } catch (_) { /* non-fatal */ }
+
+      // (f) Silent leaders owning 2026 priorities — CEO intervention.
+      try {
+        const lsm: any[] = Array.isArray(leader_signal_map) ? leader_signal_map : [];
+        for (const ls of lsm) {
+          if (String(ls?.signal_status || "").toLowerCase() !== "silent") continue;
+          const owns: string[] = Array.isArray(ls?.owns_priorities) ? ls.owns_priorities : [];
+          if (owns.length === 0) continue;
+          const decisionText = `Intervene with ${ls?.name || "silent leader"} — silent owner of ${owns.join(" + ")}`;
+          if (hasDecision(decisionText)) continue;
+          pushDecision({
+            decision: decisionText,
+            why_it_matters: `${ls?.name || "Leader"} owns ${owns.length} 2026 priority(ies) but produced no operational signal in 7 days.`,
+            consequence: `Owned priorities continue with no visible ownership — unrecoverable if silence extends another week.`,
+            who_to_involve: ls?.name || "Direct report",
+            confidence: capConfidence("high"),
+            blocked_by_missing_data: null,
+            evidence_source: "silent_leader",
+            auto_injected: true,
+          }, 85);
+        }
+      } catch (_) { /* non-fatal */ }
+
+      // (g) Confidence-cap blind spot — proceed-or-pause call.
+      try {
+        const dca: any = parsed.payload?.data_coverage_audit || {};
+        const capLevel = String(dca?.confidence_cap || "high").toLowerCase();
+        if (capLevel === "medium" || capLevel === "low") {
+          const worst = dca?.worst_red_domain;
+          const label = worst?.label || "critical knowledge domain";
+          const decisionText = `Proceed with upcoming commitments OR pause until ${label} blind spot is closed`;
+          if (!hasDecision(decisionText)) {
+            pushDecision({
+              decision: decisionText,
+              why_it_matters: `Briefing confidence is capped at "${capLevel}" because ${label} evidence is missing — material decisions cannot be made honestly.`,
+              consequence: `Decisions made under this cap carry undisclosed risk to board, customers, or launch.`,
+              who_to_involve: "CEO + domain owner for " + label,
+              confidence: capConfidence("high"),
+              blocked_by_missing_data: `${label}: ${worst?.recommendation || "required artifacts not uploaded"}`,
+              evidence_source: "data_blind_spot",
+              auto_injected: true,
+            }, 90);
+          }
+        }
+      } catch (_) { /* non-fatal */ }
+
+      // Final fallback — non-green briefing with zero decisions is itself a finding.
+      const _outcomeProb = typeof parsed.outcome_probability === "number" ? parsed.outcome_probability : 50;
+      const _trajectoryGreen = String(parsed.trajectory || "").toLowerCase().includes("on track");
+      const _coverageGapsLen = Array.isArray(parsed.payload?.coverage_gaps) ? parsed.payload.coverage_gaps.length : 0;
+      const isNonGreen = !_trajectoryGreen || _outcomeProb < 70 || _coverageGapsLen > 0;
+      if (aiDecisions.length === 0 && isNonGreen) {
+        pushDecision({
+          decision: "Verify Duncan has visibility into priorities, risks and inboxes — no CEO-grade decisions detected on a non-green briefing",
+          why_it_matters: "An empty Decisions section on a non-green briefing means Duncan cannot see the company clearly enough to surface a CEO call.",
+          consequence: "CEO operates blind to the calls only they can make.",
+          who_to_involve: "Duncan",
+          confidence: "low",
+          blocked_by_missing_data: "Decision detection produced no candidates from coverage gaps, risks, friction, email or leader signals.",
+          evidence_source: null,
+          auto_injected: true,
+        }, 50);
+      }
+
+      // Sort by urgency DESC, keep top 3 for the UI, strip _urgency.
+      aiDecisions.sort((a: any, b: any) => (b?._urgency ?? 0) - (a?._urgency ?? 0));
+      const top = aiDecisions.slice(0, 3).map((d: any) => {
+        const { _urgency, ...rest } = d;
+        return {
+          decision: String(rest?.decision || "").trim() || "Unspecified decision",
+          why_it_matters: String(rest?.why_it_matters || "").trim() || "—",
+          consequence: String(rest?.consequence || "").trim() || "—",
+          who_to_involve: String(rest?.who_to_involve || "").trim() || "—",
+          confidence: capConfidence(String(rest?.confidence || "medium").toLowerCase()),
+          blocked_by_missing_data: rest?.blocked_by_missing_data ?? null,
+          evidence_source: rest?.evidence_source ?? null,
+          auto_injected: !!rest?.auto_injected,
+        };
+      });
+
+      parsed.payload.decisions = top;
+      parsed.payload.decisions_meta = {
+        total_considered: aiDecisions.length,
+        rendered: top.length,
+        auto_injected: decisionsAutoInjected,
+        confidence_cap: cap,
+      };
+    }
+
     if (email_pulse) {
       const sigs = email_pulse.signals || {};
       const commitments = Array.isArray(sigs.commitments) ? sigs.commitments : [];
