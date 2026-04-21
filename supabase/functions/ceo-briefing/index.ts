@@ -516,6 +516,19 @@ Deno.serve(async (req) => {
 
     const meeting_priority_signals = scanTranscriptsForPriorities(recentTranscripts as any[]);
 
+    // ─── Data Coverage Audit (deterministic, server-side) ─────────
+    const data_coverage_audit = computeDataCoverage(
+      (projectFiles as any[]) || [],
+      (allMeetingTitles as any[]) || [],
+      {
+        hasOperations: ((cards as any[]).length + (workItems as any[]).length + (meetings as any[]).length) > 0,
+        hasRecruitment: (candidates as any[]).length > 0,
+        hasXero: ((xeroInvoices as any[]).length + (xeroContacts as any[]).length) > 0,
+        hasReleases: (releases as any[]).length > 0,
+        hasAzureMilestones: (workItems as any[]).some((w: any) => /milestone|release/i.test(String(w.title || ""))),
+      },
+    );
+
     // ─── Canonical workstream list ────────────────────────────────
     const projectTags = Array.from(
       new Set((allCards as any[]).map((c) => c.project_tag).filter((t): t is string => !!t && t.trim().length > 0))
