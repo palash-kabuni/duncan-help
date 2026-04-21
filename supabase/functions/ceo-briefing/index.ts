@@ -432,12 +432,17 @@ const LEADERSHIP_ROSTER: Array<{
 ];
 
 // Per-leader signal tally — deterministic, server-authoritative.
+// Sources: meetings, workstream cards, azure work items, releases, meeting transcripts,
+// google calendar events (organiser/attendee), and gmail (sent counts from email pulse).
 function computeLeaderSignalMap(input: {
   meetings: Array<{ title: string | null; participants?: string[] | null; summary: string | null; meeting_date: string | null }>;
   cards: Array<{ title: string | null; owner_id?: string | null }>;
   workItems: Array<{ title: string | null; assigned_to?: string | null }>;
   releases: Array<{ title: string | null; version: string | null; published_at: string | null }>;
   profiles: Array<{ display_name: string | null }>;
+  transcripts?: Array<{ title: string | null; meeting_date: string | null; transcript: string | null }>;
+  calendarEvents?: Array<{ summary: string | null; start: string | null; organiser_alias?: string | null; attendee_aliases?: string[] }>;
+  emailPulsePerMailbox?: Array<{ mailbox: string | null; sent_count?: number; emails_scanned?: number }>;
 }) {
   const norm = (s: string) => s.toLowerCase().trim();
   return LEADERSHIP_ROSTER.map((leader) => {
@@ -459,14 +464,48 @@ function computeLeaderSignalMap(input: {
     const azureHits = (input.workItems || []).filter((w) => matchAny(w.assigned_to) || matchAny(w.title));
     const releaseHits = (input.releases || []).filter((r) => matchAny(r.title));
 
+    // NEW: transcripts — leader name appears anywhere in transcript text
+    const transcriptHits = (input.transcripts || []).filter((t) => {
+      if (!t.transcript) return false;
+      const s = norm(String(t.transcript).slice(0, 8000));
+      return aliases.some((a) => s.includes(a));
+    });
+
+    // NEW: calendar — events where leader is organiser or attendee, or name in summary
+    const calendarHits = (input.calendarEvents || []).filter((e) => {
+      if (e.organiser_alias && aliases.includes(norm(e.organiser_alias))) return true;
+      if (Array.isArray(e.attendee_aliases) && e.attendee_aliases.some((a) => aliases.includes(norm(a)))) return true;
+      return matchAny(e.summary);
+    });
+
+    // NEW: gmail — match by mailbox local-part / display matching alias
+    const emailHits = (input.emailPulsePerMailbox || []).filter((m) => {
+      if (!m.mailbox) return false;
+      const local = norm(String(m.mailbox).split("@")[0] || "");
+      return aliases.some((a) => local.includes(a.split(" ")[0])) && (m.sent_count ?? 0) > 0;
+    });
+    const totalSent = emailHits.reduce((acc, m) => acc + (m.sent_count ?? 0), 0);
+
     const sources: string[] = [];
     if (meetingHits.length) sources.push("meetings");
     if (cardHits.length) sources.push("workstreams");
     if (azureHits.length) sources.push("azure");
     if (releaseHits.length) sources.push("releases");
+    if (calendarHits.length) sources.push("calendar");
+    if (emailHits.length) sources.push("email");
+    if (transcriptHits.length) sources.push("transcript");
 
-    const signal_status: "active" | "low_signal" | "silent" =
-      sources.length >= 2 ? "active" : sources.length === 1 ? "low_signal" : "silent";
+    const executionSources = [
+      cardHits.length ? 1 : 0,
+      azureHits.length ? 1 : 0,
+      releaseHits.length ? 1 : 0,
+    ].reduce((a, b) => a + b, 0);
+
+    // active = ≥3 total OR ≥2 execution; low_signal = 1-2 non-execution; silent = 0
+    let signal_status: "active" | "low_signal" | "silent";
+    if (sources.length === 0) signal_status = "silent";
+    else if (sources.length >= 3 || executionSources >= 2) signal_status = "active";
+    else signal_status = "low_signal";
 
     return {
       name: leader.name,
@@ -479,12 +518,18 @@ function computeLeaderSignalMap(input: {
         workstreams: cardHits.length,
         azure: azureHits.length,
         releases: releaseHits.length,
+        calendar: calendarHits.length,
+        email: totalSent,
+        transcript: transcriptHits.length,
       },
       sources_detail: {
         meetings: meetingHits.slice(0, 3).map((m) => ({ title: m.title, date: m.meeting_date })),
         workstreams: cardHits.slice(0, 3).map((c) => ({ title: c.title })),
         azure: azureHits.slice(0, 3).map((w) => ({ title: w.title })),
         releases: releaseHits.slice(0, 3).map((r) => ({ title: r.title, version: r.version })),
+        calendar: calendarHits.slice(0, 5).map((e) => ({ summary: e.summary, start: e.start })),
+        email: emailHits.slice(0, 5).map((m) => ({ mailbox: m.mailbox, sent_count: m.sent_count ?? 0 })),
+        transcript: transcriptHits.slice(0, 3).map((t) => ({ title: t.title, date: t.meeting_date })),
       },
     };
   });
