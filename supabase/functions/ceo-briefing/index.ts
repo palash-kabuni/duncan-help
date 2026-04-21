@@ -2068,6 +2068,12 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       let friction: any[] = Array.isArray(parsed.payload.friction) ? [...parsed.payload.friction] : [];
       let frictionAutoInjected = 0;
 
+      // Recompute silentMissing in this scope (defined earlier in section 6 block, out of scope here).
+      const silentMissing = (Array.isArray(missing) ? missing : []).filter((mm: any) => {
+        const sig = signalsByPriority?.get?.(mm.priority_id);
+        return !sig || (Array.isArray(sig.mentions) && sig.mentions.length === 0);
+      });
+
       const frictionMentions = (needle: string): boolean => {
         if (!needle) return false;
         const n = needle.toLowerCase();
