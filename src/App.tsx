@@ -26,6 +26,7 @@ import Workstreams from "./pages/Workstreams";
 import Gmail from "./pages/Gmail";
 import ReleaseManager from "./pages/ReleaseManager";
 import WhatsNew from "./pages/WhatsNew";
+import CEOBriefing from "./pages/CEOBriefing";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -57,6 +58,7 @@ const AppContent = () => {
           <Route path="/gmail" element={<ProtectedRoute><Gmail /></ProtectedRoute>} />
           <Route path="/releases" element={<ProtectedRoute><ReleaseManager /></ProtectedRoute>} />
           <Route path="/whats-new" element={<ProtectedRoute><WhatsNew /></ProtectedRoute>} />
+          <Route path="/ceo" element={<ProtectedRoute><CEOBriefing /></ProtectedRoute>} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

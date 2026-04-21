@@ -279,6 +279,45 @@ export type Database = {
           },
         ]
       }
+      ceo_briefings: {
+        Row: {
+          briefing_date: string
+          briefing_type: string
+          created_at: string
+          execution_score: number | null
+          generated_by: string | null
+          id: string
+          outcome_probability: number | null
+          payload: Json
+          trajectory: string | null
+          workstream_scores: Json
+        }
+        Insert: {
+          briefing_date?: string
+          briefing_type: string
+          created_at?: string
+          execution_score?: number | null
+          generated_by?: string | null
+          id?: string
+          outcome_probability?: number | null
+          payload?: Json
+          trajectory?: string | null
+          workstream_scores?: Json
+        }
+        Update: {
+          briefing_date?: string
+          briefing_type?: string
+          created_at?: string
+          execution_score?: number | null
+          generated_by?: string | null
+          id?: string
+          outcome_probability?: number | null
+          payload?: Json
+          trajectory?: string | null
+          workstream_scores?: Json
+        }
+        Relationships: []
+      }
       chat_messages: {
         Row: {
           chat_id: string
