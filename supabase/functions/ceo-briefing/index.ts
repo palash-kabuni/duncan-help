@@ -106,7 +106,17 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
     "watchlist": [{"workstream": string, "owner": string, "status": string, "good_looks_like": string, "missing": string, "data_blind_spot": string|null}],
     "decisions": [{"decision": string, "why_it_matters": string, "consequence": string, "who_to_involve": string, "confidence": "high"|"medium"|"low", "blocked_by_missing_data": string|null}],
     "automation": {"percent": number, "working": string, "manual": string, "next": string, "blockers": string},
-    "brutal_truth": string
+    "brutal_truth": string,
+    "document_intelligence": [{
+      "domain": string,
+      "file_name": string,
+      "verdict": "weak"|"adequate"|"strong",
+      "what_it_covers": string,
+      "what_is_missing_in_doc": string,
+      "contradicted_by": [string],
+      "reinforced_by": [string],
+      "critical_gaps_to_fix": [string]
+    }]
   }
 }
 
@@ -120,10 +130,12 @@ CRITICAL RULES:
 - For each workstream score, all six analytical-framework axes are MANDATORY (progress_vs_goal, execution_quality, commercial_impact, dependency_strength + scores).
 - Risk windows (7d/30d/90d) must be structured objects, never loose strings.
 - Every workstream "evidence" string MUST quote a real card title, Azure work item, or release from the source data.
-- watchlist[].good_looks_like MUST be a concrete, observable definition of done for that workstream (e.g. "India launch comms locked, vendor contracts signed, 400 schools confirmed by 1 May"). Never vague. Never "progress made".
-- watchlist[].data_blind_spot MUST be set (non-null) whenever the workstream's function area maps to a Red or Yellow domain in payload.data_coverage_audit. Name the missing document/signal explicitly (e.g. "No signed vendor contract on file — Legal domain Red", "No financial plan to verify burn against — Finance Planning domain Red"). Set null ONLY when the workstream is fully evidenced by Green domains.
-- decisions[].confidence MUST NEVER exceed payload.data_coverage_audit.confidence_cap. If the cap is "medium", no decision can be "high". If the cap is "low", no decision can be "high" or "medium".
-- decisions[].blocked_by_missing_data MUST name the Red domain (legal / finance_planning / technology_direction / investor_board / product_strategy) whenever the decision cannot be honestly judged without that evidence. Format: "{domain_label}: {what specifically is missing}". Set null ONLY when the decision is fully grounded in available data.`;
+- watchlist[].good_looks_like MUST be a concrete, observable definition of done for that workstream. Never vague.
+- watchlist[].data_blind_spot MUST be set (non-null) whenever the workstream's function area maps to a Red or Yellow domain in payload.data_coverage_audit. Name the missing document/signal explicitly. Set null ONLY when fully evidenced.
+- watchlist[].owner MUST be the person actually accountable for the SPECIFIC blocker — derived from workstream_cards.owner_id (resolved via team_directory display_name), azure_work_items.assigned_to, or the function area. Use PRIORITY_DEFINITIONS.expected_owner ONLY as a tie-breaker, NEVER as the default. NO single owner may appear on more than 40% of watchlist rows. Split concentrated rows into sub-issues attributed to the actual contributors (CMO for marketing blockers, CFO for funding gates, CTO for tech readiness, COO for execution gaps), or escalate to "Cross-functional — escalate to CEO".
+- decisions[].confidence MUST NEVER exceed payload.data_coverage_audit.confidence_cap.
+- decisions[].blocked_by_missing_data MUST name the Red domain whenever the decision cannot be honestly judged without that evidence. Format: "{domain_label}: {what specifically is missing}". Set null ONLY when fully grounded.
+- payload.document_intelligence: For EVERY domain in domain_file_review with files_inspected.length > 0, produce one entry. Ground "what_it_covers" in the actual content_excerpt (do NOT invent). Cross-reference the excerpt against xero_invoices, workstream_cards, azure_work_items, meetings, recent_releases — if a number, date, owner, or commitment in the doc disagrees with another data source, list it in contradicted_by with a specific quote (e.g. "Plan assumes £180k Q2 burn but Xero shows £241k actual"). Mark verdict="weak" if the doc is thin, generic, or stale; "strong" only when current, specific, and corroborated by ≥1 other system.`;
 
 const EVENING_SCHEMA_HINT = `Return STRICT JSON:
 {
