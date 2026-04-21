@@ -10,13 +10,59 @@ const corsHeaders = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
+// ─── 2026 Non-negotiable priorities (canonical) ────────────────────────────
+const PRIORITY_DEFINITIONS = [
+  {
+    id: "lightning_strike",
+    title: "Lightning Strike India — 7 June 2026",
+    aliases: ["lightning strike", "lightning", "india launch", "june 7", "7 june", "launch event"],
+    why_it_matters: "The single hard deadline anchoring every other 2026 priority. Slip = cascade.",
+    expected_owner: "Nimesh (CEO) + Simon (Ops Director)",
+  },
+  {
+    id: "kpl_registrations",
+    title: "1M Kabuni Premier League registrations",
+    aliases: ["kpl", "premier league", "registrations", "registration", "1m users", "1 million"],
+    why_it_matters: "Top of funnel for trials, selection and pre-orders. Without it, nothing downstream works.",
+    expected_owner: "Alex (CMO)",
+  },
+  {
+    id: "trials",
+    title: "Trials October & November 2026",
+    aliases: ["trials", "trial", "october", "november", "selection trials"],
+    why_it_matters: "Conversion event from 1M registrations to the 10-team selection.",
+    expected_owner: "Simon (Ops Director)",
+  },
+  {
+    id: "team_selection",
+    title: "Final 10-team selection — December 2026 (10 Super Coaches)",
+    aliases: ["10 teams", "team selection", "super coaches", "december selection", "10-team"],
+    why_it_matters: "The product output of the entire trials funnel. Defines the league.",
+    expected_owner: "Simon (Ops Director) + Matt (CPO)",
+  },
+  {
+    id: "preorders",
+    title: "100,000 pre-orders",
+    aliases: ["pre-order", "preorder", "pre orders", "100k", "100,000", "commerce"],
+    why_it_matters: "Primary commercial proof point for investors and supply chain commitments.",
+    expected_owner: "Alex (CMO) + Patrick (CFO)",
+  },
+  {
+    id: "duncan_automation",
+    title: "Duncan automates 25% of the company",
+    aliases: ["duncan automation", "automate", "automation", "25%", "duncan"],
+    why_it_matters: "Operating-leverage thesis. Without this, the company can't scale into 2027.",
+    expected_owner: "Palash (Head of Duncan)",
+  },
+];
+
 const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
 {
   "trajectory": "On Track" | "Slight Drift" | "At Risk" | "Off Track",
   "outcome_probability": number (0-100),
   "execution_score": number (0-100),
   "workstream_scores": [{
-    "name": string,
+    "name": string,                  // MUST be drawn verbatim from available_workstreams. NEVER invented.
     "progress": number,
     "confidence": number,
     "risk": number,
@@ -24,7 +70,7 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
     "execution_quality": string,
     "commercial_impact": string,
     "dependency_strength": string,
-    "evidence": string
+    "evidence": string               // MUST cite a real card title, Azure work item, or release. No generic prose.
   }],
   "payload": {
     "tldr": {
@@ -35,7 +81,14 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
     "company_pulse": string,
     "probability_movement": string,
     "execution_explanation": string,
-    "what_changed": [{"function": "Launch & India" | "Product & Technology" | "Growth & Marketing" | "Operations & Delivery" | "Finance & Legal" | "Duncan Automation", "moved": string, "did_not_move": string, "needs_attention": string}],
+    "coverage_gaps": [{
+      "priority": string,                       // priority title from priority_definitions
+      "why_it_matters": string,
+      "consequence_if_unowned": string,
+      "recommended_owner": string,
+      "recommended_workstream_name": string     // suggested project_tag for the new workstream
+    }],
+    "what_changed": [{"function_area": "Launch & India" | "Product & Technology" | "Growth & Marketing" | "Operations & Delivery" | "Finance & Legal" | "Duncan Automation", "moved": string, "did_not_move": string, "needs_attention": string}],
     "risks": [{
       "risk": string,
       "why_it_matters": string,
@@ -55,10 +108,15 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
   }
 }
 
-CRITICAL:
+CRITICAL RULES:
+- "workstream_scores[].name" MUST come verbatim from "available_workstreams" in the source data. Do NOT invent workstreams. Do NOT use the function-bucket names in "what_changed" (Launch & India, Product & Technology, etc.) as workstream names — those are reporting lenses, not workstreams. If "available_workstreams" is empty, return "workstream_scores": [] and say so in payload.company_pulse.
+- "function_area" in "what_changed" is a REPORTING LENS, not a workstream identifier.
+- For every entry in "coverage_report" where status = "missing", you MUST add an entry to payload.coverage_gaps. Do NOT fabricate scores for missing priorities — flag them as gaps instead.
+- payload.brutal_truth MUST mention any uncovered 2026 priority by name when coverage_gaps is non-empty.
 - "tldr" must directly answer the three Final Instruction questions in 1-2 sentences each.
 - For each workstream score, all six analytical-framework axes are MANDATORY (progress_vs_goal, execution_quality, commercial_impact, dependency_strength + scores).
-- Risk windows (7d/30d/90d) must be structured objects, never loose strings.`;
+- Risk windows (7d/30d/90d) must be structured objects, never loose strings.
+- Every workstream "evidence" string MUST quote a real card title, Azure work item, or release from the source data.`;
 
 const EVENING_SCHEMA_HINT = `Return STRICT JSON:
 {
@@ -103,6 +161,7 @@ DATA RULES:
 - Pattern Recognition: compare today vs prior briefing. Flag worsening or improving trends. Never treat each day in isolation.
 - Pressure Rule: if drifting or at risk → increase urgency, make consequences explicit, never normalise underperformance.
 - If data is weak → LOWER confidence and say so explicitly.
+- WORKSTREAM INTEGRITY: only score workstreams that exist in available_workstreams. Never fabricate. If a 2026 priority has no workstream, surface it as a coverage_gap — that gap is itself the most important signal.
 
 ANALYTICAL FRAMEWORK (apply to every workstream):
 1. Progress vs company goals
@@ -115,7 +174,7 @@ ANALYTICAL FRAMEWORK (apply to every workstream):
 SCORING CONTRACT:
 - Every workstream gets Progress (0-100), Confidence (0-100), Risk (0-100) + the 4 framework axes.
 - Overall Company Execution Score (0-100).
-- Justify every score with evidence from the source data.
+- Justify every score with evidence from the source data (cite real card titles / work items / releases).
 - Do not change a score without reason vs the previous briefing.
 
 FINAL INSTRUCTION (the briefing must answer these three):
@@ -124,6 +183,31 @@ FINAL INSTRUCTION (the briefing must answer these three):
 3. Where must I act?
 
 Surface these answers in the "tldr" field at the top. If you cannot answer them clearly from the data provided, the briefing has failed.`;
+
+// Coverage detection: does any workstream / azure project / recent card title match this priority?
+function detectCoverage(
+  priorities: typeof PRIORITY_DEFINITIONS,
+  workstreams: string[],
+  cardTitles: string[],
+) {
+  const haystack = [...workstreams, ...cardTitles].map((s) => (s || "").toLowerCase());
+  return priorities.map((p) => {
+    const hit = p.aliases.find((alias) =>
+      haystack.some((h) => h.includes(alias.toLowerCase()))
+    );
+    const matched = hit
+      ? workstreams.find((w) => w.toLowerCase().includes(hit.toLowerCase())) ?? null
+      : null;
+    return {
+      priority_id: p.id,
+      priority: p.title,
+      status: hit ? ("covered" as const) : ("missing" as const),
+      matched_workstream: matched,
+      why_it_matters: p.why_it_matters,
+      expected_owner: p.expected_owner,
+    };
+  });
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -163,8 +247,9 @@ Deno.serve(async (req) => {
     const [
       meetings, cards, activity, workItems, releases,
       candidates, pos, issues, syncLogs, profiles, prev,
-      // NEW sources
       slackLogs, tokenUsage, xeroInvoices, xeroContacts, auditLogs,
+      // Canonical workstream sources (full sets, not just 24h)
+      allCards, allWorkItems,
     ] = await Promise.all([
       safe(admin.from("meetings").select("title,meeting_date,summary,action_items,participants").gte("meeting_date", since).limit(20)),
       safe(admin.from("workstream_cards").select("title,status,priority,project_tag,owner_id,due_date,updated_at").gte("updated_at", since).limit(50)),
@@ -178,17 +263,44 @@ Deno.serve(async (req) => {
       safe(admin.from("profiles").select("display_name,role_title,department")),
       safe(admin.from("ceo_briefings").select("briefing_date,outcome_probability,execution_score,trajectory")
         .eq("briefing_type", briefing_type).order("briefing_date", { ascending: false }).limit(1)),
-      // NEW
       safe(admin.from("slack_notification_logs").select("event_key,status,sent_at,payload").gte("created_at", since).limit(40)),
       safe(admin.from("token_usage").select("user_id,total_tokens,request_count,usage_date").gte("usage_date", new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)).limit(100)),
       safe(admin.from("xero_invoices").select("invoice_number,contact_name,total,amount_due,amount_paid,status,type,due_date,date").gte("synced_at", since).order("date", { ascending: false }).limit(40)),
       safe(admin.from("xero_contacts").select("name,outstanding_balance,overdue_balance").gt("overdue_balance", 0).order("overdue_balance", { ascending: false }).limit(15)),
       safe(admin.from("integration_audit_logs").select("integration,action,details,created_at").gte("created_at", since).limit(40)),
+      safe(admin.from("workstream_cards").select("title,project_tag").is("archived_at", null).limit(500)),
+      safe(admin.from("azure_work_items").select("title,project_name").limit(500)),
     ]);
+
+    // ─── Canonical workstream list ────────────────────────────────
+    const projectTags = Array.from(
+      new Set((allCards as any[]).map((c) => c.project_tag).filter((t): t is string => !!t && t.trim().length > 0))
+    );
+    const azureProjects = Array.from(
+      new Set((allWorkItems as any[]).map((w) => w.project_name).filter((p): p is string => !!p && p.trim().length > 0))
+    );
+    const available_workstreams = Array.from(new Set([...projectTags, ...azureProjects])).sort();
+
+    const allCardTitles = (allCards as any[]).map((c) => c.title).filter(Boolean) as string[];
+    const allAzureTitles = (allWorkItems as any[]).map((w) => w.title).filter(Boolean) as string[];
+
+    const coverage_report = detectCoverage(
+      PRIORITY_DEFINITIONS,
+      available_workstreams,
+      [...allCardTitles, ...allAzureTitles],
+    );
 
     const context = {
       now_utc: new Date().toISOString(),
       window: "last 24h",
+      available_workstreams,
+      priority_definitions: PRIORITY_DEFINITIONS.map((p) => ({
+        id: p.id,
+        title: p.title,
+        why_it_matters: p.why_it_matters,
+        expected_owner: p.expected_owner,
+      })),
+      coverage_report,
       meetings,
       workstream_cards: cards,
       workstream_activity: activity,
@@ -211,10 +323,10 @@ Deno.serve(async (req) => {
 
 ${briefing_type === "evening" ? EVENING_SCHEMA_HINT : MORNING_SCHEMA_HINT}
 
-Source data (24h window unless noted):
+Source data (24h activity window; available_workstreams + coverage_report are full-set):
 ${JSON.stringify(context).slice(0, 120000)}
 
-If previous_briefing is non-null, explain probability/score deltas vs it. Keep prose tight, executive, no fluff. If a data source is empty, say so — do not invent activity.`;
+If previous_briefing is non-null, explain probability/score deltas vs it. Keep prose tight, executive, no fluff. If a data source is empty, say so — do not invent activity. Remember: workstream_scores ⊆ available_workstreams; missing priorities → coverage_gaps, NOT fabricated scores.`;
 
     const apiKey = Deno.env.get("OPENAI_API_KEY");
     if (!apiKey) return json({ error: "OPENAI_API_KEY not configured" }, 500);
@@ -244,6 +356,32 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
     let parsed: any;
     try { parsed = JSON.parse(raw); }
     catch (e) { return json({ error: "Invalid JSON from model", raw: raw.slice(0, 500) }, 502); }
+
+    // ─── Server-side guardrails ─────────────────────────────────
+    // 1. Strip any fabricated workstream scores (must be in available_workstreams)
+    if (Array.isArray(parsed.workstream_scores) && available_workstreams.length > 0) {
+      const allowed = new Set(available_workstreams.map((s) => s.toLowerCase()));
+      parsed.workstream_scores = parsed.workstream_scores.filter(
+        (w: any) => w?.name && allowed.has(String(w.name).toLowerCase())
+      );
+    }
+    // 2. Ensure coverage_gaps reflects actual missing priorities (server-authoritative)
+    parsed.payload = parsed.payload || {};
+    const missing = coverage_report.filter((c) => c.status === "missing");
+    const modelGaps = Array.isArray(parsed.payload.coverage_gaps) ? parsed.payload.coverage_gaps : [];
+    parsed.payload.coverage_gaps = missing.map((m) => {
+      const fromModel = modelGaps.find((g: any) =>
+        (g?.priority || "").toLowerCase().includes(m.priority.toLowerCase().split("—")[0].trim().slice(0, 12))
+      );
+      return {
+        priority_id: m.priority_id,
+        priority: m.priority,
+        why_it_matters: fromModel?.why_it_matters || m.why_it_matters,
+        consequence_if_unowned: fromModel?.consequence_if_unowned || "No accountable owner means no progress and no escalation path — this priority will silently slip.",
+        recommended_owner: fromModel?.recommended_owner || m.expected_owner,
+        recommended_workstream_name: fromModel?.recommended_workstream_name || m.priority.split("—")[0].trim(),
+      };
+    });
 
     const briefing_date = new Date().toISOString().slice(0, 10);
 
