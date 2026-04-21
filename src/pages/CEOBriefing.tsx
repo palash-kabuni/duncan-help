@@ -450,7 +450,10 @@ const CEOBriefing = () => {
                   })()}
                 </Section>
 
-                <Section n={7} title="Automation Progress">
+                <Section n={7} title="Duncan Adoption & Automation">
+                  <p className="text-xs text-muted-foreground italic mb-3">
+                    Adoption is measured from usage logs. Automation % of company workflows is a 2026 goal — not yet instrumented.
+                  </p>
                   {(() => {
                     const ap = p.automation_progress || {};
                     const cu = ap.company_usage || {};
@@ -479,15 +482,35 @@ const CEOBriefing = () => {
                     return (
                       <div className="space-y-4">
                         {/* Headline number from existing automation block (kept) */}
-                        {typeof p.automation?.percent === "number" && (
-                          <div className="rounded-lg border border-border bg-card p-4 flex items-center gap-3">
-                            <span className="text-3xl font-bold tabular-nums text-foreground">{p.automation.percent}%</span>
-                            <Badge variant="outline">target 25%</Badge>
-                            {p.automation?.next && (
-                              <span className="text-xs text-muted-foreground ml-auto"><span className="text-primary font-mono">NEXT:</span> {p.automation.next}</span>
-                            )}
-                          </div>
-                        )}
+                        {typeof p.automation?.percent === "number" && (() => {
+                          const adoptionActive = typeof p.automation?.adoption_active_users === "number"
+                            ? p.automation.adoption_active_users
+                            : (typeof (p.automation_progress?.company_usage?.active_users) === "number"
+                                ? p.automation_progress.company_usage.active_users
+                                : null);
+                          const adoptionHeadcount = typeof p.automation?.adoption_headcount === "number"
+                            ? p.automation.adoption_headcount
+                            : null;
+                          return (
+                            <div className="rounded-lg border border-border bg-card p-4">
+                              <div className="flex items-baseline gap-3 flex-wrap">
+                                <span className="text-3xl font-bold tabular-nums text-foreground">{p.automation.percent}%</span>
+                                <span className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Team adoption</span>
+                                {p.automation?.next && (
+                                  <span className="text-xs text-muted-foreground ml-auto"><span className="text-primary font-mono">NEXT:</span> {p.automation.next}</span>
+                                )}
+                              </div>
+                              {adoptionActive !== null && adoptionHeadcount !== null && (
+                                <div className="text-xs text-muted-foreground mt-1">
+                                  {adoptionActive} of {adoptionHeadcount} Kabuni users active in Duncan over the last 30 days.
+                                </div>
+                              )}
+                              <div className="text-[11px] text-muted-foreground mt-2 border-t border-border/60 pt-2">
+                                2026 target: Duncan automates 25% of company workflows — no measurement source yet.
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                         {/* Block A — Company usage (last 30d) */}
                         <div className="rounded-lg border border-border bg-card p-4">
