@@ -155,7 +155,8 @@ async function callOpenAI(opts: CallLLMOptions, model: string): Promise<Normalis
   if (opts.response_format) body.response_format = opts.response_format;
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), PROVIDER_TIMEOUT_MS);
+  const timeoutMs = timeoutFor(opts.workflow);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   let resp: Response;
   try {
     resp = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -166,7 +167,7 @@ async function callOpenAI(opts: CallLLMOptions, model: string): Promise<Normalis
     });
   } catch (e: any) {
     if (e?.name === "AbortError") {
-      const err: any = new Error(`OpenAI timeout after ${PROVIDER_TIMEOUT_MS}ms`);
+      const err: any = new Error(`OpenAI timeout after ${timeoutMs}ms`);
       err.status = 504;
       err.timeout = true;
       throw err;
