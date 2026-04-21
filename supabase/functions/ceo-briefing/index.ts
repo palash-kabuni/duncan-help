@@ -191,6 +191,197 @@ Surface these answers in the "tldr" field at the top. If you cannot answer them 
 // - Match ONLY against workstream names (project_tag + azure project_name), NOT card titles.
 // - First-match-wins: a workstream can satisfy only ONE priority, then it's consumed.
 // - Aliases are multi-word distinctive phrases (see PRIORITY_DEFINITIONS).
+// ─── Knowledge Domains — what Duncan needs to give an honest verdict ───────
+// Deterministic, server-side. No AI inference — cannot lie.
+const KNOWLEDGE_DOMAINS = [
+  {
+    id: "operations",
+    label: "Operations",
+    critical: true,
+    file_aliases: [],
+    needs: "workstream cards, Azure DevOps work items, recent meetings",
+    upload_hint: "Already covered by workstreams + Azure + meetings.",
+    prefill_tag: "operations",
+  },
+  {
+    id: "recruitment",
+    label: "Recruitment",
+    critical: false,
+    file_aliases: [],
+    needs: "Hireflix candidates + scoring",
+    upload_hint: "Already covered by candidate pipeline.",
+    prefill_tag: "recruitment",
+  },
+  {
+    id: "finance_transactions",
+    label: "Finance — Transactions",
+    critical: true,
+    file_aliases: [],
+    needs: "Xero invoices + contacts",
+    upload_hint: "Already covered by Xero — only transactional data, no plan.",
+    prefill_tag: "finance",
+  },
+  {
+    id: "finance_planning",
+    label: "Finance — Planning",
+    critical: true,
+    file_aliases: ["finance plan", "financial plan", "budget", "forecast", "cash runway", "p&l", "pnl", "p and l"],
+    needs: "Budget vs actual, cash runway, financial plan",
+    upload_hint: "Upload to /projects: budget vs actual, cash runway model, 2026 financial plan. Without these Duncan cannot judge if June 7 is financially achievable.",
+    prefill_tag: "finance-plan",
+  },
+  {
+    id: "legal",
+    label: "Legal & Compliance",
+    critical: true,
+    file_aliases: ["contract", "nda", "ip register", "ip ", "trademark", "compliance", "msa", "vendor agreement"],
+    needs: "Contracts, NDAs, IP register",
+    upload_hint: "Upload to /projects: signed Lightning Strike vendor contracts, active NDAs, IP register. Without these Duncan cannot warn you about expiring obligations or unsigned commitments.",
+    prefill_tag: "legal",
+  },
+  {
+    id: "technology_direction",
+    label: "Technology direction",
+    critical: true,
+    file_aliases: ["architecture", "tech roadmap", "technology roadmap", "tech plan", "release readiness", "system design", "platform plan"],
+    needs: "Architecture diagram, tech roadmap, release readiness",
+    upload_hint: "Upload to /projects: architecture diagram, 2026 tech roadmap, release-readiness checklist. Without these Duncan can only see ticket motion, not whether the platform is heading the right way.",
+    prefill_tag: "tech-direction",
+  },
+  {
+    id: "product_strategy",
+    label: "Product strategy",
+    critical: false,
+    file_aliases: ["prd", "product requirements", "product roadmap", "customer research", "user research", "discovery"],
+    needs: "PRDs, product roadmap, customer research",
+    upload_hint: "Upload to /projects: current PRDs, product roadmap, latest customer research. Without these Duncan can only judge product motion, not direction.",
+    prefill_tag: "product",
+  },
+  {
+    id: "investor_board",
+    label: "Investor / Board",
+    critical: false,
+    file_aliases: ["board pack", "board update", "investor update", "investor deck", "kpi deck", "board minutes"],
+    needs: "Board pack, investor updates, KPI deck",
+    upload_hint: "Upload to /projects: latest board pack, recent investor update, current KPI deck. Without these Duncan cannot align internal status with the story being told externally.",
+    prefill_tag: "board",
+  },
+] as const;
+
+type DomainStatus = "green" | "yellow" | "red";
+
+function computeDataCoverage(
+  projectFiles: Array<{ file_name: string | null }>,
+  meetings: Array<{ title: string | null }>,
+  flags: {
+    hasOperations: boolean;
+    hasRecruitment: boolean;
+    hasXero: boolean;
+    hasReleases: boolean;
+    hasAzureMilestones: boolean;
+  },
+) {
+  const haystack: string[] = [];
+  for (const f of projectFiles) if (f?.file_name) haystack.push(String(f.file_name).toLowerCase());
+  for (const m of meetings) if (m?.title) haystack.push(String(m.title).toLowerCase());
+
+  const matchAny = (aliases: readonly string[]) => {
+    if (!aliases.length) return [];
+    const hits: string[] = [];
+    for (const a of aliases) {
+      const al = a.toLowerCase();
+      if (haystack.some((h) => h.includes(al))) hits.push(a);
+    }
+    return hits;
+  };
+
+  const domains = KNOWLEDGE_DOMAINS.map((d) => {
+    let status: DomainStatus = "red";
+    let evidence = "";
+    let matched: string[] = [];
+
+    if (d.id === "operations") {
+      status = flags.hasOperations ? "green" : "red";
+      evidence = flags.hasOperations
+        ? "Workstreams, Azure DevOps and meetings active in last 24h."
+        : "No recent workstream, Azure or meeting activity.";
+    } else if (d.id === "recruitment") {
+      status = flags.hasRecruitment ? "green" : "red";
+      evidence = flags.hasRecruitment ? "Candidate pipeline active." : "No candidate activity in last 24h.";
+    } else if (d.id === "finance_transactions") {
+      status = flags.hasXero ? "green" : "red";
+      evidence = flags.hasXero ? "Xero invoices/contacts syncing." : "No Xero data — financial transactions invisible.";
+    } else if (d.id === "technology_direction") {
+      matched = matchAny(d.file_aliases);
+      const hasReleaseSignal = flags.hasReleases || flags.hasAzureMilestones;
+      if (matched.length > 0 && hasReleaseSignal) {
+        status = "green";
+        evidence = `Tech docs found (${matched.slice(0, 2).join(", ")}) + recent release/milestone signal.`;
+      } else if (matched.length > 0 || hasReleaseSignal) {
+        status = "yellow";
+        evidence = matched.length > 0
+          ? `Tech docs found (${matched.slice(0, 2).join(", ")}) but no release-readiness signal.`
+          : "Azure work items / releases only — no architecture docs, no roadmap, no release-readiness signal.";
+      } else {
+        status = "red";
+        evidence = "Azure work items only — no architecture docs, no roadmap, no release-readiness signal.";
+      }
+    } else {
+      // file-only domains: finance_planning, legal, product_strategy, investor_board
+      matched = matchAny(d.file_aliases);
+      if (matched.length >= 2) {
+        status = "green";
+        evidence = `Found: ${matched.slice(0, 3).join(", ")}.`;
+      } else if (matched.length === 1) {
+        status = "yellow";
+        evidence = `Only partial signal: "${matched[0]}". Other required docs missing.`;
+      } else {
+        status = "red";
+        evidence = `No documents matching ${d.needs.toLowerCase()}.`;
+      }
+    }
+
+    return {
+      id: d.id,
+      label: d.label,
+      status,
+      critical: d.critical,
+      needs: d.needs,
+      evidence,
+      matched_signals: matched,
+      recommendation: status === "green" ? null : d.upload_hint,
+      prefill_tag: d.prefill_tag,
+    };
+  });
+
+  const reds = domains.filter((d) => d.status === "red");
+  const yellows = domains.filter((d) => d.status === "yellow");
+  const criticalReds = reds.filter((d) => d.critical);
+  const finPlanRed = reds.some((d) => d.id === "finance_planning");
+  const techDirRed = reds.some((d) => d.id === "technology_direction");
+
+  let confidence_cap: "high" | "medium" | "low" = "high";
+  let cap_reason = "All critical knowledge domains have at least partial coverage.";
+  if (reds.length >= 3 || (finPlanRed && techDirRed)) {
+    confidence_cap = "low";
+    cap_reason = `${reds.length} domain${reds.length === 1 ? "" : "s"} are missing entirely${finPlanRed && techDirRed ? " (including both Finance Planning and Technology Direction)" : ""}. Duncan cannot honestly project high confidence.`;
+  } else if (criticalReds.length >= 1) {
+    confidence_cap = "medium";
+    cap_reason = `${criticalReds.length} critical domain${criticalReds.length === 1 ? "" : "s"} (${criticalReds.map((d) => d.label).join(", ")}) have no data. Confidence capped at medium.`;
+  }
+
+  const worstRed = criticalReds[0] || reds[0] || null;
+
+  return {
+    domains,
+    counts: { red: reds.length, yellow: yellows.length, green: domains.length - reds.length - yellows.length, total: domains.length },
+    confidence_cap,
+    cap_reason,
+    worst_red_domain: worstRed ? { id: worstRed.id, label: worstRed.label, recommendation: worstRed.recommendation } : null,
+    critical_reds: criticalReds.map((d) => ({ id: d.id, label: d.label, recommendation: d.recommendation })),
+  };
+}
+
 function detectCoverage(
   priorities: typeof PRIORITY_DEFINITIONS,
   workstreams: string[],
