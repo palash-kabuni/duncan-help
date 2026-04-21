@@ -1,123 +1,130 @@
 
 
-## Two fixes: deep file review + watchlist owner diversity
+## Make "What Duncan Can't See" prescriptive — not just descriptive
 
-### Problem 1 — Duncan never reads the files, only their names
+Right now the Data Coverage Audit tells the CEO **what's missing in broad strokes** ("Legal: Red"). It doesn't think like a Chief of Staff and say *"to give you board-grade advice on India launch, I need: signed MoU with vendor, indemnity clause review, data-residency confirmation, and Q2 cash-flow forecast — none of which are in your current uploads."*
 
-Today the briefing pulls `project_files.file_name` only. The Data Coverage Audit can say *"a file called 'Finance Plan v3.pdf' exists"* but Duncan has never read its contents. So when Nimesh uploads a financial plan, Duncan still can't tell him whether the **plan itself is good enough** — only that the filename matches a keyword. That's the opposite of "deep dive into them and report back what's missing."
+The fix: turn the audit from a **status board** into a **shopping list**. Duncan reasons across every domain (not just the Red ones) and recommends the specific documents/data feeds it needs to operate at full strength — including things a CEO wouldn't think to upload.
 
-### Problem 2 — Watchlist looks Simon-heavy
+### What changes
 
-`PRIORITY_DEFINITIONS` lists Simon as the `expected_owner` (or co-owner) on **3 of 6** priorities (Lightning Strike, Trials, Team Selection). The model then defaults `watchlist[].owner` to that field, so the watchlist visibly skews to Simon even when Alex/Patrick/Matt/Parmy/Palash are the right accountable owner for that workstream's actual blocker.
+**1. New AI output: `payload.missing_artifacts_recommendations`**
 
----
+Per knowledge domain (all 7, not just Red), Duncan returns a ranked shopping list:
 
-### Fix 1 — Deep file review: ingest content, cross-check against other data
+```text
+{
+  domain: "legal",
+  priority: "critical" | "high" | "medium" | "low",
+  artifacts: [
+    {
+      name: "Signed India vendor MoU",
+      why_duncan_needs_it: "Cannot judge launch risk without contractual scope, exit clauses, IP ownership",
+      what_it_unlocks: "Risk Radar accuracy on India launch; Decisions §9 confidence cap → high",
+      where_to_find_it: "Likely in DocuSign / Patrick's email / shared Drive Legal folder",
+      suggested_filename_pattern: "india_vendor_mou_signed_v*.pdf",
+      blast_radius: ["india_launch", "investor_update_q2", "board_pack"]
+    },
+    ...
+  ]
+}
+```
 
-**Server (`supabase/functions/ceo-briefing/index.ts`)**
+**2. Forced "thinking beyond the CEO" rule in the prompt**
 
-1. **Pull file contents, not just names.** Project files are already chunked & embedded in `project_file_chunks` (used by the RAG pipeline). For each Red/Yellow/Green domain that has matched files, fetch the **first ~3 chunks per file** (≈2k chars each) for the most recent 1–2 files per domain. Cap total at ~30k chars across all domains so the prompt stays under control.
+The model is explicitly instructed to recommend artifacts the CEO would not naturally think to upload, drawn from a baseline operating-system checklist:
 
-2. **New deterministic field per domain → `file_review`:**
-   ```text
-   file_review: {
-     files_inspected: [{name, last_updated, chunks_read, byte_size}],
-     content_excerpt: "<first ~6k chars of joined content per domain, deduped>",
-   }
-   ```
+```text
+Finance:        13-week cash forecast, runway model, unit economics by SKU,
+                CAC/LTV trend, AR aging, payroll forecast, FX exposure
+Legal:          Cap table, shareholder agreement, IP assignments, employment
+                contracts, supplier MSAs, NDAs (signed), data-processing
+                agreements, regulatory licences, insurance certificates
+Tech direction: Architecture decision records (ADRs), security audit,
+                penetration test report, SLA register, vendor risk register,
+                incident post-mortems, API contracts, infrastructure cost map
+Product:        Roadmap with dated milestones, customer-research synthesis,
+                churn analysis, feature-usage telemetry, NPS report
+Investor/Board: Latest board deck, investor update emails, KPI dashboard
+                snapshots, capital strategy memo, term sheet, 409A
+People/Ops:     Org chart with comp bands, succession plan, performance
+                calibration grid, hiring plan vs actual, attrition log
+Strategy:       2026 OKRs signed off, competitor teardown, market sizing,
+                pricing strategy, partnership pipeline
+```
 
-3. **New AI output — `payload.document_intelligence`** (one entry per domain that has files):
-   ```text
-   {
-     domain: "finance_planning",
-     file_name: "Finance Plan v3.pdf",
-     verdict: "weak" | "adequate" | "strong",
-     what_it_covers: string,           // grounded in the excerpt
-     what_is_missing_in_doc: string,   // gaps INSIDE the doc
-     contradicted_by: [string],        // facts in OTHER data sources (Xero, workstreams, meetings) that contradict this doc
-     reinforced_by: [string],          // facts in OTHER data sources that confirm this doc
-     critical_gaps_to_fix: [string]    // 1-3 concrete asks
-   }
-   ```
+A green domain isn't off the hook — Duncan still says *"you have a finance plan, but you're missing a 13-week cash forecast and AR aging — without those, my runway calls are educated guesses."*
 
-   The model is required to **cross-reference** the excerpt against `xero_invoices`, `workstream_cards`, `azure_work_items`, `meetings`, and `recent_releases`. Example output the prompt forces: *"Finance Plan v3 assumes £180k Q2 burn, but Xero shows £241k actual burn over the trailing 90d → contradicted_by: ['xero_invoices']."*
+**3. Cross-system inference (think like a Chief of Staff)**
 
-4. **Domain status is upgraded with content quality.** A domain that has matching files but `document_intelligence.verdict === "weak"` is downgraded from Green to **Yellow** and from Yellow to **Red**, with `evidence` rewritten to: *"Finance plan exists but is weak — assumes £180k burn vs £241k actual."* This makes the Data Coverage Audit reflect document **quality**, not just **presence**.
+Duncan correlates what it sees in OTHER systems to deduce what should exist as a document:
 
-5. **Confidence cap re-applied** after the quality downgrade so a weak finance plan triggers the same medium/low cap as a missing one.
+- Saw in `meetings`: *"discussed India launch with Patrick"* → infers a vendor MoU/term sheet should exist → recommends upload.
+- Saw in `xero_invoices`: large recurring payment to AWS → infers an infrastructure cost map / vendor contract should exist.
+- Saw in `azure_work_items`: security tag on tickets → infers a pen-test report and security audit should exist.
+- Saw in `recent_releases`: customer-facing feature → infers a customer-research synthesis should exist.
 
-**UI (`src/components/ceo/DataCoverageCard.tsx` + `CEOBriefing.tsx`)**
+These inferences become recommendations with `where_to_find_it` populated from the source signal (*"Heard mentioned in Patrick's 14 Apr meeting — likely in his Drive folder"*).
 
-- Per domain row: when `document_intelligence` exists, show an expandable accordion with the verdict pill (weak/adequate/strong), the gaps inside the doc, the contradictions found in other systems, and the 1–3 fixes.
-- Add a top-line counter: *"Documents reviewed: 4 · Weak: 2 · Adequate: 1 · Strong: 1."*
+**4. Unlock-value scoring**
 
-### Fix 2 — Watchlist owner accuracy (no more "Simon column")
+Every artifact carries `what_it_unlocks` — the concrete sections of the briefing that go from *guess* to *grounded* once supplied. CEO sees: *"Upload the cap table → unlocks investor advisory + decision §9 confidence cap → high."* This is the difference between "you're missing things" and "uploading **this one file** raises Duncan's confidence on **these three sections**."
 
-**Server (`supabase/functions/ceo-briefing/index.ts`)**
+**5. UI: a new prescriptive card under the audit**
 
-1. **Stop defaulting watchlist owner to `expected_owner`.** Add a new prompt rule:
+```text
+EDIT src/components/ceo/DataCoverageCard.tsx
+  - Below the domain list, add "Files Duncan is asking for"
+    grouped by priority (critical → high → medium → low)
+  - Each card: name + why_duncan_needs_it + what_it_unlocks +
+    where_to_find_it (italic muted) + "Upload" button
+    (deep-links to /projects?prefill_tag=<domain>&suggested_name=<pattern>)
+  - Top counter: "12 files would unlock board-grade advice ·
+    3 critical · 5 high · 4 medium"
+```
 
-   ```text
-   watchlist[].owner MUST be the person actually accountable for the
-   specific blocker — derived from workstream_cards.owner_id (resolved
-   via team_directory), azure_work_items.assigned_to, or the function
-   area in `what_changed`. Use PRIORITY_DEFINITIONS.expected_owner ONLY
-   as a tie-breaker, never as the default.
+**6. Decisions §9 inherits the recommendations**
 
-   No single owner may appear on more than 40% of watchlist rows. If
-   the data genuinely concentrates on one person, split the row into
-   sub-issues attributed to the actual contributors (e.g. CMO for
-   marketing-side blockers, CFO for funding gates, CTO for tech
-   readiness), or escalate to the CEO.
-   ```
+When a decision is `blocked_by_missing_data`, the amber banner now lists the **specific files** Duncan needs (not just the domain): *"Decide blind — needs: Signed India vendor MoU, Q2 cash forecast, indemnity review."* Each is a one-click upload link.
 
-2. **Server-side post-processor** that, after the model returns:
-   - Counts owner frequency in `watchlist`. If any owner > 40% of rows, demote the surplus rows to a generic *"Cross-functional — escalate to CEO"* owner with a `reassignment_reason`.
-   - Resolves owner names against `team_directory` so display names are real (no hallucinated titles).
-
-3. **Loosen the over-assignment in `PRIORITY_DEFINITIONS`:**
-   ```text
-   trials.expected_owner       → "Simon (Ops Director) + Alex (CMO)"
-   team_selection.expected_owner → "Matt (CPO) + Simon (Ops Director)"
-   lightning_strike            → unchanged (Nimesh + Simon is correct)
-   ```
-   This keeps Simon where he genuinely owns, but breaks the auto-cascade onto his name.
-
-**UI (`src/pages/CEOBriefing.tsx`)**
-
-- When a row's owner is auto-rebalanced, show a small amber tag: *"Reassigned — single-owner concentration"*. This makes the rule visible to the CEO so it's never silently distorted.
-
-### Files
+### Files to edit
 
 ```text
 EDIT supabase/functions/ceo-briefing/index.ts
-  - Pull project_file_chunks (top-1-2 files per matched domain, ~3 chunks each)
-  - Build domain_file_review map; pass into context as `domain_file_review`
-  - Schema += payload.document_intelligence[]
-  - Prompt rules: cross-reference excerpts vs Xero / workstreams / Azure / meetings
-  - After parse: downgrade domain status when verdict === "weak"; re-apply
-    confidence cap; rewrite domain.evidence with the weakness reason
-  - Watchlist owner rule + 40%-cap post-processor
-  - Loosen Simon-heavy expected_owner on trials + team_selection
+  - Add OPERATING_SYSTEM_CHECKLIST constant (per-domain artifact baseline)
+  - Inject checklist + cross-system signals (meetings/xero/azure/releases)
+    into context as `inferred_artifact_signals`
+  - Schema += payload.missing_artifacts_recommendations[]
+  - Prompt rules:
+      • Recommend artifacts even for GREEN domains (depth, not just presence)
+      • Cross-reference meeting transcripts / Xero / Azure / releases
+        to infer artifacts that SHOULD exist but haven't been uploaded
+      • Each recommendation must have what_it_unlocks tied to a specific
+        briefing section (Risk Radar / Decisions §N / Investor section / etc)
+      • Maximum 15 recommendations total, ranked by unlock-value
+  - Rewrite decisions[].blocked_by_missing_data to include specific
+    artifact names (not just domain), pulled from recommendations
 
 EDIT src/components/ceo/DataCoverageCard.tsx
-  - Per-domain expandable row: verdict pill + what_it_covers +
-    what_is_missing_in_doc + contradicted_by + reinforced_by + fixes
-  - Top-line counter: documents reviewed / weak / adequate / strong
+  - New "Files Duncan is asking for" section grouped by priority
+  - Per-artifact card with why / unlocks / where-to-find + Upload CTA
+  - Top counter (total + per-priority breakdown)
 
 EDIT src/pages/CEOBriefing.tsx
-  - Watchlist row: amber tag when owner was auto-rebalanced
+  - Decisions §9: blind banner lists specific artifacts (not just domain)
+    with one-click upload links per file
 ```
 
 ### Outcome
 
-- Duncan **reads** uploaded files (not just file names), reports their **quality**, and names exactly which other systems **contradict or confirm** them.
-- A weak plan is treated almost as harshly as a missing plan — confidence is capped accordingly.
-- The watchlist is **owner-balanced** by rule. Simon stops appearing as the default accountable person for everything that touches Ops.
+- Duncan stops grading what's uploaded and starts **prescribing what should be**.
+- The CEO sees a ranked shopping list of documents that, once supplied, measurably raise the briefing's confidence — with an explicit map of *which sections* each file unlocks.
+- Missing things the CEO would never think to ask for (ADRs, 13-week cash forecast, cap table, vendor risk register) get surfaced because Duncan reasons from a Chief-of-Staff baseline, not from what's already in the system.
+- Decisions §9 stops saying "blocked by Legal" and starts saying *"blocked by: Signed India vendor MoU + Q2 cash forecast — upload here."*
 
 ### Out of scope (ask if you want)
 
-- Auto-emailing the document owner ("Patrick — Finance Plan v3 is weak: §X missing") via existing `send-ceo-briefing-actions` routing
-- A standalone *Document Health* page listing every uploaded file with verdict + last-reviewed date
-- Recursively pulling Google Drive folders so domain coverage fills itself before the CEO has to upload manually
+- Auto-emailing the likely owner of each missing artifact (Patrick for cap table, Nimesh for finance forecast) via existing `send-ceo-briefing-actions` routing
+- Persisting recommendations across briefings so Duncan can show *"3 of 12 critical files supplied this week"* progress
+- Auto-scanning Google Drive / DocuSign for filename matches and offering one-click ingest instead of manual upload
 
