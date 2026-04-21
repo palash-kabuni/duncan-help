@@ -1,4 +1,4 @@
-import { AlertTriangle, ShieldCheck, Plus } from "lucide-react";
+import { AlertTriangle, ShieldCheck, Plus, Activity, CircleOff } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 
@@ -9,6 +9,10 @@ interface CoverageGap {
   consequence_if_unowned?: string;
   recommended_owner?: string;
   recommended_workstream_name?: string;
+  current_signal?: string | null;
+  signal_sources?: string[];
+  signal_status?: "active_but_untracked" | "silent";
+  recommended_action?: string;
 }
 
 interface CoverageSummary {
@@ -61,21 +65,48 @@ const CoverageGaps = ({ gaps, totalPriorities = 6, summary }: Props) => {
         {list.map((g, i) => {
           const tag = g.recommended_workstream_name || g.priority.split("—")[0].trim();
           const href = `/workstreams?prefill_tag=${encodeURIComponent(tag)}${g.priority_id ? `&prefill_priority=${encodeURIComponent(g.priority_id)}` : ""}`;
+          const isActive = g.signal_status === "active_but_untracked" || (!!g.current_signal);
           return (
             <div
               key={i}
-              className="rounded-md border border-destructive/20 bg-card p-4 space-y-2"
+              className={`rounded-md border p-4 space-y-2 ${
+                isActive
+                  ? "border-amber-500/40 bg-amber-500/5"
+                  : "border-destructive/20 bg-card"
+              }`}
             >
               <div className="flex items-start justify-between gap-3">
-                <h4 className="text-sm font-semibold text-foreground leading-snug">
-                  {g.priority}
-                </h4>
+                <div className="space-y-1.5 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {isActive ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                        <Activity className="h-3 w-3" /> Work in progress · untracked
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-destructive">
+                        <CircleOff className="h-3 w-3" /> No activity detected
+                      </span>
+                    )}
+                  </div>
+                  <h4 className="text-sm font-semibold text-foreground leading-snug">
+                    {g.priority}
+                  </h4>
+                </div>
                 <Button asChild size="sm" variant="outline" className="shrink-0 gap-1.5 h-7 text-xs">
                   <Link to={href}>
                     <Plus className="h-3 w-3" /> Create workstream
                   </Link>
                 </Button>
               </div>
+              {g.current_signal && (
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  <span className="font-mono uppercase text-[10px] tracking-wider">Signal:</span>{" "}
+                  {g.current_signal}
+                  {g.signal_sources && g.signal_sources.length > 0 && (
+                    <span className="text-muted-foreground"> · {g.signal_sources.slice(0, 3).join(" · ")}</span>
+                  )}
+                </p>
+              )}
               {g.why_it_matters && (
                 <p className="text-xs text-muted-foreground">
                   <span className="font-mono uppercase text-[10px] tracking-wider text-muted-foreground/80">Why:</span>{" "}
@@ -86,6 +117,11 @@ const CoverageGaps = ({ gaps, totalPriorities = 6, summary }: Props) => {
                 <p className="text-xs text-destructive/90">
                   <span className="font-mono uppercase text-[10px] tracking-wider">If unowned:</span>{" "}
                   {g.consequence_if_unowned}
+                </p>
+              )}
+              {g.recommended_action && (
+                <p className="text-[11px] font-mono text-foreground">
+                  → {g.recommended_action}
                 </p>
               )}
               {g.recommended_owner && (

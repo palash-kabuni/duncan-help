@@ -261,6 +261,8 @@ Deno.serve(async (req) => {
       slackLogs, tokenUsage, xeroInvoices, xeroContacts, auditLogs,
       // Canonical workstream sources (full sets, not just 24h)
       allCards, allWorkItems,
+      // Recent transcripts for implicit-coverage scanning (last 10, any date)
+      recentTranscripts,
     ] = await Promise.all([
       safe(admin.from("meetings").select("title,meeting_date,summary,action_items,participants").gte("meeting_date", since).limit(20)),
       safe(admin.from("workstream_cards").select("title,status,priority,project_tag,owner_id,due_date,updated_at").gte("updated_at", since).limit(50)),
@@ -281,7 +283,43 @@ Deno.serve(async (req) => {
       safe(admin.from("integration_audit_logs").select("integration,action,details,created_at").gte("created_at", since).limit(40)),
       safe(admin.from("workstream_cards").select("title,project_tag").is("archived_at", null).limit(500)),
       safe(admin.from("azure_work_items").select("title,project_name").limit(500)),
+      safe(admin.from("meetings").select("title,meeting_date,transcript").not("transcript", "is", null).order("meeting_date", { ascending: false }).limit(10)),
     ]);
+
+    // ─── Scan recent meeting transcripts for priority signals ─────
+    // Detects implicit coverage — work happening on a 2026 priority WITHOUT a workstream.
+    function scanTranscriptsForPriorities(
+      transcripts: Array<{ title: string; meeting_date: string | null; transcript: string | null }>,
+    ) {
+      const PER_TRANSCRIPT_CAP = 6000;
+      const SNIPPET_RADIUS = 200;
+      return PRIORITY_DEFINITIONS.map((p) => {
+        const mentions: Array<{ meeting_title: string; meeting_date: string | null; snippet: string; alias_matched: string }> = [];
+        for (const m of transcripts) {
+          if (!m.transcript) continue;
+          const text = m.transcript.slice(0, PER_TRANSCRIPT_CAP);
+          const lower = text.toLowerCase();
+          for (const alias of p.aliases) {
+            const idx = lower.indexOf(alias.toLowerCase());
+            if (idx >= 0) {
+              const start = Math.max(0, idx - SNIPPET_RADIUS);
+              const end = Math.min(text.length, idx + alias.length + SNIPPET_RADIUS);
+              mentions.push({
+                meeting_title: m.title,
+                meeting_date: m.meeting_date,
+                snippet: text.slice(start, end).replace(/\s+/g, " ").trim(),
+                alias_matched: alias,
+              });
+              break; // one snippet per priority per meeting
+            }
+          }
+          if (mentions.length >= 5) break; // cap mentions per priority
+        }
+        return { priority_id: p.id, priority_title: p.title, mentions };
+      }).filter((s) => s.mentions.length > 0);
+    }
+
+    const meeting_priority_signals = scanTranscriptsForPriorities(recentTranscripts as any[]);
 
     // ─── Canonical workstream list ────────────────────────────────
     const projectTags = Array.from(
@@ -301,6 +339,20 @@ Deno.serve(async (req) => {
       [...allCardTitles, ...allAzureTitles],
     );
 
+    // Pre-compute the server-authoritative coverage summary so the model can quote it verbatim.
+    const _preCovered = coverage_report.filter((c) => c.status === "covered");
+    const _preMissing = coverage_report.filter((c) => c.status === "missing");
+    const _preTotal = PRIORITY_DEFINITIONS.length;
+    const _preRatio = _preCovered.length / _preTotal;
+    const coverage_summary_authoritative = {
+      covered: _preCovered.length,
+      total: _preTotal,
+      ratio: Number(_preRatio.toFixed(2)),
+      ratio_pct: Math.round(_preRatio * 100),
+      covered_priorities: _preCovered.map((c) => ({ priority: c.priority, matched_workstream: c.matched_workstream })),
+      missing_priorities: _preMissing.map((m) => m.priority),
+    };
+
     const context = {
       now_utc: new Date().toISOString(),
       window: "last 24h",
@@ -312,6 +364,8 @@ Deno.serve(async (req) => {
         expected_owner: p.expected_owner,
       })),
       coverage_report,
+      coverage_summary: coverage_summary_authoritative,
+      meeting_priority_signals,
       meetings,
       workstream_cards: cards,
       workstream_activity: activity,
@@ -334,7 +388,20 @@ Deno.serve(async (req) => {
 
 ${briefing_type === "evening" ? EVENING_SCHEMA_HINT : MORNING_SCHEMA_HINT}
 
-Source data (24h activity window; available_workstreams + coverage_report are full-set):
+SERVER-AUTHORITATIVE COVERAGE (USE THESE NUMBERS VERBATIM):
+${JSON.stringify(coverage_summary_authoritative)}
+
+HARD RULES:
+- coverage_summary above is server-computed truth. You MUST use these exact numbers (covered/total/ratio_pct) verbatim in payload.company_pulse, payload.brutal_truth, and payload.execution_explanation. Do NOT recompute, infer, estimate, or round coverage in prose.
+- Do NOT claim a priority is covered unless it appears in coverage_summary.covered_priorities.
+- Use meeting_priority_signals to detect IMPLICIT coverage — work happening on a 2026 priority WITHOUT a formal workstream. For any priority that has signals but no workstream, the corresponding payload.coverage_gaps entry MUST include:
+    "current_signal": "<one-sentence summary of what's being discussed in meetings>",
+    "signal_sources": [<meeting_title strings>],
+    "recommended_action": "Formalise into a workstream — work is already happening but untracked."
+  Implicit-coverage gaps are MORE URGENT than silent gaps because momentum exists but is invisible to the system.
+- For priorities with NO signal anywhere (no workstream, no meeting mention), set "current_signal": null and "recommended_action": "No activity detected — assign owner immediately."
+
+Source data (24h activity window; available_workstreams + coverage_report + meeting_priority_signals are full-set):
 ${JSON.stringify(context).slice(0, 120000)}
 
 If previous_briefing is non-null, explain probability/score deltas vs it. Keep prose tight, executive, no fluff. If a data source is empty, say so — do not invent activity. Remember: workstream_scores ⊆ available_workstreams; missing priorities → coverage_gaps, NOT fabricated scores.`;
@@ -377,14 +444,21 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       );
     }
     // 2. Ensure coverage_gaps reflects actual missing priorities (server-authoritative)
+    //    + enrich with meeting_priority_signals to flag implicit (untracked) work.
     parsed.payload = parsed.payload || {};
     const missing = coverage_report.filter((c) => c.status === "missing");
     const covered = coverage_report.filter((c) => c.status === "covered");
     const modelGaps = Array.isArray(parsed.payload.coverage_gaps) ? parsed.payload.coverage_gaps : [];
+    const signalsByPriority = new Map(
+      meeting_priority_signals.map((s) => [s.priority_id, s])
+    );
     parsed.payload.coverage_gaps = missing.map((m) => {
       const fromModel = modelGaps.find((g: any) =>
         (g?.priority || "").toLowerCase().includes(m.priority.toLowerCase().split("—")[0].trim().slice(0, 12))
       );
+      const sig = signalsByPriority.get(m.priority_id);
+      const hasSignal = !!(sig && sig.mentions.length > 0);
+      const signalSources = hasSignal ? sig!.mentions.map((x) => x.meeting_title).slice(0, 5) : [];
       return {
         priority_id: m.priority_id,
         priority: m.priority,
@@ -392,6 +466,15 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
         consequence_if_unowned: fromModel?.consequence_if_unowned || "No accountable owner means no progress and no escalation path — this priority will silently slip.",
         recommended_owner: fromModel?.recommended_owner || m.expected_owner,
         recommended_workstream_name: fromModel?.recommended_workstream_name || m.priority.split("—")[0].trim(),
+        // Implicit-coverage fields (server-authoritative)
+        current_signal: hasSignal
+          ? (fromModel?.current_signal || `Discussed in ${sig!.mentions.length} recent meeting${sig!.mentions.length === 1 ? "" : "s"} but no formal workstream exists.`)
+          : null,
+        signal_sources: signalSources,
+        signal_status: hasSignal ? ("active_but_untracked" as const) : ("silent" as const),
+        recommended_action: hasSignal
+          ? "Formalise into a workstream — work is already happening but invisible to Duncan."
+          : "No activity detected anywhere — assign owner immediately.",
       };
     });
 
@@ -427,6 +510,25 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
         applied_probability_cap: probCap,
         applied_execution_cap: execCap,
       };
+    }
+
+    // 5. Prose post-check — scan key narrative fields for "X of 6" digit mismatches
+    //    against server-truth coverage count and append a corrective sentence.
+    const trueCovered = covered.length;
+    const proseFields = ["company_pulse", "brutal_truth", "execution_explanation", "probability_movement"] as const;
+    for (const field of proseFields) {
+      const val = parsed.payload?.[field];
+      if (typeof val !== "string" || !val) continue;
+      const re = /\b(\d{1,2})\s*(?:of|out of|\/)\s*6\b/gi;
+      let mismatch = false;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(val)) !== null) {
+        const claimed = parseInt(m[1], 10);
+        if (!Number.isNaN(claimed) && claimed !== trueCovered) { mismatch = true; break; }
+      }
+      if (mismatch) {
+        parsed.payload[field] = `${val.trim()} (Server correction: only ${trueCovered} of ${totalPriorities} 2026 priorities have an active workstream.)`;
+      }
     }
 
     const briefing_date = new Date().toISOString().slice(0, 10);
