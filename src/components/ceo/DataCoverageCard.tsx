@@ -83,16 +83,36 @@ const StatusIcon = ({ status }: { status: DataCoverageDomain["status"] }) => {
   return <AlertTriangle className="h-3.5 w-3.5 text-red-500" />;
 };
 
+const prioBadgeClass = (p: MissingArtifact extends never ? never : "critical" | "high" | "medium" | "low") =>
+  p === "critical"
+    ? "border-red-500/40 text-red-600 dark:text-red-400"
+    : p === "high"
+    ? "border-orange-500/40 text-orange-600 dark:text-orange-400"
+    : p === "medium"
+    ? "border-yellow-500/40 text-yellow-600 dark:text-yellow-400"
+    : "border-border text-muted-foreground";
+
 export default function DataCoverageCard({
   audit,
   documentIntelligence = [],
+  missingArtifacts = [],
+  missingArtifactsSummary,
 }: {
   audit: DataCoverageAudit;
   documentIntelligence?: DocumentIntelligenceEntry[];
+  missingArtifacts?: MissingArtifactsRecommendation[];
+  missingArtifactsSummary?: MissingArtifactsSummary;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const diByDomain = new Map(documentIntelligence.map((e) => [e.domain, e]));
   const summary = audit.document_review_summary;
+  const domainLabelById = new Map(audit.domains.map((d) => [d.id, d.label]));
+  const domainPrefillById = new Map(audit.domains.map((d) => [d.id, d.prefill_tag]));
+  const sortedRecs = [...missingArtifacts].sort((a, b) => {
+    const r: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    return (r[a.priority] ?? 9) - (r[b.priority] ?? 9);
+  });
+
 
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">
