@@ -515,6 +515,108 @@ function inferArtifactSignals(input: {
 
 type DomainStatus = "green" | "yellow" | "red";
 
+// ─── Strategic Artifact Matrix ────────────────────────────────────────────
+// What documents/feeds Duncan MUST see to give honest advice on each 2026
+// priority within each knowledge domain. This is the DENOMINATOR for coverage —
+// without it, "Green" only ever means "we have a heartbeat", not "we are ready".
+// Critical domains are: operations, finance_planning, legal, technology_direction.
+// Empty arrays = this priority does not require artifacts in this domain.
+const STRATEGIC_ARTIFACT_MATRIX: Record<string, Record<string, string[]>> = {
+  lightning_strike: {
+    operations: ["India launch runbook", "On-ground ops plan", "Supply-chain readiness", "Event-day escalation matrix"],
+    finance_planning: ["Launch P&L", "India landed-cost model", "FX hedge plan"],
+    finance_transactions: ["India vendor payment register"],
+    legal: ["India entity docs", "Lightning Strike vendor MoU", "Data-residency review", "Event insurance certificate", "India regulatory licences"],
+    technology_direction: ["Launch-day infra capacity plan", "India CDN/edge plan", "Launch incident runbook"],
+    product_strategy: ["Launch SKU spec", "Packaging artwork sign-off"],
+    investor_board: ["Launch-readiness board memo"],
+    recruitment: [],
+  },
+  kpl_registrations: {
+    operations: ["Registration funnel ops plan", "Support staffing model"],
+    finance_planning: ["CAC budget by channel", "Paid-media forecast"],
+    finance_transactions: ["Marketing spend register"],
+    legal: ["KPL terms & conditions", "Privacy policy (registrations)"],
+    technology_direction: ["Registration platform load plan", "Anti-fraud / bot-mitigation plan"],
+    product_strategy: ["Registration UX flow", "Conversion telemetry plan"],
+    investor_board: ["KPL traction update memo"],
+    recruitment: [],
+  },
+  trials: {
+    operations: ["Trials operations plan (Oct/Nov)", "Trials venue logistics", "Trials staffing rota"],
+    finance_planning: ["Trials cost model"],
+    finance_transactions: [],
+    legal: ["Trials participant waiver", "Venue insurance", "Safeguarding policy"],
+    technology_direction: ["Trials scoring system spec"],
+    product_strategy: ["Trials format & criteria document"],
+    investor_board: [],
+    recruitment: ["Trials judge / coach roster"],
+  },
+  team_selection: {
+    operations: ["Selection-day runbook", "10 Super Coaches onboarding plan"],
+    finance_planning: ["Coach compensation model"],
+    finance_transactions: [],
+    legal: ["Super Coach contracts (template)", "Image rights agreements"],
+    technology_direction: ["Selection scoring & data pipeline"],
+    product_strategy: ["Selection criteria framework", "Coach role definition"],
+    investor_board: ["Selection outcomes board memo"],
+    recruitment: ["Coach scouting pipeline"],
+  },
+  preorders: {
+    operations: ["Pre-order fulfilment plan", "Logistics & 3PL readiness"],
+    finance_planning: ["Pre-order revenue forecast", "Inventory funding plan"],
+    finance_transactions: ["Pre-order payment processing setup"],
+    legal: ["Pre-order T&Cs", "Refund policy", "Payment processor agreement"],
+    technology_direction: ["E-commerce platform readiness", "Payment infra scaling plan"],
+    product_strategy: ["Pre-order SKU & pricing matrix"],
+    investor_board: ["100k pre-orders commercial memo"],
+    recruitment: [],
+  },
+  duncan_automation: {
+    operations: ["Automation roadmap (25%)", "Process inventory & automation candidates"],
+    finance_planning: ["Automation ROI / opex savings model"],
+    finance_transactions: [],
+    legal: ["AI usage / data policy", "Automation vendor agreements"],
+    technology_direction: ["Duncan architecture document", "Agent capability map", "AI safety & guardrails plan"],
+    product_strategy: ["Automation product roadmap"],
+    investor_board: ["Operating-leverage thesis update"],
+    recruitment: [],
+  },
+};
+
+// Normalise a string for fuzzy artifact matching.
+const _normToken = (s: string) =>
+  String(s || "")
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+// Does any of the supplied strings (file names, card titles, etc.) plausibly
+// match the required artifact name? Token-overlap heuristic — must share at
+// least 2 distinctive (length>=4) tokens, OR contain the full normalised name.
+function _findArtifactMatch(required: string, hay: Array<{ source: string; text: string }>) {
+  const reqNorm = _normToken(required);
+  if (!reqNorm) return null;
+  const reqTokens = reqNorm.split(" ").filter((t) => t.length >= 4);
+  if (reqTokens.length === 0) {
+    const hit = hay.find((h) => h.text.includes(reqNorm));
+    return hit ? { source: hit.source, matched_text: hit.text.slice(0, 80) } : null;
+  }
+  // Strong: full-name substring
+  const strong = hay.find((h) => h.text.includes(reqNorm));
+  if (strong) return { source: strong.source, matched_text: strong.text.slice(0, 80) };
+  // Weak: ≥2 distinctive tokens overlap
+  for (const h of hay) {
+    let overlap = 0;
+    for (const t of reqTokens) if (h.text.includes(t)) overlap++;
+    if (overlap >= 2 && overlap >= Math.ceil(reqTokens.length * 0.5)) {
+      return { source: h.source, matched_text: h.text.slice(0, 80) };
+    }
+  }
+  return null;
+}
+
 function computeDataCoverage(
   projectFiles: Array<{ file_name: string | null }>,
   meetings: Array<{ title: string | null }>,
@@ -525,10 +627,39 @@ function computeDataCoverage(
     hasReleases: boolean;
     hasAzureMilestones: boolean;
   },
+  signalSources?: {
+    cards: Array<{ title: string | null; project_tag?: string | null }>;
+    workItems: Array<{ title: string | null; project_name?: string | null }>;
+    xeroInvoices: Array<{ contact_name: string | null; invoice_number?: string | null }>;
+  },
 ) {
   const haystack: string[] = [];
   for (const f of projectFiles) if (f?.file_name) haystack.push(String(f.file_name).toLowerCase());
   for (const m of meetings) if (m?.title) haystack.push(String(m.title).toLowerCase());
+
+  // Build a richer haystack used by the strategic-artifact fuzzy matcher.
+  // Each entry is tagged with its source so we can show "likely_supplied_as".
+  const richHay: Array<{ source: string; text: string }> = [];
+  for (const f of projectFiles) {
+    if (f?.file_name) richHay.push({ source: `file:${f.file_name}`, text: _normToken(f.file_name) });
+  }
+  for (const m of meetings) {
+    if (m?.title) richHay.push({ source: `meeting:${m.title}`, text: _normToken(m.title) });
+  }
+  if (signalSources) {
+    for (const c of signalSources.cards || []) {
+      const t = c.title || c.project_tag;
+      if (t) richHay.push({ source: `card:${t}`, text: _normToken(t) });
+    }
+    for (const w of signalSources.workItems || []) {
+      const t = w.title || w.project_name;
+      if (t) richHay.push({ source: `azure:${t}`, text: _normToken(t) });
+    }
+    for (const inv of signalSources.xeroInvoices || []) {
+      const t = inv.contact_name || inv.invoice_number;
+      if (t) richHay.push({ source: `xero:${t}`, text: _normToken(t) });
+    }
+  }
 
   const matchAny = (aliases: readonly string[]) => {
     if (!aliases.length) return [];
@@ -540,51 +671,135 @@ function computeDataCoverage(
     return hits;
   };
 
-  const domains = KNOWLEDGE_DOMAINS.map((d) => {
-    let status: DomainStatus = "red";
-    let evidence = "";
-    let matched: string[] = [];
-
-    if (d.id === "operations") {
-      status = flags.hasOperations ? "green" : "red";
-      evidence = flags.hasOperations
-        ? "Workstreams, Azure DevOps and meetings active in last 24h."
-        : "No recent workstream, Azure or meeting activity.";
-    } else if (d.id === "recruitment") {
-      status = flags.hasRecruitment ? "green" : "red";
-      evidence = flags.hasRecruitment ? "Candidate pipeline active." : "No candidate activity in last 24h.";
-    } else if (d.id === "finance_transactions") {
-      status = flags.hasXero ? "green" : "red";
-      evidence = flags.hasXero ? "Xero invoices/contacts syncing." : "No Xero data — financial transactions invisible.";
-    } else if (d.id === "technology_direction") {
-      matched = matchAny(d.file_aliases);
-      const hasReleaseSignal = flags.hasReleases || flags.hasAzureMilestones;
-      if (matched.length > 0 && hasReleaseSignal) {
-        status = "green";
-        evidence = `Tech docs found (${matched.slice(0, 2).join(", ")}) + recent release/milestone signal.`;
-      } else if (matched.length > 0 || hasReleaseSignal) {
-        status = "yellow";
-        evidence = matched.length > 0
-          ? `Tech docs found (${matched.slice(0, 2).join(", ")}) but no release-readiness signal.`
-          : "Azure work items / releases only — no architecture docs, no roadmap, no release-readiness signal.";
-      } else {
-        status = "red";
-        evidence = "Azure work items only — no architecture docs, no roadmap, no release-readiness signal.";
+  // ─── 1. Build per-priority × per-domain strategic coverage ─────────────
+  type DomainArtifactRow = {
+    domain: string;
+    domain_label: string;
+    required: string[];
+    supplied: Array<{ name: string; likely_supplied_as: string; source: string }>;
+    missing: string[];
+  };
+  type PriorityCoverage = {
+    priority_id: string;
+    priority_title: string;
+    coverage_pct: number;
+    status: DomainStatus;
+    by_domain: DomainArtifactRow[];
+    total_required: number;
+    total_supplied: number;
+  };
+  const domainLabelById = new Map(KNOWLEDGE_DOMAINS.map((d) => [d.id, d.label]));
+  const strategic_coverage: PriorityCoverage[] = PRIORITY_DEFINITIONS.map((p) => {
+    const domainMap = STRATEGIC_ARTIFACT_MATRIX[p.id] || {};
+    const by_domain: DomainArtifactRow[] = [];
+    let totalReq = 0;
+    let totalSup = 0;
+    for (const d of KNOWLEDGE_DOMAINS) {
+      const required = domainMap[d.id] || [];
+      if (required.length === 0) continue;
+      const supplied: DomainArtifactRow["supplied"] = [];
+      const missing: string[] = [];
+      for (const art of required) {
+        const m = _findArtifactMatch(art, richHay);
+        if (m) {
+          supplied.push({ name: art, likely_supplied_as: m.matched_text, source: m.source });
+        } else {
+          missing.push(art);
+        }
       }
-    } else {
-      // file-only domains: finance_planning, legal, product_strategy, investor_board
-      matched = matchAny(d.file_aliases);
-      if (matched.length >= 2) {
-        status = "green";
-        evidence = `Found: ${matched.slice(0, 3).join(", ")}.`;
-      } else if (matched.length === 1) {
-        status = "yellow";
-        evidence = `Only partial signal: "${matched[0]}". Other required docs missing.`;
-      } else {
-        status = "red";
-        evidence = `No documents matching ${d.needs.toLowerCase()}.`;
+      totalReq += required.length;
+      totalSup += supplied.length;
+      by_domain.push({
+        domain: d.id,
+        domain_label: d.label,
+        required,
+        supplied,
+        missing,
+      });
+    }
+    const pct = totalReq > 0 ? Math.round((totalSup / totalReq) * 100) : 0;
+    let status: DomainStatus = "red";
+    if (pct >= 70) status = "green";
+    else if (pct >= 40) status = "yellow";
+    return {
+      priority_id: p.id,
+      priority_title: p.title,
+      coverage_pct: pct,
+      status,
+      by_domain,
+      total_required: totalReq,
+      total_supplied: totalSup,
+    };
+  });
+
+  // ─── 2. Per-domain strategic rollup (denominator across all priorities) ─
+  const CRITICAL_DOMAIN_IDS = new Set(["operations", "finance_planning", "legal", "technology_direction"]);
+  const strategicByDomain = new Map<string, {
+    required_total: number;
+    supplied_total: number;
+    blind_priorities: string[]; // priority titles with 0 supplied in this domain
+    missing_artifacts: Set<string>;
+  }>();
+  for (const d of KNOWLEDGE_DOMAINS) {
+    strategicByDomain.set(d.id, { required_total: 0, supplied_total: 0, blind_priorities: [], missing_artifacts: new Set() });
+  }
+  for (const pc of strategic_coverage) {
+    for (const dr of pc.by_domain) {
+      const agg = strategicByDomain.get(dr.domain);
+      if (!agg) continue;
+      agg.required_total += dr.required.length;
+      agg.supplied_total += dr.supplied.length;
+      for (const m of dr.missing) agg.missing_artifacts.add(m);
+      if (dr.required.length > 0 && dr.supplied.length === 0) {
+        agg.blind_priorities.push(pc.priority_title);
       }
     }
+  }
+
+  // ─── 3. Per-domain status — strategic coverage drives it, with critical floor ─
+  const domains = KNOWLEDGE_DOMAINS.map((d) => {
+    const agg = strategicByDomain.get(d.id)!;
+    const pct = agg.required_total > 0 ? Math.round((agg.supplied_total / agg.required_total) * 100) : 0;
+    let status: DomainStatus;
+    if (agg.required_total === 0) {
+      // No strategic artifacts mapped — fall back to old heartbeat logic.
+      const matchedAliases = matchAny(d.file_aliases);
+      if (d.id === "recruitment") {
+        status = flags.hasRecruitment ? "green" : "red";
+      } else if (d.id === "finance_transactions") {
+        status = flags.hasXero ? "green" : "red";
+      } else if (matchedAliases.length >= 2) status = "green";
+      else if (matchedAliases.length >= 1) status = "yellow";
+      else status = "red";
+    } else {
+      if (pct >= 70) status = "green";
+      else if (pct >= 40) status = "yellow";
+      else status = "red";
+      // Critical-priority floor: if any priority has 0 artifacts in a critical
+      // domain, force RED — strategic blind spot regardless of overall %.
+      if (CRITICAL_DOMAIN_IDS.has(d.id) && agg.blind_priorities.length > 0) {
+        status = "red";
+      }
+    }
+
+    // Live-signal chip (heartbeat) — rendered separately, no longer drives status.
+    let live_signal: "active" | "quiet" = "quiet";
+    if (d.id === "operations") live_signal = flags.hasOperations ? "active" : "quiet";
+    else if (d.id === "recruitment") live_signal = flags.hasRecruitment ? "active" : "quiet";
+    else if (d.id === "finance_transactions") live_signal = flags.hasXero ? "active" : "quiet";
+    else if (d.id === "technology_direction") live_signal = (flags.hasReleases || flags.hasAzureMilestones) ? "active" : "quiet";
+    else live_signal = matchAny(d.file_aliases).length > 0 ? "active" : "quiet";
+
+    const matched = matchAny(d.file_aliases);
+    const evidenceParts: string[] = [];
+    if (agg.required_total > 0) {
+      evidenceParts.push(`${agg.supplied_total} / ${agg.required_total} strategic artifacts (${pct}%).`);
+      if (agg.blind_priorities.length > 0) {
+        evidenceParts.push(`Blind for: ${agg.blind_priorities.slice(0, 3).join(", ")}.`);
+      }
+    }
+    if (matched.length > 0) evidenceParts.push(`File aliases matched: ${matched.slice(0, 2).join(", ")}.`);
+    if (evidenceParts.length === 0) evidenceParts.push(`No strategic artifacts mapped — ${d.needs.toLowerCase()}.`);
 
     return {
       id: d.id,
@@ -592,10 +807,17 @@ function computeDataCoverage(
       status,
       critical: d.critical,
       needs: d.needs,
-      evidence,
+      evidence: evidenceParts.join(" "),
       matched_signals: matched,
       recommendation: status === "green" ? null : d.upload_hint,
       prefill_tag: d.prefill_tag,
+      // New strategic + heartbeat fields
+      strategic_required: agg.required_total,
+      strategic_supplied: agg.supplied_total,
+      strategic_pct: pct,
+      blind_priorities: agg.blind_priorities,
+      missing_artifacts: Array.from(agg.missing_artifacts).slice(0, 12),
+      live_signal,
     };
   });
 
@@ -605,15 +827,30 @@ function computeDataCoverage(
   const finPlanRed = reds.some((d) => d.id === "finance_planning");
   const techDirRed = reds.some((d) => d.id === "technology_direction");
 
-  let confidence_cap: "high" | "medium" | "low" = "high";
-  let cap_reason = "All critical knowledge domains have at least partial coverage.";
+  // ─── 4. Confidence cap — strategic-coverage average + red-count floor ───
+  const overall_strategic_pct = strategic_coverage.length > 0
+    ? Math.round(strategic_coverage.reduce((s, p) => s + p.coverage_pct, 0) / strategic_coverage.length)
+    : 0;
+  let strategicCap: "high" | "medium" | "low" = "high";
+  if (overall_strategic_pct < 40) strategicCap = "low";
+  else if (overall_strategic_pct < 70) strategicCap = "medium";
+
+  let redCap: "high" | "medium" | "low" = "high";
+  let redCapReason = "All critical knowledge domains have at least partial coverage.";
   if (reds.length >= 3 || (finPlanRed && techDirRed)) {
-    confidence_cap = "low";
-    cap_reason = `${reds.length} domain${reds.length === 1 ? "" : "s"} are missing entirely${finPlanRed && techDirRed ? " (including both Finance Planning and Technology Direction)" : ""}. Duncan cannot honestly project high confidence.`;
+    redCap = "low";
+    redCapReason = `${reds.length} domain${reds.length === 1 ? "" : "s"} are missing entirely${finPlanRed && techDirRed ? " (including both Finance Planning and Technology Direction)" : ""}.`;
   } else if (criticalReds.length >= 1) {
-    confidence_cap = "medium";
-    cap_reason = `${criticalReds.length} critical domain${criticalReds.length === 1 ? "" : "s"} (${criticalReds.map((d) => d.label).join(", ")}) have no data. Confidence capped at medium.`;
+    redCap = "medium";
+    redCapReason = `${criticalReds.length} critical domain${criticalReds.length === 1 ? "" : "s"} (${criticalReds.map((d) => d.label).join(", ")}) are below threshold.`;
   }
+
+  // Whichever is stricter wins.
+  const capRank = { high: 0, medium: 1, low: 2 } as const;
+  const confidence_cap = capRank[strategicCap] >= capRank[redCap] ? strategicCap : redCap;
+  const cap_reason = confidence_cap === strategicCap && strategicCap !== "high"
+    ? `Strategic artifact coverage is only ${overall_strategic_pct}% across the 6 priorities. ${redCapReason}`
+    : `${redCapReason} Strategic coverage average: ${overall_strategic_pct}%.`;
 
   const worstRed = criticalReds[0] || reds[0] || null;
 
@@ -624,6 +861,8 @@ function computeDataCoverage(
     cap_reason,
     worst_red_domain: worstRed ? { id: worstRed.id, label: worstRed.label, recommendation: worstRed.recommendation } : null,
     critical_reds: criticalReds.map((d) => ({ id: d.id, label: d.label, recommendation: d.recommendation })),
+    strategic_coverage,
+    overall_strategic_pct,
   };
 }
 
