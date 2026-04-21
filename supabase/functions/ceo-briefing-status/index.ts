@@ -4,7 +4,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const CEO_EMAILS = ["nimesh@kabuni.com", "palash@kabuni.com"];
+// Viewing briefing job status is open to any authenticated user.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -35,10 +35,8 @@ Deno.serve(async (req) => {
     const { data: claimsData, error: claimsErr } = await supabase.auth.getClaims(token);
     if (claimsErr || !claimsData?.claims) return json({ error: "Unauthorized" }, 401);
 
-    const email = (claimsData.claims.email as string | undefined)?.toLowerCase() ?? "";
-    if (!CEO_EMAILS.includes(email)) return json({ error: "Forbidden — CEO only" }, 403);
-
     const userId = claimsData.claims.sub as string;
+    if (!userId) return json({ error: "Unauthorized" }, 401);
 
     // job_id can come from query string (GET-style) or JSON body (POST).
     let jobId: string | null = null;
