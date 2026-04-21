@@ -545,6 +545,78 @@ Deno.serve(async (req) => {
       },
     );
 
+    // ─── Domain File Review — actually READ uploaded docs (not just names) ─
+    type DomainFileReview = {
+      domain_id: string;
+      domain_label: string;
+      files_inspected: Array<{ name: string; last_updated: string | null; chunks_read: number; byte_size: number }>;
+      content_excerpt: string;
+    };
+    const domain_file_review: DomainFileReview[] = [];
+    const allFiles = (projectFiles as any[]) || [];
+    const PER_FILE_CHAR_CAP = 6000;
+    const PER_DOMAIN_CHAR_CAP = 6000;
+    const TOTAL_CHAR_CAP = 30000;
+    let totalChars = 0;
+
+    for (const d of KNOWLEDGE_DOMAINS) {
+      if (!d.file_aliases.length) continue;
+      if (totalChars >= TOTAL_CHAR_CAP) break;
+      const aliases = d.file_aliases.map((a) => a.toLowerCase());
+      const matchedFiles = allFiles
+        .filter((f: any) => f?.file_name && aliases.some((a) => String(f.file_name).toLowerCase().includes(a)))
+        .slice(0, 2);
+      if (matchedFiles.length === 0) continue;
+
+      const inspected: DomainFileReview["files_inspected"] = [];
+      const excerptParts: string[] = [];
+      let domainChars = 0;
+
+      for (const f of matchedFiles) {
+        if (domainChars >= PER_DOMAIN_CHAR_CAP || totalChars >= TOTAL_CHAR_CAP) break;
+        let chunkText = "";
+        let chunksRead = 0;
+        try {
+          const { data: chunks } = await admin
+            .from("project_file_chunks")
+            .select("content,chunk_index")
+            .eq("file_id", f.id)
+            .order("chunk_index", { ascending: true })
+            .limit(3);
+          if (chunks && chunks.length > 0) {
+            chunkText = chunks.map((c: any) => c.content || "").filter(Boolean).join("\n\n").slice(0, PER_FILE_CHAR_CAP);
+            chunksRead = chunks.length;
+          }
+        } catch { /* ignore */ }
+        if (!chunkText && typeof f.extracted_text === "string") {
+          chunkText = f.extracted_text.slice(0, PER_FILE_CHAR_CAP);
+          chunksRead = chunkText ? 1 : 0;
+        }
+        if (!chunkText) continue;
+
+        const remaining = Math.min(PER_DOMAIN_CHAR_CAP - domainChars, TOTAL_CHAR_CAP - totalChars);
+        const slice = chunkText.slice(0, remaining);
+        excerptParts.push(`[${f.file_name}]\n${slice}`);
+        inspected.push({
+          name: f.file_name,
+          last_updated: f.created_at ?? null,
+          chunks_read: chunksRead,
+          byte_size: slice.length,
+        });
+        domainChars += slice.length;
+        totalChars += slice.length;
+      }
+
+      if (inspected.length > 0) {
+        domain_file_review.push({
+          domain_id: d.id,
+          domain_label: d.label,
+          files_inspected: inspected,
+          content_excerpt: excerptParts.join("\n\n---\n\n"),
+        });
+      }
+    }
+
     // ─── Canonical workstream list ────────────────────────────────
     const projectTags = Array.from(
       new Set((allCards as any[]).map((c) => c.project_tag).filter((t): t is string => !!t && t.trim().length > 0))
