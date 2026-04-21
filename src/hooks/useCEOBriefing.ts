@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-export type BriefingType = "morning" | "evening";
+export type BriefingType = "morning";
 
 interface CEOBriefingRow {
   id: string;
