@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { LayoutDashboard, Plug, Settings, LogOut, X, ChevronDown, CheckCircle2, Mail, FileText, MessageSquare, Calendar, FolderOpen, GitBranch, Zap, Menu, Layers, Megaphone } from "lucide-react";
+import { LayoutDashboard, Plug, Settings, LogOut, X, ChevronDown, CheckCircle2, Mail, FileText, MessageSquare, Calendar, FolderOpen, GitBranch, Zap, Menu, Layers, Megaphone, Crown } from "lucide-react";
+import { isCEO } from "@/lib/ceoAccess";
 import ChatHistory from "@/components/ChatHistory";
 import { useGeneralChats } from "@/hooks/useGeneralChats";
 import type { useGeneralChats as UseGeneralChatsType } from "@/hooks/useGeneralChats";
@@ -171,6 +172,21 @@ const Sidebar = ({
           <LayoutDashboard className="h-4 w-4" />
           Workstreams
         </RouterNavLink>
+
+        {isCEO(user?.email) && (
+          <RouterNavLink
+            to="/ceo"
+            onClick={() => onMobileClose?.()}
+            className={({ isActive }) =>
+              cn("flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all duration-150",
+                isActive ? "bg-primary/10 text-primary glow-primary-sm" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              )
+            }
+          >
+            <Crown className="h-4 w-4" />
+            CEO Briefing
+          </RouterNavLink>
+        )}
 
 
         <div>
