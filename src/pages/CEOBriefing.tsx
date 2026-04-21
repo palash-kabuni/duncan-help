@@ -380,7 +380,7 @@ const CEOBriefing = () => {
                 <Section n={9} title="Decisions the CEO Must Make">
                   {(() => {
                     const decisions = (p.decisions || []) as any[];
-                    const trajectory = String(b.trajectory || "").toLowerCase();
+                    const trajectory = String(briefing.trajectory || "").toLowerCase();
                     const isGreen = trajectory.includes("on track");
                     if (decisions.length === 0) {
                       return (
