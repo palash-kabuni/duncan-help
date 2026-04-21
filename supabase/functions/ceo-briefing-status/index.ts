@@ -68,7 +68,6 @@ Deno.serve(async (req) => {
       return json({ error: error.message }, 500);
     }
     if (!job) return json({ error: "Job not found" }, 404);
-    if (job.user_id !== userId) return json({ error: "Forbidden" }, 403);
 
     return json({
       job_id: job.id,
