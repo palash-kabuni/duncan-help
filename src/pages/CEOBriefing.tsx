@@ -182,7 +182,10 @@ const CEOBriefing = () => {
                 )}
 
                 {p.data_coverage_audit && (
-                  <DataCoverageCard audit={p.data_coverage_audit as DataCoverageAudit} />
+                  <DataCoverageCard
+                    audit={p.data_coverage_audit as DataCoverageAudit}
+                    documentIntelligence={Array.isArray(p.document_intelligence) ? p.document_intelligence : []}
+                  />
                 )}
 
                 <Section n={1} title="Company Pulse — Narrative">
