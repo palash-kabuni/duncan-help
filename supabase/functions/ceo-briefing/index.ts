@@ -1017,7 +1017,7 @@ Deno.serve(async (req) => {
       safe(admin.from("ceo_briefings").select("briefing_date,outcome_probability,execution_score,trajectory")
         .eq("briefing_type", briefing_type).order("briefing_date", { ascending: false }).limit(1)),
       safe(admin.from("slack_notification_logs").select("event_key,status,sent_at,payload").gte("created_at", since).limit(40)),
-      safe(admin.from("token_usage").select("user_id,total_tokens,request_count,usage_date").gte("usage_date", new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)).limit(100)),
+      safe(admin.from("token_usage").select("user_id,total_tokens,prompt_tokens,completion_tokens,request_count,usage_date").gte("usage_date", new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)).limit(5000)),
       safe(admin.from("xero_invoices").select("invoice_number,contact_name,total,amount_due,amount_paid,status,type,due_date,date").gte("synced_at", since).order("date", { ascending: false }).limit(40)),
       safe(admin.from("xero_contacts").select("name,outstanding_balance,overdue_balance").gt("overdue_balance", 0).order("overdue_balance", { ascending: false }).limit(15)),
       safe(admin.from("integration_audit_logs").select("integration,action,details,created_at").gte("created_at", since).limit(40)),
