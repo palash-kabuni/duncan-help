@@ -1383,6 +1383,31 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
         }
       }
 
+      // Ensure the warning banner always reflects the final capped headline values.
+      if (parsed.payload.confidence_warning) {
+        const finalProb = typeof parsed.outcome_probability === "number" ? parsed.outcome_probability : null;
+        const finalExec = typeof parsed.execution_score === "number" ? parsed.execution_score : null;
+        const existing = parsed.payload.confidence_warning || {};
+        const reasonParts: string[] = [];
+
+        if (coverageRatio < 0.5 && finalProb !== null && finalExec !== null) {
+          reasonParts.push(
+            `Low-evidence briefing — Duncan can only see ${covered.length} of ${totalPriorities} 2026 priorities. Probability capped at ${finalProb}% and execution at ${finalExec}/100 until missing workstreams are created.`
+          );
+        }
+
+        if (existing.data_coverage_cap_reason) {
+          reasonParts.push(`${existing.data_coverage_cap_reason} (Confidence cap: ${existing.data_coverage_cap || data_coverage_audit.confidence_cap}.)`);
+        }
+
+        parsed.payload.confidence_warning = {
+          ...existing,
+          applied_probability_cap: finalProb ?? existing.applied_probability_cap,
+          applied_execution_cap: finalExec ?? existing.applied_execution_cap,
+          reason: reasonParts.length > 0 ? reasonParts.join(" ") : existing.reason,
+        };
+      }
+
       // Top-line counter on the audit.
       const verdictCounts = { weak: 0, adequate: 0, strong: 0 };
       for (const e of cleanDI) {
