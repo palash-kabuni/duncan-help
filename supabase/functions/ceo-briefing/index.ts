@@ -1406,6 +1406,7 @@ Deno.serve(async (req) => {
       sync_logs: syncLogs,
       slack_notifications_24h: slackLogs,
       token_usage_7d: tokenUsage,
+      automation_leverage,
       xero_invoices_24h: xeroInvoices,
       xero_overdue_contacts: xeroContacts,
       integration_audit_24h: auditLogs,
