@@ -146,6 +146,13 @@ CRITICAL RULES:
 - watchlist[].good_looks_like MUST be a concrete, observable definition of done for that workstream. Never vague.
 - watchlist[].data_blind_spot MUST be set (non-null) whenever the workstream's function area maps to a Red or Yellow domain in payload.data_coverage_audit. Name the missing document/signal explicitly. Set null ONLY when fully evidenced.
 - watchlist[].owner MUST be the person actually accountable for the SPECIFIC blocker — derived from workstream_cards.owner_id (resolved via team_directory display_name), azure_work_items.assigned_to, or the function area. Use PRIORITY_DEFINITIONS.expected_owner ONLY as a tie-breaker, NEVER as the default. NO single owner may appear on more than 40% of watchlist rows. Split concentrated rows into sub-issues attributed to the actual contributors (CMO for marketing blockers, CFO for funding gates, CTO for tech readiness, COO for execution gaps), or escalate to "Cross-functional — escalate to CEO".
+- payload.watchlist POPULATION RULES: watchlist[] is the operational accountability ledger. It MUST contain one row for EACH of the following, with NO duplicates (matched case-insensitively by workstream name):
+    a. Every workstream_score where rag != "green" (Red, Yellow, At Risk).
+    b. Every entry in headline_context.silent_priorities (owner = PRIORITY_DEFINITIONS.expected_owner, status = "Silent", missing = "No cards, no Azure items, no releases attributed in the last 7 days").
+    c. Every 2026 priority where data_coverage_audit.strategic_coverage coverage_pct < 50 that is not already covered by (a) or (b) — status = "Uncovered".
+    d. Every leader_signal_map entry with signal_status="silent" AND owns_priorities.length > 0 — one row per priority they own (status = "Silent", owner = leader name, missing = "Owner silent 7d — no operational signal").
+  MINIMUM count = max(3, count of non-green workstreams + silent_priorities). An empty watchlist[] when outcome_probability < 70 OR coverage_gaps is non-empty is a reporting failure.
+  For each row: "workstream" = exact name from workstream_scores OR the 2026 priority name; "status" = one of "Red"|"Yellow"|"At Risk"|"Silent"|"Uncovered"; "good_looks_like" = observable definition of done (rule above); "missing" = the SPECIFIC artifact, decision, or signal that's absent; "data_blind_spot" = Red/Yellow domain name if applicable, else null; "auto_injected" = false (only the post-processor sets true).
 - decisions[].confidence MUST NEVER exceed payload.data_coverage_audit.confidence_cap.
 - payload.data_coverage_audit.strategic_coverage is the SERVER-AUTHORITATIVE per-priority artifact gap list (required vs supplied per knowledge domain). When citing coverage, ground numbers in this structure — never invent a "% covered". When a 2026 priority has coverage_pct < 40 in payload.data_coverage_audit.strategic_coverage, payload.brutal_truth MUST name it explicitly with its % and the top 2 missing artifact names. decisions[].blocked_by_missing_data MUST cite specific missing artifact names from strategic_coverage when applicable, e.g. "Lightning Strike: missing India launch runbook + vendor MoU — operations blind spot".
 - decisions[].blocked_by_missing_data MUST name the Red domain whenever the decision cannot be honestly judged without that evidence. Format: "{domain_label}: {what specifically is missing}". Set null ONLY when fully grounded. When missing_artifacts_recommendations contains specific artifact names that would unblock this decision, prepend: "Needs: {artifact_name_1}, {artifact_name_2} — {domain_label} blind spot."
@@ -1462,6 +1469,174 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
       (data_coverage_audit as any).document_review_summary = {
         documents_reviewed: cleanDI.length,
         ...verdictCounts,
+      };
+    }
+
+    // 4c-bis. Watchlist deterministic population floor.
+    //         The model often returns []. We inject required rows from
+    //         non-green workstream_scores, silent priorities, uncovered
+    //         coverage domains, and silent leaders owning priorities.
+    if (briefing_type === "morning") {
+      parsed.payload = parsed.payload || {};
+      const wlIn: any[] = Array.isArray(parsed.payload.watchlist) ? [...parsed.payload.watchlist] : [];
+      const norm = (s: any) => String(s || "").toLowerCase().trim();
+      const hasRowFor = (workstream: string) => {
+        const k = norm(workstream);
+        if (!k) return false;
+        const firstWord = k.split(/[\s—-]+/)[0] || "";
+        return wlIn.some((r: any) => {
+          const rk = norm(r?.workstream);
+          return rk === k || (firstWord && rk.includes(firstWord));
+        });
+      };
+
+      let watchlistAutoInjected = 0;
+
+      const successCriteriaFor = (priorityTitle: string): string => {
+        const pt = priorityTitle.toLowerCase();
+        if (pt.includes("lightning")) return "India launch event delivered on 7 June 2026 with signed runbook, vendor contracts and on-the-ground ops plan.";
+        if (pt.includes("registration") || pt.includes("kpl")) return "1,000,000 verified KPL registrations with measurable funnel conversion.";
+        if (pt.includes("trial")) return "October–November 2026 trials executed across all target cities with attendance + scoring data captured.";
+        if (pt.includes("selection") || pt.includes("super coach")) return "Final 10-team / Super Coach selection signed off by December 2026 with publicised roster.";
+        if (pt.includes("pre-order") || pt.includes("preorder")) return "100,000 paid pre-orders fulfilled with revenue reconciled in Xero.";
+        if (pt.includes("automat") || pt.includes("duncan")) return "25% of company processes measurably automated via Duncan with documented before/after time savings.";
+        return "Workstream owner has stated, evidenced, observable definition of done with a date.";
+      };
+
+      const expectedOwnerFor = (priorityId: string, fallback?: string): string => {
+        const def = PRIORITY_DEFINITIONS.find((p) => p.id === priorityId);
+        return def?.expected_owner || fallback || "Cross-functional — escalate to CEO";
+      };
+
+      // (a) Non-green workstream_scores → ensure a row exists.
+      const wsScores: any[] = Array.isArray(parsed.workstream_scores) ? parsed.workstream_scores : [];
+      for (const ws of wsScores) {
+        const rag = norm(ws?.rag);
+        if (!rag || rag === "green") continue;
+        const name = String(ws?.name || "").trim();
+        if (!name || hasRowFor(name)) continue;
+        const statusLabel = rag === "red" ? "Red" : rag === "yellow" ? "Yellow" : "At Risk";
+        wlIn.push({
+          workstream: name,
+          owner: ws?.owner || "Unassigned — CEO to allocate",
+          status: statusLabel,
+          good_looks_like: ws?.good_looks_like || successCriteriaFor(name),
+          missing: ws?.missing || `Workstream is ${statusLabel} but no specific blocker has been articulated by the owner.`,
+          data_blind_spot: ws?.data_blind_spot ?? null,
+          auto_injected: true,
+          auto_injected_reason: `non_green_workstream_${rag}`,
+        });
+        watchlistAutoInjected++;
+      }
+
+      // (b) Silent priorities → ensure a row exists (one per silent priority).
+      for (const sm of silentMissing) {
+        const priorityName = sm.priority || "";
+        if (!priorityName || hasRowFor(priorityName)) continue;
+        wlIn.push({
+          workstream: priorityName,
+          owner: expectedOwnerFor(sm.priority_id, sm.expected_owner),
+          status: "Silent",
+          good_looks_like: successCriteriaFor(priorityName),
+          missing: "No owned workstream — no cards, no Azure items, no releases attributed in the last 7 days.",
+          data_blind_spot: null,
+          auto_injected: true,
+          auto_injected_reason: "silent_priority",
+        });
+        watchlistAutoInjected++;
+      }
+
+      // (c) Uncovered coverage domains — priorities with coverage_pct < 50 not yet covered.
+      try {
+        const sc: any[] = Array.isArray((data_coverage_audit as any)?.strategic_coverage)
+          ? (data_coverage_audit as any).strategic_coverage
+          : [];
+        for (const pc of sc) {
+          const pct = Number(pc?.coverage_pct ?? 100);
+          if (!Number.isFinite(pct) || pct >= 50) continue;
+          const title = String(pc?.priority_title || "").trim();
+          if (!title || hasRowFor(title)) continue;
+          // Find the worst (most missing) domain to name as blind spot.
+          const byDomain: any[] = Array.isArray(pc?.by_domain) ? pc.by_domain : [];
+          const worstDomain = byDomain
+            .map((d: any) => ({
+              label: d?.domain_label || d?.domain || "",
+              missingCount: Array.isArray(d?.missing) ? d.missing.length : 0,
+            }))
+            .sort((a, b) => b.missingCount - a.missingCount)[0];
+          const blindSpotLabel = worstDomain?.label || null;
+          wlIn.push({
+            workstream: title,
+            owner: expectedOwnerFor(pc?.priority_id),
+            status: "Uncovered",
+            good_looks_like: successCriteriaFor(title),
+            missing: blindSpotLabel
+              ? `Coverage ${pct}% — top blind spot: ${blindSpotLabel} (${worstDomain.missingCount} required artifact${worstDomain.missingCount === 1 ? "" : "s"} missing).`
+              : `Coverage ${pct}% — required artifacts missing across knowledge domains.`,
+            data_blind_spot: blindSpotLabel,
+            auto_injected: true,
+            auto_injected_reason: "uncovered_priority",
+          });
+          watchlistAutoInjected++;
+        }
+      } catch (_) { /* non-fatal */ }
+
+      // (d) Silent leaders owning 2026 priorities → one row per owned priority.
+      try {
+        const lsm: any[] = Array.isArray(leader_signal_map) ? leader_signal_map : [];
+        for (const ls of lsm) {
+          if (norm(ls?.signal_status) !== "silent") continue;
+          const owns: string[] = Array.isArray(ls?.owns_priorities) ? ls.owns_priorities : [];
+          if (owns.length === 0) continue;
+          for (const priorityTitle of owns) {
+            const title = String(priorityTitle || "").trim();
+            if (!title || hasRowFor(title)) continue;
+            wlIn.push({
+              workstream: title,
+              owner: ls?.name || "Unassigned",
+              status: "Silent",
+              good_looks_like: successCriteriaFor(title),
+              missing: `${ls?.name || "Owner"} silent 7d — no meetings, workstream cards, Azure items or releases attributed.`,
+              data_blind_spot: null,
+              auto_injected: true,
+              auto_injected_reason: "silent_leader_owns_priority",
+            });
+            watchlistAutoInjected++;
+          }
+        }
+      } catch (_) { /* non-fatal */ }
+
+      // Final fallback: empty watchlist on a non-green briefing is itself a finding.
+      const _outcomeProb = typeof parsed.outcome_probability === "number" ? parsed.outcome_probability : 50;
+      const _coverageGapsLen = Array.isArray(parsed.payload?.coverage_gaps) ? parsed.payload.coverage_gaps.length : 0;
+      if (wlIn.length === 0 && (_outcomeProb < 70 || _coverageGapsLen > 0)) {
+        wlIn.push({
+          workstream: "Watchlist detection found nothing",
+          owner: "Duncan",
+          status: "Red",
+          good_looks_like: "At least one accountable workstream-owner-blocker triple per non-green priority surfaced here.",
+          missing: "Verify Duncan has visibility into workstreams + 2026 priorities — an empty watchlist on a non-green briefing is unusual.",
+          data_blind_spot: null,
+          auto_injected: true,
+          auto_injected_reason: "empty_watchlist_non_green_briefing",
+        });
+        watchlistAutoInjected++;
+      }
+
+      // Normalise rows + write back BEFORE the 40% concentration cap runs on the combined list.
+      parsed.payload.watchlist = wlIn.map((r: any) => ({
+        workstream: String(r?.workstream || "").trim() || "Unspecified workstream",
+        owner: String(r?.owner || "").trim() || "Unassigned",
+        status: String(r?.status || "").trim() || "At Risk",
+        good_looks_like: String(r?.good_looks_like || "").trim() || "—",
+        missing: String(r?.missing || "").trim() || "—",
+        data_blind_spot: r?.data_blind_spot ?? null,
+        auto_injected: !!r?.auto_injected,
+        ...(r?.auto_injected_reason ? { auto_injected_reason: r.auto_injected_reason } : {}),
+      }));
+      parsed.payload.watchlist_meta = {
+        total: parsed.payload.watchlist.length,
+        auto_injected: watchlistAutoInjected,
       };
     }
 
