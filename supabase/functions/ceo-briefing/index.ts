@@ -1012,6 +1012,29 @@ Deno.serve(async (req) => {
       releases: releases as any[],
     });
 
+    // ─── Company-wide email pulse (opt-in mailboxes, last 24h) ────
+    let email_pulse: any = null;
+    try {
+      const epRes = await fetch(
+        `${Deno.env.get("SUPABASE_URL")}/functions/v1/ceo-email-pulse`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({}),
+        },
+      );
+      if (epRes.ok) {
+        email_pulse = await epRes.json();
+      } else {
+        console.warn("ceo-email-pulse non-200:", epRes.status);
+      }
+    } catch (e) {
+      console.warn("ceo-email-pulse invoke failed:", e);
+    }
+
     // ─── Leadership signal map (deterministic, per-leader tally) ───
     const leader_signal_map = computeLeaderSignalMap({
       meetings: meetings as any[],
@@ -1176,6 +1199,8 @@ Deno.serve(async (req) => {
       inferred_artifact_signals,
       leadership_roster: LEADERSHIP_ROSTER.map((l) => ({ name: l.name, role: l.role, owns_priorities: l.owns_priorities ?? [] })),
       leader_signal_map,
+      email_pulse_signals: email_pulse?.signals ?? null,
+      email_pulse_silent_leaders: email_pulse?.silent_leaders ?? [],
       previous_briefing: (prev as any)?.[0] ?? null,
     };
 
