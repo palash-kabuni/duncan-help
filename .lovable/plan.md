@@ -1,45 +1,57 @@
 
 
-## Upgrade Duncan to latest Claude Opus + GPT-5 models
+## Fix: Team Briefing edge function timeout (Opus too slow)
 
-Confirmed: both your keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) are configured and Duncan's edge functions already call them **directly** (not via the Lovable AI Gateway). Only the model identifiers need updating.
+### Root cause
 
-### 1. Update model constants
+Logs show: `[llm] workflow=ceo-briefing provider=claude attempt=1 status=ok latency_ms=173328` followed by `Http: connection closed before message completed`. Claude Opus 4.5 took **2 minutes 53 seconds** to synthesise the briefing — the HTTP connection to the client closed before the function could deliver the response, even though the LLM call itself succeeded. The next "fix" attempt then triggered a second 5xx because the function was already shutting down.
 
-In `supabase/functions/_shared/llm.ts` (lines 57-60), swap the four model identifiers:
+Opus is too slow for any synchronous request-response workflow. This will keep happening on `norman-chat` (chat hot path) and any other heavy synthesis call we routed to Opus.
 
-| Slot | Current | New |
+### Fix — 3 changes, no client-side work
+
+**1. Demote Opus from primary on latency-sensitive synchronous workflows**
+
+Edit `supabase/functions/_shared/llm.ts` `WORKFLOW_ROUTING` so Opus is only used where we can tolerate 2-3 minute responses (none, currently). Sonnet 4.5 stays the default Claude model — still excellent reasoning, ~3-5× faster.
+
+| Workflow | Before | After |
 |---|---|---|
-| Claude primary | `claude-sonnet-4-5-20250929` | **`claude-opus-4-5`** (latest Opus, since "4.7" doesn't exist) |
-| Claude degrade | `claude-haiku-4-5` | `claude-sonnet-4-5-20250929` (Sonnet becomes the cheaper fallback within Anthropic) |
-| OpenAI primary | `gpt-4o` | **`gpt-5`** |
-| OpenAI degrade | `gpt-4o-mini` | `gpt-5-mini` |
+| `norman-chat` | Opus | **Sonnet** (chat must feel instant) |
+| `ceo-briefing` | Opus | **Sonnet** (sync request) |
+| `ceo-email-pulse` | Opus | **Sonnet** |
+| `analyze-meeting` | Opus | **Sonnet** |
+| `chat-with-project-context` | Opus | **Sonnet** |
+| `gmail-auto-draft` | Opus | **Sonnet** |
+| `gmail-train-style` | Opus | **Sonnet** |
+| `generate-jd`, `parse-jd-competencies` | Opus | **Sonnet** |
+| `score-cv-values`, `score-cv-competencies` | Opus | **Sonnet** |
+| `finalize-release`, `generate-exec-summary` | Opus | **Sonnet** (still synchronous) |
 
-Embeddings stay on `text-embedding-3-small` (Anthropic has no embedding API; this is unchanged).
+Net effect: Opus is wired in but unused. Promote individual workflows back to Opus only if/when we move them to a background job pattern (see #3).
 
-### 2. Keep file-parsing path on a vision-capable model
+Implementation: change the `MODELS.claude.primary` constant from `claude-opus-4-5` to `claude-sonnet-4-5-20250929`, and `MODELS.claude.degrade` from Sonnet to `claude-haiku-4-5`. This is a one-line model swap — `WORKFLOW_ROUTING` keys stay `"claude"` so cross-provider fallback to GPT-5 still works.
 
-`parse-cv`, `extract-chat-file`, `extract-file-text` currently force OpenAI because they send `type: "file"` content blocks. They'll automatically use `gpt-5`, which supports vision — no code change needed beyond the constant swap.
+**2. Tighten timeouts + add abort handling in the LLM router**
 
-### 3. Deploy + smoke test
+In `_shared/llm.ts`:
+- Add a 90-second `AbortController` per provider attempt. If Claude doesn't respond in 90s, abort and trigger fallback to GPT-5 (instead of waiting 173s for the edge runtime to kill the connection).
+- Catch `AbortError` in `callLLMWithFallback` as a retryable error (same code path as 429/5xx).
+- Log `[llm] workflow=… status=timeout latency_ms=90000` so timeouts are visible.
 
-- Deploy all 18 AI edge functions in one batch.
-- Hit `test-claude` to confirm Opus key path works.
-- Trigger `/team-briefing` (Claude Opus primary) → check logs show `provider=claude model=claude-opus-4-5 status=ok`.
-- Send a chat message to Duncan → confirm streaming still works end-to-end via Opus SSE → OpenAI-shaped delta normalisation.
-- Trigger `parse-cv` with a sample CV → confirm `gpt-5` vision works.
+**3. Document the long-running workflow rule**
 
-### 4. Update memory
+Update `mem://tech/llm-provider`: any workflow that needs Opus must use the background-task pattern (`EdgeRuntime.waitUntil` + DB row for status + client polling) — never a synchronous HTTP response. Today, no workflow does this, so Opus is effectively reserved for future use.
 
-Refresh `mem://tech/llm-provider` with the new model identifiers and the rationale (Opus for reasoning depth, GPT-5 for OpenAI-side workloads + vision).
+### Verification
 
-### Notes on your request
-
-- **"Opus 4.7"**: doesn't exist in Anthropic's catalogue today. The latest published Opus is **4.5** — that's what I'll wire in. If Anthropic ships a newer Opus, it's a one-line change.
-- **Cost / latency caveat**: Opus is ~5× the cost of Sonnet and noticeably slower on the chat hot path. If `norman-chat` feels sluggish or burns budget, we can flip just `norman-chat` back to Sonnet in `WORKFLOW_ROUTING` while keeping Opus on the heavy synthesis workflows (briefings, exec summaries, CV scoring). Tell me if you want that split now or after you've felt the latency.
-- **GPT-5 access**: assumes your OpenAI org has `gpt-5` enabled. If the deploy logs show a 404 model-not-found, we'll fall back to `gpt-4o` automatically via the cross-provider fallback (Claude Opus picks up the slack), and I'll switch the constant to whatever your account allows.
+- Redeploy `_shared/llm.ts` consumers: `ceo-briefing`, `ceo-email-pulse`, `norman-chat`, `analyze-meeting`, `chat-with-project-context`, `gmail-auto-draft`, `gmail-train-style`, `generate-jd`, `parse-jd-competencies`, `score-cv-values`, `score-cv-competencies`, `finalize-release`, `generate-exec-summary`, `parse-cv`, `extract-chat-file`, `extract-file-text`, `hireflix-sync-interviews`, `hireflix-retry-processor`, `create-hireflix-position`.
+- Trigger Team Briefing from `/team-briefing` → expect `provider=claude model=claude-sonnet-4-5-20250929 status=ok latency_ms<60000` and a successful response.
+- Send a Duncan chat message → confirm streaming still works on Sonnet.
+- Tail `ceo-briefing` logs to confirm no `Http: connection closed` errors.
 
 ### Out of scope
 
-No changes to prompts, tool schemas, RAG, embeddings, voice (ElevenLabs), or DB. No client-side changes.
+- No DB changes, no client changes, no prompt changes.
+- Background-job refactor for Opus-grade synthesis is a separate piece of work — flagged in memory but not built here.
+- GPT-5 / OpenAI side untouched.
 
