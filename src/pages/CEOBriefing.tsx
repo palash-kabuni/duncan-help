@@ -444,18 +444,145 @@ const CEOBriefing = () => {
                 </Section>
 
                 <Section n={7} title="Automation Progress">
-                  <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-                    {typeof p.automation?.percent === "number" && (
-                      <div className="flex items-center gap-3">
-                        <span className="text-3xl font-bold tabular-nums text-foreground">{p.automation.percent}%</span>
-                        <Badge variant="outline">target 25%</Badge>
+                  {(() => {
+                    const ap = p.automation_progress || {};
+                    const cu = ap.company_usage || {};
+                    const topUsers: any[] = Array.isArray(ap.top_users) ? ap.top_users : [];
+                    const recs: any[] = Array.isArray(ap.recommendations) ? ap.recommendations : [];
+                    const trajectoryGreen = String(briefing?.trajectory || "").toLowerCase() === "on track";
+                    const fmt = (n: number | undefined) =>
+                      typeof n === "number" ? n.toLocaleString() : "—";
+                    const trendArrow = (pct: number | undefined) => {
+                      if (typeof pct !== "number") return "";
+                      if (pct > 0) return `▲ ${pct}%`;
+                      if (pct < 0) return `▼ ${Math.abs(pct)}%`;
+                      return "→ 0%";
+                    };
+                    const trendClass = (pct: number | undefined) => {
+                      if (typeof pct !== "number") return "text-muted-foreground";
+                      if (pct > 0) return "text-green-500";
+                      if (pct < 0) return "text-red-500";
+                      return "text-muted-foreground";
+                    };
+                    const levBadge = (lev: string) =>
+                      lev === "High" ? "border-green-500/40 text-green-500"
+                      : lev === "Low" ? "border-muted text-muted-foreground"
+                      : "border-yellow-500/40 text-yellow-500";
+
+                    return (
+                      <div className="space-y-4">
+                        {/* Headline number from existing automation block (kept) */}
+                        {typeof p.automation?.percent === "number" && (
+                          <div className="rounded-lg border border-border bg-card p-4 flex items-center gap-3">
+                            <span className="text-3xl font-bold tabular-nums text-foreground">{p.automation.percent}%</span>
+                            <Badge variant="outline">target 25%</Badge>
+                            {p.automation?.next && (
+                              <span className="text-xs text-muted-foreground ml-auto"><span className="text-primary font-mono">NEXT:</span> {p.automation.next}</span>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Block A — Company usage (last 30d) */}
+                        <div className="rounded-lg border border-border bg-card p-4">
+                          <div className="flex items-baseline justify-between mb-3">
+                            <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Company usage · last 30d</h3>
+                            <span className={`text-xs font-mono ${trendClass(cu.wow_change_pct)}`}>
+                              {cu.trend_label || "—"} {typeof cu.wow_change_pct === "number" ? `(${trendArrow(cu.wow_change_pct)} WoW)` : ""}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div>
+                              <div className="text-lg font-bold tabular-nums text-foreground">{fmt(cu.total_tokens)}</div>
+                              <div className="text-[11px] font-mono uppercase text-muted-foreground">Tokens</div>
+                            </div>
+                            <div>
+                              <div className="text-lg font-bold tabular-nums text-foreground">{fmt(cu.request_count)}</div>
+                              <div className="text-[11px] font-mono uppercase text-muted-foreground">AI requests</div>
+                            </div>
+                            <div>
+                              <div className="text-lg font-bold tabular-nums text-foreground">{fmt(cu.active_users)}</div>
+                              <div className="text-[11px] font-mono uppercase text-muted-foreground">Active users</div>
+                            </div>
+                            <div>
+                              <div className={`text-lg font-bold tabular-nums ${trendClass(cu.dow_change_pct)}`}>{trendArrow(cu.dow_change_pct) || "—"}</div>
+                              <div className="text-[11px] font-mono uppercase text-muted-foreground">Day-over-day</div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Block B — Top 3 power users */}
+                        {topUsers.length > 0 && (
+                          <div className="rounded-lg border border-border bg-card p-4">
+                            <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3">Top 3 power users · last 30d</h3>
+                            <div className="space-y-2">
+                              {topUsers.slice(0, 3).map((u, i) => (
+                                <div key={i} className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4 rounded-md border border-border/60 bg-muted/30 p-3">
+                                  <div className="flex items-center gap-3 md:w-1/3">
+                                    <span className="text-xs font-mono text-muted-foreground w-5">#{u.rank ?? i + 1}</span>
+                                    <div>
+                                      <div className="text-sm font-medium text-foreground leading-tight">{u.name}</div>
+                                      <div className="text-[11px] text-muted-foreground">{u.role}{u.department && u.department !== "—" ? ` · ${u.department}` : ""}</div>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-4 text-[11px] font-mono">
+                                    <span className="text-foreground"><span className="text-muted-foreground">tokens</span> {fmt(u.total_tokens)}</span>
+                                    <span className="text-foreground"><span className="text-muted-foreground">reqs</span> {fmt(u.request_count)}</span>
+                                    <span className="text-foreground"><span className="text-muted-foreground">~hrs saved</span> {fmt(u.est_hours_saved)}</span>
+                                  </div>
+                                  {u.primary_use && (
+                                    <Badge variant="outline" className="md:ml-auto text-[10px] font-mono">{u.primary_use}</Badge>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                            <p className="text-[10px] text-muted-foreground mt-2 italic">Hours-saved is a rough estimate (tokens × 4 chars / 5 chars per word / 250 wpm).</p>
+                          </div>
+                        )}
+
+                        {/* Block C — Top 3 recommendations */}
+                        {recs.length > 0 ? (
+                          <div className="rounded-lg border border-border bg-card p-4">
+                            <h3 className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3">Top 3 recommendations for Duncan</h3>
+                            <div className="space-y-2">
+                              {recs.slice(0, 3).map((r, i) => (
+                                <div key={i} className="rounded-md border border-border/60 bg-muted/30 p-3 space-y-1.5">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <p className="text-sm font-medium text-foreground leading-snug">{r.title}</p>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <Badge variant="outline" className={`text-[10px] font-mono ${levBadge(r.expected_leverage)}`}>{r.expected_leverage} leverage</Badge>
+                                      <Badge variant="outline" className="text-[10px] font-mono">{r.effort}</Badge>
+                                    </div>
+                                  </div>
+                                  {r.why_now && <p className="text-xs text-muted-foreground leading-relaxed">{r.why_now}</p>}
+                                  <div className="flex items-center gap-2">
+                                    {r.auto_injected && (
+                                      <Badge variant="outline" className="text-[10px] font-mono border-yellow-500/40 text-yellow-500">Auto-flagged</Badge>
+                                    )}
+                                    {r.evidence_source && r.evidence_source !== "model" && (
+                                      <span className="text-[10px] font-mono text-muted-foreground">Source: {String(r.evidence_source).replace(/_/g, " ")}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : trajectoryGreen ? (
+                          <div className="rounded-lg border border-border bg-muted/30 p-4 text-xs text-muted-foreground italic">
+                            Adoption healthy. No new automation gaps detected today.
+                          </div>
+                        ) : null}
+
+                        {/* Legacy detail kept inline for context (working/manual/blockers) */}
+                        {(p.automation?.working || p.automation?.manual || p.automation?.blockers) && (
+                          <div className="rounded-lg border border-border bg-card p-4 space-y-1">
+                            {p.automation?.working && <p className="text-xs text-muted-foreground"><span className="text-green-500 font-mono">WORKING:</span> {p.automation.working}</p>}
+                            {p.automation?.manual && <p className="text-xs text-muted-foreground"><span className="text-yellow-500 font-mono">MANUAL:</span> {p.automation.manual}</p>}
+                            {p.automation?.blockers && <p className="text-xs text-muted-foreground"><span className="text-red-500 font-mono">BLOCKERS:</span> {p.automation.blockers}</p>}
+                          </div>
+                        )}
                       </div>
-                    )}
-                    {p.automation?.working && <p className="text-xs text-muted-foreground"><span className="text-green-500 font-mono">WORKING:</span> {p.automation.working}</p>}
-                    {p.automation?.manual && <p className="text-xs text-muted-foreground"><span className="text-yellow-500 font-mono">MANUAL:</span> {p.automation.manual}</p>}
-                    {p.automation?.next && <p className="text-xs text-muted-foreground"><span className="text-primary font-mono">NEXT:</span> {p.automation.next}</p>}
-                    {p.automation?.blockers && <p className="text-xs text-muted-foreground"><span className="text-red-500 font-mono">BLOCKERS:</span> {p.automation.blockers}</p>}
-                  </div>
+                    );
+                  })()}
                 </Section>
 
                 <Section n={8} title="One Brutal Truth">

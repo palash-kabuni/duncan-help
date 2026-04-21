@@ -107,6 +107,34 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
     "watchlist": [{"workstream": string, "owner": string, "status": string, "good_looks_like": string, "missing": string, "data_blind_spot": string|null, "auto_injected": boolean}],
     "decisions": [{"decision": string, "why_it_matters": string, "consequence": string, "who_to_involve": string, "confidence": "high"|"medium"|"low", "blocked_by_missing_data": string|null, "evidence_source": "coverage_gap"|"silent_priority"|"risk"|"friction"|"email"|"silent_leader"|"data_blind_spot"|"workstream"|null, "auto_injected": boolean}],
     "automation": {"percent": number, "working": string, "manual": string, "next": string, "blockers": string},
+    "automation_progress": {
+      "company_usage": {
+        "total_tokens": number,
+        "request_count": number,
+        "active_users": number,
+        "dow_change_pct": number,
+        "wow_change_pct": number,
+        "trend_label": "Adoption accelerating" | "Adoption steady" | "Flat" | "Declining" | "Insufficient data"
+      },
+      "top_users": [{
+        "rank": number,
+        "name": string,
+        "role": string,
+        "department": string,
+        "total_tokens": number,
+        "request_count": number,
+        "primary_use": string,
+        "est_hours_saved": number
+      }],
+      "recommendations": [{
+        "title": string,
+        "why_now": string,
+        "expected_leverage": "Low" | "Medium" | "High",
+        "effort": "S" | "M" | "L",
+        "auto_injected": boolean,
+        "evidence_source": "coverage_gap" | "silent_priority" | "friction" | "stuck_workstream" | "heavy_manual_surface" | "failed_tool_call" | "model"
+      }]
+    },
     "brutal_truth": string,
     "document_intelligence": [{
       "domain": string,
@@ -989,7 +1017,7 @@ Deno.serve(async (req) => {
       safe(admin.from("ceo_briefings").select("briefing_date,outcome_probability,execution_score,trajectory")
         .eq("briefing_type", briefing_type).order("briefing_date", { ascending: false }).limit(1)),
       safe(admin.from("slack_notification_logs").select("event_key,status,sent_at,payload").gte("created_at", since).limit(40)),
-      safe(admin.from("token_usage").select("user_id,total_tokens,request_count,usage_date").gte("usage_date", new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)).limit(100)),
+      safe(admin.from("token_usage").select("user_id,total_tokens,prompt_tokens,completion_tokens,request_count,usage_date").gte("usage_date", new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)).limit(5000)),
       safe(admin.from("xero_invoices").select("invoice_number,contact_name,total,amount_due,amount_paid,status,type,due_date,date").gte("synced_at", since).order("date", { ascending: false }).limit(40)),
       safe(admin.from("xero_contacts").select("name,outstanding_balance,overdue_balance").gt("overdue_balance", 0).order("overdue_balance", { ascending: false }).limit(15)),
       safe(admin.from("integration_audit_logs").select("integration,action,details,created_at").gte("created_at", since).limit(40)),
@@ -1198,6 +1226,162 @@ Deno.serve(async (req) => {
       missing_priorities: _preMissing.map((m) => m.priority),
     };
 
+    // ─── Automation & Leverage signals (last 30d, deterministic) ──
+    // Aggregates token_usage rows + joins profiles + lightweight surface
+    // counts so Section 07 can be grounded, not hallucinated.
+    const automation_leverage = await (async () => {
+      const rows = (tokenUsage as any[]) || [];
+      const today = new Date();
+      const dayKey = (d: Date) => d.toISOString().slice(0, 10);
+      const keys30 = new Set<string>();
+      for (let i = 0; i < 30; i++) {
+        const d = new Date(today.getTime() - i * 86400000);
+        keys30.add(dayKey(d));
+      }
+
+      // Aggregate per-user totals over last 30d
+      const perUser = new Map<string, { total_tokens: number; request_count: number }>();
+      let total_tokens = 0;
+      let request_count = 0;
+      for (const r of rows) {
+        if (!keys30.has(String(r.usage_date))) continue;
+        const t = Number(r.total_tokens) || 0;
+        const rc = Number(r.request_count) || 0;
+        total_tokens += t;
+        request_count += rc;
+        const cur = perUser.get(r.user_id) || { total_tokens: 0, request_count: 0 };
+        cur.total_tokens += t;
+        cur.request_count += rc;
+        perUser.set(r.user_id, cur);
+      }
+      const active_users = perUser.size;
+
+      // Trend buckets: today vs yesterday, last 7d vs prior 7d
+      const todayKey = dayKey(today);
+      const yesterdayKey = dayKey(new Date(today.getTime() - 86400000));
+      let todayTokens = 0, yesterdayTokens = 0;
+      let last7 = 0, prior7 = 0;
+      for (const r of rows) {
+        const d = String(r.usage_date);
+        const t = Number(r.total_tokens) || 0;
+        if (d === todayKey) todayTokens += t;
+        if (d === yesterdayKey) yesterdayTokens += t;
+        const dt = new Date(d).getTime();
+        const ageDays = Math.floor((today.getTime() - dt) / 86400000);
+        if (ageDays >= 0 && ageDays < 7) last7 += t;
+        else if (ageDays >= 7 && ageDays < 14) prior7 += t;
+      }
+      const pctChange = (cur: number, prev: number) =>
+        prev === 0 ? (cur > 0 ? 100 : 0) : Math.round(((cur - prev) / prev) * 100);
+      const dow_change_pct = pctChange(todayTokens, yesterdayTokens);
+      const wow_change_pct = pctChange(last7, prior7);
+      let trend_label: string = "Insufficient data";
+      if (last7 + prior7 > 0) {
+        if (wow_change_pct >= 25) trend_label = "Adoption accelerating";
+        else if (wow_change_pct >= 5) trend_label = "Adoption steady";
+        else if (wow_change_pct > -10) trend_label = "Flat";
+        else trend_label = "Declining";
+      }
+
+      // Top 3 users
+      const top3 = Array.from(perUser.entries())
+        .sort((a, b) => b[1].total_tokens - a[1].total_tokens)
+        .slice(0, 3);
+      const topUserIds = top3.map(([uid]) => uid);
+
+      // Surface counts (parallel, capped) — used to infer "primary_use"
+      const [generalChats, projectChats, gmailProfiles] = await Promise.all([
+        safe(admin.from("general_chats").select("user_id").in("user_id", topUserIds.length ? topUserIds : ["00000000-0000-0000-0000-000000000000"])),
+        safe(admin.from("project_chats").select("project_id, projects!inner(user_id)").in("projects.user_id", topUserIds.length ? topUserIds : ["00000000-0000-0000-0000-000000000000"])),
+        safe(admin.from("gmail_writing_profiles").select("user_id, auto_drafts_created_today, auto_draft_enabled").in("user_id", topUserIds.length ? topUserIds : ["00000000-0000-0000-0000-000000000000"])),
+      ]);
+
+      const profilesByUserId = new Map<string, any>();
+      for (const pr of (profiles as any[]) || []) {
+        if (pr.user_id) profilesByUserId.set(pr.user_id, pr);
+      }
+      // The profiles fetch above doesn't include user_id — re-fetch with user_id for top users
+      const topProfiles = topUserIds.length
+        ? await safe(admin.from("profiles").select("user_id, display_name, role_title, department").in("user_id", topUserIds))
+        : [];
+      const topProfileMap = new Map<string, any>();
+      for (const pr of topProfiles as any[]) topProfileMap.set(pr.user_id, pr);
+
+      const generalChatCount = new Map<string, number>();
+      for (const g of (generalChats as any[]) || []) {
+        generalChatCount.set(g.user_id, (generalChatCount.get(g.user_id) || 0) + 1);
+      }
+      const projectChatCount = new Map<string, number>();
+      for (const pc of (projectChats as any[]) || []) {
+        const uid = pc?.projects?.user_id;
+        if (uid) projectChatCount.set(uid, (projectChatCount.get(uid) || 0) + 1);
+      }
+      const gmailDraftMap = new Map<string, { drafts: number; enabled: boolean }>();
+      for (const gp of (gmailProfiles as any[]) || []) {
+        gmailDraftMap.set(gp.user_id, {
+          drafts: Number(gp.auto_drafts_created_today) || 0,
+          enabled: Boolean(gp.auto_draft_enabled),
+        });
+      }
+
+      const inferPrimaryUse = (uid: string): string => {
+        const g = generalChatCount.get(uid) || 0;
+        const p = projectChatCount.get(uid) || 0;
+        const gm = gmailDraftMap.get(uid);
+        const surfaces: Array<{ label: string; n: number }> = [
+          { label: "general Q&A in Duncan chat", n: g },
+          { label: "project workspaces & RAG", n: p },
+          { label: "Gmail auto-drafting", n: (gm?.drafts || 0) + (gm?.enabled ? 1 : 0) },
+        ];
+        surfaces.sort((a, b) => b.n - a.n);
+        const dominant = surfaces[0];
+        if (!dominant || dominant.n === 0) return "Mixed usage across surfaces";
+        return `Primarily ${dominant.label}`;
+      };
+
+      const top_users = top3.map(([uid, agg], i) => {
+        const pr = topProfileMap.get(uid);
+        // Estimate hours saved: tokens → ~4 chars/token → words at ~5 chars → reading at 250 wpm
+        const est_hours_saved = Math.round((agg.total_tokens * 4) / 5 / 250 / 60);
+        return {
+          rank: i + 1,
+          name: pr?.display_name || "Unknown user",
+          role: pr?.role_title || "—",
+          department: pr?.department || "—",
+          total_tokens: agg.total_tokens,
+          request_count: agg.request_count,
+          primary_use: inferPrimaryUse(uid),
+          est_hours_saved,
+        };
+      });
+
+      // Heaviest manual surfaces (company-wide, last 30d) — for recommendation floor
+      const totalGmailDrafts = ((gmailProfiles as any[]) || []).reduce(
+        (acc, gp) => acc + (Number(gp.auto_drafts_created_today) || 0),
+        0,
+      );
+
+      return {
+        company_usage: {
+          total_tokens,
+          request_count,
+          active_users,
+          dow_change_pct,
+          wow_change_pct,
+          trend_label,
+          today_tokens: todayTokens,
+          last_7d_tokens: last7,
+          prior_7d_tokens: prior7,
+        },
+        top_users,
+        heavy_surfaces: {
+          gmail_auto_drafts_today: totalGmailDrafts,
+          general_chats_top_users: Array.from(generalChatCount.values()).reduce((a, b) => a + b, 0),
+          project_chats_top_users: Array.from(projectChatCount.values()).reduce((a, b) => a + b, 0),
+        },
+      };
+    })();
+
     const context = {
       now_utc: new Date().toISOString(),
       window: "last 24h",
@@ -1222,6 +1406,7 @@ Deno.serve(async (req) => {
       sync_logs: syncLogs,
       slack_notifications_24h: slackLogs,
       token_usage_7d: tokenUsage,
+      automation_leverage,
       xero_invoices_24h: xeroInvoices,
       xero_overdue_contacts: xeroContacts,
       integration_audit_24h: auditLogs,
@@ -1257,6 +1442,11 @@ HARD RULES:
     • Add email risks/escalations to payload.risks with "source: email" and a probability_impact_pts that fits the gap.
     • Surface board_mentions in payload.tldr.where_to_act and the investor section if present.
     • If a leader appears in email_pulse_silent_leaders AND in leader_signal_map as silent, ESCALATE their leadership entry to risk_level="high" with output_vs_expectation referencing both meeting and email silence.
+- payload.automation_progress MUST be populated for the morning briefing using context.automation_leverage as the GROUND TRUTH:
+    • company_usage = automation_leverage.company_usage VERBATIM (do NOT recompute totals, trends, or active_users).
+    • top_users = automation_leverage.top_users VERBATIM for rank/name/role/department/total_tokens/request_count/primary_use/est_hours_saved. Do NOT invent users not in this array.
+    • recommendations = AT LEAST 3 concrete suggestions for what to improve or build next in Duncan, drawn from: (a) coverage_gaps (e.g. "Auto-ingest missing artifact for {priority}"), (b) headline_context.silent_priorities, (c) friction items where recommended_resolver != "CEO" (automatable handoffs), (d) workstreams stuck Yellow/Red, (e) heaviest manual surfaces in automation_leverage.heavy_surfaces (e.g. high gmail_auto_drafts_today → suggest auto-categorisation). Each recommendation MUST cite the evidence_source from the enum and set auto_injected=false.
+    • Keep the legacy "automation" object too (percent/working/manual/next/blockers) — it still feeds the headline number.
 
 Source data (24h activity window; available_workstreams + coverage_report + meeting_priority_signals are full-set):
 ${JSON.stringify(context).slice(0, 120000)}
@@ -2433,6 +2623,117 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
           vendor_signals: Array.isArray(sigs.vendor_signals) ? sigs.vendor_signals.length : 0,
         },
       };
+    }
+
+    // ─── Automation Progress: ground in server data + recommendation floor ──
+    if (briefing_type === "morning") {
+      parsed.payload = parsed.payload || {};
+      const ap = (parsed.payload.automation_progress && typeof parsed.payload.automation_progress === "object")
+        ? parsed.payload.automation_progress : {};
+
+      // Force company_usage and top_users to server-computed truth.
+      ap.company_usage = automation_leverage.company_usage;
+      ap.top_users = automation_leverage.top_users;
+
+      const modelRecs: any[] = Array.isArray(ap.recommendations) ? ap.recommendations.filter((r) => r && typeof r === "object" && r.title) : [];
+      const isGreen = String(parsed.trajectory || "").toLowerCase() === "on track";
+
+      // Deterministic floor — at least 3 recs whenever the briefing is non-green.
+      const floorRecs: any[] = [];
+      const seen = new Set(modelRecs.map((r) => String(r.title).toLowerCase().trim()));
+      const pushRec = (rec: any) => {
+        const key = String(rec.title).toLowerCase().trim();
+        if (seen.has(key)) return;
+        seen.add(key);
+        floorRecs.push({ ...rec, auto_injected: true });
+      };
+
+      const coverageGaps: any[] = Array.isArray(parsed.payload?.coverage_gaps) ? parsed.payload.coverage_gaps : [];
+      for (const g of coverageGaps.slice(0, 3)) {
+        pushRec({
+          title: `Auto-detect & flag activity on "${g.priority}"`,
+          why_now: `No owned workstream for ${g.priority}. ${g.consequence_if_unowned || "Untracked priority risks slipping silently."}`,
+          expected_leverage: "High",
+          effort: "M",
+          evidence_source: "coverage_gap",
+        });
+      }
+
+      const friction: any[] = Array.isArray(parsed.payload?.friction) ? parsed.payload.friction : [];
+      for (const f of friction.filter((x) => x && x.recommended_resolver && !/ceo/i.test(String(x.recommended_resolver))).slice(0, 2)) {
+        pushRec({
+          title: `Standardise the ${(f.teams || []).join(" ↔ ")} handoff for "${(f.issue || "").slice(0, 60)}"`,
+          why_now: `Recurring cross-team friction routed to ${f.recommended_resolver}. Automating the handoff reduces CEO escalation.`,
+          expected_leverage: "Medium",
+          effort: "M",
+          evidence_source: "friction",
+        });
+      }
+
+      const wsScores: any[] = Array.isArray(parsed.workstream_scores) ? parsed.workstream_scores : [];
+      const stuck = wsScores.filter((w) => {
+        const r = String(w?.rag || "").toLowerCase();
+        return r === "red" || r === "yellow";
+      });
+      for (const w of stuck.slice(0, 2)) {
+        pushRec({
+          title: `Weekly auto-status digest for "${w.name}"`,
+          why_now: `Workstream tracking ${w.rag || "non-green"} — automated weekly digests would surface drift before next briefing.`,
+          expected_leverage: "Medium",
+          effort: "S",
+          evidence_source: "stuck_workstream",
+        });
+      }
+
+      const heavy = automation_leverage.heavy_surfaces || ({} as any);
+      if ((heavy.gmail_auto_drafts_today || 0) >= 5) {
+        pushRec({
+          title: "Auto-categorise inbound emails before drafting",
+          why_now: `${heavy.gmail_auto_drafts_today} Gmail auto-drafts created today — adding triage classification would skip low-value threads.`,
+          expected_leverage: "High",
+          effort: "M",
+          evidence_source: "heavy_manual_surface",
+        });
+      }
+      if ((heavy.general_chats_top_users || 0) >= 30) {
+        pushRec({
+          title: "Saved workflows for repeat questions in general chat",
+          why_now: `Top users issued ${heavy.general_chats_top_users}+ general-chat queries — promoting frequent flows to one-click actions reclaims time.`,
+          expected_leverage: "Medium",
+          effort: "S",
+          evidence_source: "heavy_manual_surface",
+        });
+      }
+
+      // Combine model + floor; cap to top 5 for UI density.
+      const merged = [...modelRecs, ...floorRecs].slice(0, 5);
+
+      // If still under 3 on a non-green briefing, add generic Duncan improvements.
+      const generics = [
+        { title: "Daily Duncan adoption digest to leadership", why_now: "Make leverage visible — share top users + automation gaps weekly so leaders pull Duncan into their flow.", expected_leverage: "Medium", effort: "S", evidence_source: "heavy_manual_surface" },
+        { title: "One-click 'send this to a teammate' from any Duncan answer", why_now: "Reduce copy/paste friction. Most chat answers get re-shared manually — a share action would compound usage.", expected_leverage: "Medium", effort: "S", evidence_source: "heavy_manual_surface" },
+        { title: "Slack DM nudge when a workstream goes silent for 7 days", why_now: "Silent owners drive Section 05 watchlist entries. Proactive nudges would resolve them before the CEO has to.", expected_leverage: "High", effort: "M", evidence_source: "stuck_workstream" },
+      ];
+      let i = 0;
+      while (merged.length < 3 && !isGreen && i < generics.length) {
+        const g = generics[i++];
+        const key = g.title.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          merged.push({ ...g, auto_injected: true });
+        }
+      }
+
+      ap.recommendations = merged.map((r) => ({
+        title: String(r.title || ""),
+        why_now: String(r.why_now || ""),
+        expected_leverage: ["Low", "Medium", "High"].includes(r.expected_leverage) ? r.expected_leverage : "Medium",
+        effort: ["S", "M", "L"].includes(r.effort) ? r.effort : "M",
+        auto_injected: Boolean(r.auto_injected),
+        evidence_source: r.evidence_source || "model",
+      }));
+
+      parsed.payload.automation_progress = ap;
     }
 
     const briefing_date = new Date().toISOString().slice(0, 10);
