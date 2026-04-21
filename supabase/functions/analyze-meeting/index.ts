@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callLLMWithFallback } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -98,14 +99,10 @@ For risks, identify any concerns, blockers, or issues raised.
 For decisions, note any decisions that were made during the meeting.
 For key_topics, list the main subjects discussed.`;
 
-        const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "gpt-4.1",
+        let aiData: any;
+        try {
+          aiData = await callLLMWithFallback({
+            workflow: "analyze-meeting",
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: `Meeting: "${meeting.title}" (${meeting.meeting_date || "date unknown"})\n\nTRANSCRIPT:\n${meeting.transcript.slice(0, 60000)}` },
@@ -173,17 +170,15 @@ For key_topics, list the main subjects discussed.`;
             }],
             tool_choice: { type: "function", function: { name: "analyze_meeting" } },
             max_tokens: 8192,
-          }),
-        });
-
-        if (!aiResponse.ok) {
-          console.error(`AI error for meeting ${id}:`, aiResponse.status);
-          if (aiResponse.status === 429) {
+          });
+        } catch (err: any) {
+          console.error(`AI error for meeting ${id}:`, err?.status, err?.message);
+          if (err?.status === 429) {
             return new Response(JSON.stringify({ error: "Rate limited. Try again shortly.", analyzed, failed }), {
               status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
-          if (aiResponse.status === 402) {
+          if (err?.status === 402) {
             return new Response(JSON.stringify({ error: "AI credits exhausted." }), {
               status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
@@ -192,7 +187,6 @@ For key_topics, list the main subjects discussed.`;
           continue;
         }
 
-        const aiData = await aiResponse.json();
         const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
         if (!toolCall?.function?.arguments) { failed++; continue; }
 
