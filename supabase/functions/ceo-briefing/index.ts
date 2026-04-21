@@ -1539,12 +1539,66 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
     catch (e) { return json({ error: "Invalid JSON from model", raw: raw.slice(0, 500) }, 502); }
 
     // ─── Server-side guardrails ─────────────────────────────────
-    // 1. Strip any fabricated workstream scores (must be in available_workstreams)
-    if (Array.isArray(parsed.workstream_scores) && available_workstreams.length > 0) {
-      const allowed = new Set(available_workstreams.map((s) => s.toLowerCase()));
-      parsed.workstream_scores = parsed.workstream_scores.filter(
-        (w: any) => w?.name && allowed.has(String(w.name).toLowerCase())
-      );
+    // 1. Workstream scores: strip fabrications, force baseline RAG, backfill missing, clamp green-vs-red.
+    if (available_workstreams.length > 0) {
+      const allowedLc = new Set(available_workstreams.map((s) => s.toLowerCase()));
+      const baselineByLc = new Map(workstream_baseline.map((b) => [b.name.toLowerCase(), b]));
+      const incoming: any[] = Array.isArray(parsed.workstream_scores)
+        ? parsed.workstream_scores.filter((w: any) => w?.name && allowedLc.has(String(w.name).toLowerCase()))
+        : [];
+      const byLc = new Map<string, any>();
+      for (const w of incoming) byLc.set(String(w.name).toLowerCase(), w);
+
+      const execScore = typeof parsed.execution_score === "number" ? parsed.execution_score : 100;
+      const outcomeProb = typeof parsed.outcome_probability === "number" ? parsed.outcome_probability : 100;
+      const briefingIsAtRisk = execScore < 50 || outcomeProb < 50;
+
+      const finalScores: any[] = available_workstreams.map((name) => {
+        const baseline = baselineByLc.get(name.toLowerCase())!;
+        const existing = byLc.get(name.toLowerCase());
+        if (!existing) {
+          // Backfill from baseline
+          return {
+            name,
+            rag: baseline.derived_rag,
+            card_status_summary: baseline.card_status_summary,
+            progress: baseline.baseline_progress,
+            confidence: baseline.baseline_confidence,
+            risk: baseline.baseline_risk,
+            progress_vs_goal: `Baseline: ${baseline.card_status_summary}.`,
+            execution_quality: baseline.card_count === 0 ? "No tracked cards." : `${baseline.days_since_last_activity}d since last card update.`,
+            commercial_impact: "Not modelled — auto-injected from card status.",
+            dependency_strength: "Not modelled — auto-injected from card status.",
+            evidence: baseline.card_count === 0
+              ? "Silent — no cards in the last 7 days."
+              : `Auto-scored from card status: ${baseline.card_status_summary}.`,
+            auto_injected: true,
+          };
+        }
+        // Force baseline RAG + card_status_summary (single source of truth)
+        const merged: any = {
+          ...existing,
+          rag: baseline.derived_rag,
+          card_status_summary: baseline.card_status_summary,
+        };
+        // Clamp green-against-red contradictions
+        const progNum = typeof merged.progress === "number" ? merged.progress : null;
+        const riskNum = typeof merged.risk === "number" ? merged.risk : null;
+        if (
+          briefingIsAtRisk &&
+          baseline.derived_rag !== "green" &&
+          progNum !== null && riskNum !== null &&
+          progNum >= 70 && riskNum <= 30
+        ) {
+          merged.progress = 50;
+          merged.risk = 50;
+          merged.evidence = `${merged.evidence || ""} · Score capped: contradicts overall execution_score=${execScore} / outcome_probability=${outcomeProb}.`.trim();
+          merged.auto_clamped = true;
+        }
+        return merged;
+      });
+
+      parsed.workstream_scores = finalScores;
     }
     // 2. Ensure coverage_gaps reflects actual missing priorities (server-authoritative)
     //    + enrich with meeting_priority_signals to flag implicit (untracked) work.
