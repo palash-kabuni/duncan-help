@@ -99,7 +99,8 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
       "impact_90d": { "window": "90d", "impact": string, "mitigation": string },
       "owner": string,
       "severity": "low"|"medium"|"high"|"critical",
-      "confidence": number
+      "confidence": number,
+      "probability_impact_pts": number
     }],
     "friction": [{"issue": string, "teams": string[], "consequence": string}],
     "leadership": [{"name": string, "role": string, "output_vs_expectation": string, "risk_level": "low"|"medium"|"high", "blocking": string, "needs_support": string, "ceo_intervention_required": boolean, "signal_status": "active"|"low_signal"|"silent", "evidence_sources": [string]}],
