@@ -1,10 +1,11 @@
-import { Mail, Loader2, Sparkles, Trash2, RefreshCw, CheckCircle2, Wand2 } from "lucide-react";
+import { Mail, Loader2, Sparkles, Trash2, RefreshCw, CheckCircle2, Wand2, Eye } from "lucide-react";
 import {
   useGmailWritingProfile,
   useGmailTrainStyle,
   useGmailDeleteWritingProfile,
   useGmailStatus,
   useGmailAutoDraftToggle,
+  useGmailCEOBriefingOptinToggle,
 } from "@/hooks/useGmailIntegration";
 import { Switch } from "@/components/ui/switch";
 import { formatDistanceToNow } from "date-fns";
@@ -15,9 +16,11 @@ export default function SettingsGmail() {
   const trainMutation = useGmailTrainStyle();
   const deleteMutation = useGmailDeleteWritingProfile();
   const autoDraftToggle = useGmailAutoDraftToggle();
+  const ceoOptinToggle = useGmailCEOBriefingOptinToggle();
 
   const trained = profile?.last_trained_at;
   const autoDraftEnabled = profile?.auto_draft_enabled ?? false;
+  const ceoOptinEnabled = profile?.ceo_briefing_optin ?? false;
   const lastRun = profile?.auto_draft_last_run_at;
   const today = new Date().toISOString().slice(0, 10);
   const draftsToday = profile?.auto_drafts_counter_date === today

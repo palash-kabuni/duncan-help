@@ -176,6 +176,35 @@ export interface GmailWritingProfile {
   auto_draft_last_run_at: string | null;
   auto_drafts_created_today: number;
   auto_drafts_counter_date: string;
+  ceo_briefing_optin: boolean;
+}
+
+export function useGmailCEOBriefingOptinToggle() {
+  const qc = useQueryClient();
+  return useMutation<{ enabled: boolean }, Error, boolean>({
+    mutationFn: async (enabled: boolean) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not signed in");
+      // Upsert so users without an existing profile can still opt in
+      const { error } = await supabase
+        .from("gmail_writing_profiles")
+        .upsert(
+          { user_id: user.id, ceo_briefing_optin: enabled } as any,
+          { onConflict: "user_id" },
+        );
+      if (error) throw error;
+      return { enabled };
+    },
+    onSuccess: ({ enabled }) => {
+      qc.invalidateQueries({ queryKey: ["gmail-writing-profile"] });
+      toast.success(
+        enabled
+          ? "Inbox signals will be included in the CEO briefing"
+          : "Inbox signals removed from the CEO briefing",
+      );
+    },
+    onError: (err) => toast.error(err.message || "Failed to update setting"),
+  });
 }
 
 export function useGmailWritingProfile() {
