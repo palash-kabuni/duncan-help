@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { RefreshCw, Sparkles } from "lucide-react";
+import { RefreshCw, Sparkles, Send, Settings2 } from "lucide-react";
 import { useCEOBriefing, type BriefingType } from "@/hooks/useCEOBriefing";
 import PulseBanner from "@/components/ceo/PulseBanner";
 import RiskRadar from "@/components/ceo/RiskRadar";
@@ -15,6 +15,9 @@ import LeadershipGrid from "@/components/ceo/LeadershipGrid";
 import TldrPanel from "@/components/ceo/TldrPanel";
 import CoverageGaps from "@/components/ceo/CoverageGaps";
 import CompanyPulseCard, { type CompanyPulseStatus } from "@/components/ceo/CompanyPulseCard";
+import SendActionsDialog from "@/components/ceo/SendActionsDialog";
+import CEORoutingPanel from "@/components/ceo/CEORoutingPanel";
+import { supabase } from "@/integrations/supabase/client";
 
 const Section = ({ n, title, children }: { n: number; title: string; children: React.ReactNode }) => (
   <section className="space-y-3">
