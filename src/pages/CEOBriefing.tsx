@@ -288,7 +288,7 @@ const CEOBriefing = () => {
                   })()}
                 </Section>
 
-                <Section n={7} title="Leadership Performance">
+                <Section n={4} title="Leadership Performance">
                   <LeadershipGrid leaders={p.leadership || []} />
                 </Section>
 
