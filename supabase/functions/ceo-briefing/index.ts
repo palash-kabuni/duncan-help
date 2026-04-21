@@ -1698,6 +1698,117 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
           parsed.payload.tldr.where_to_act = `${wta ? wta + " " : ""}${worst.recommendation || `Upload ${worst.label} documents to /projects to remove this blind spot.`}`;
         }
       }
+
+      // 7. Risk Radar reconciliation — risks must explain the headline.
+      const outcomeProb = typeof parsed.outcome_probability === "number" ? parsed.outcome_probability : 50;
+      const execScore = typeof parsed.execution_score === "number" ? parsed.execution_score : 60;
+      const probabilityGap = Math.max(0, 100 - outcomeProb);
+      const headlineIsRed = outcomeProb < 50 || execScore < 60;
+
+      let risks: any[] = Array.isArray(parsed.payload.risks) ? [...parsed.payload.risks] : [];
+      let autoInjectedCount = 0;
+
+      // 7a. Inject synthetic risk for every silent priority not already named in risks.
+      for (const sm of silentMissing) {
+        const priorityName = sm.priority || "";
+        const firstWord = priorityName.toLowerCase().split(/[\s—-]+/)[0] || "";
+        const alreadyNamed = risks.some((r: any) =>
+          typeof r?.risk === "string" && firstWord && r.risk.toLowerCase().includes(firstWord)
+        );
+        if (alreadyNamed) continue;
+        risks.push({
+          risk: `${priorityName} is silent — no meetings, no workstreams, no owner activity in the last 7 days`,
+          why_it_matters: "A 2026 non-negotiable priority with zero signal cannot be tracked, evaluated, or de-risked. Invisible work = unmanaged work.",
+          impact_7d: { window: "7d", impact: "Status unknown — Duncan cannot judge readiness.", mitigation: "CEO assigns a named owner this week." },
+          impact_30d: { window: "30d", impact: "Slip risk compounds — dependent priorities start to drift.", mitigation: "Stand up a formal workstream with weekly check-ins." },
+          impact_90d: { window: "90d", impact: "June 7 readiness materially impaired if still unowned.", mitigation: "Escalate to board if no owner accepts." },
+          owner: "Unassigned — CEO to allocate",
+          severity: "high",
+          confidence: 90,
+          probability_impact_pts: 15,
+          auto_injected: true,
+          auto_injected_reason: "silent_priority",
+        });
+        autoInjectedCount++;
+      }
+
+      // 7b. If headline is red but no critical/high risk exists, upgrade top + add system note.
+      if (headlineIsRed) {
+        const hasHighSev = risks.some((r: any) => {
+          const s = String(r?.severity || "").toLowerCase();
+          return s === "critical" || s === "high";
+        });
+        if (!hasHighSev && risks.length > 0) {
+          // Upgrade the risk with the largest probability_impact_pts (or first one).
+          let topIdx = 0;
+          let topPts = -1;
+          risks.forEach((r: any, i: number) => {
+            const pts = typeof r?.probability_impact_pts === "number" ? r.probability_impact_pts : 0;
+            if (pts > topPts) { topPts = pts; topIdx = i; }
+          });
+          risks[topIdx] = { ...risks[topIdx], severity: "high", auto_upgraded: true };
+        }
+        if (!hasHighSev) {
+          risks.push({
+            risk: `Outcome probability is ${outcomeProb}% and execution is ${execScore}/100 — the listed risks under-explain the gap`,
+            why_it_matters: "When the headline says red but the radar shows nothing critical, Duncan is missing risks. Verify with owners before any board sign-off.",
+            impact_7d: { window: "7d", impact: "Decisions based on this briefing may be premature.", mitigation: "Walk through risks live with each direct report." },
+            impact_30d: { window: "30d", impact: "Risk model drifts further from reality.", mitigation: "Force a structured risk review per workstream." },
+            impact_90d: { window: "90d", impact: "Material surprise risk by June 7.", mitigation: "Independent review of the risk register." },
+            owner: "CEO",
+            severity: "high",
+            confidence: 80,
+            probability_impact_pts: Math.max(10, probabilityGap - risks.reduce((s: number, r: any) => s + (Number(r?.probability_impact_pts) || 0), 0)),
+            auto_injected: true,
+            auto_injected_reason: "headline_under_explained",
+          });
+          autoInjectedCount++;
+        }
+      }
+
+      // 7c. Normalize probability_impact_pts. Ensure each is a positive int and sum is within ±10 of gap.
+      // First, default missing values: estimate from severity.
+      const sevToPts: Record<string, number> = { critical: 25, high: 15, medium: 8, low: 3 };
+      for (const r of risks) {
+        const pts = Number(r?.probability_impact_pts);
+        if (!Number.isFinite(pts) || pts <= 0) {
+          const sev = String(r?.severity || "medium").toLowerCase();
+          r.probability_impact_pts = sevToPts[sev] ?? 8;
+        } else {
+          r.probability_impact_pts = Math.max(1, Math.round(pts));
+        }
+      }
+
+      const rawSum = risks.reduce((s: number, r: any) => s + (r.probability_impact_pts || 0), 0);
+      // Scale toward the gap if we're significantly off and have risks to scale.
+      if (probabilityGap > 0 && rawSum > 0 && Math.abs(rawSum - probabilityGap) > 10 && risks.length > 0) {
+        const scale = probabilityGap / rawSum;
+        // Only scale DOWN if over-attributed; if under-attributed, leave to surface unexplained_pts.
+        if (rawSum > probabilityGap) {
+          for (const r of risks) {
+            r.probability_impact_pts = Math.max(1, Math.round((r.probability_impact_pts || 0) * scale));
+          }
+        }
+      }
+
+      // 7d. Sort by probability_impact_pts DESC.
+      risks.sort((a: any, b: any) => (b.probability_impact_pts || 0) - (a.probability_impact_pts || 0));
+
+      const accountedForPts = risks.reduce((s: number, r: any) => s + (r.probability_impact_pts || 0), 0);
+      const unexplainedPts = Math.max(0, probabilityGap - accountedForPts);
+
+      parsed.payload.risks = risks;
+      parsed.payload.risk_reconciliation = {
+        outcome_probability: outcomeProb,
+        execution_score: execScore,
+        probability_gap: probabilityGap,
+        accounted_for_pts: accountedForPts,
+        unexplained_pts: unexplainedPts,
+        auto_injected_count: autoInjectedCount,
+        warning: unexplainedPts > 10
+          ? `${unexplainedPts} pts of probability loss not explained by listed risks — Duncan may be missing a risk.`
+          : null,
+      };
     }
 
     const briefing_date = new Date().toISOString().slice(0, 10);
