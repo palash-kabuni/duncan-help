@@ -1220,6 +1220,11 @@ HARD RULES:
     "recommended_action": "Formalise into a workstream — work is already happening but untracked."
   Implicit-coverage gaps are MORE URGENT than silent gaps because momentum exists but is invisible to the system.
 - For priorities with NO signal anywhere (no workstream, no meeting mention), set "current_signal": null and "recommended_action": "No activity detected — assign owner immediately."
+- email_pulse_signals (when present) is structured intelligence pulled from leaders' inboxes (last 24h). USE IT:
+    • Merge email commitments into payload.decisions §9 — flag "source: email" and surface ones with no owner.
+    • Add email risks/escalations to payload.risks with "source: email" and a probability_impact_pts that fits the gap.
+    • Surface board_mentions in payload.tldr.where_to_act and the investor section if present.
+    • If a leader appears in email_pulse_silent_leaders AND in leader_signal_map as silent, ESCALATE their leadership entry to risk_level="high" with output_vs_expectation referencing both meeting and email silence.
 
 Source data (24h activity window; available_workstreams + coverage_report + meeting_priority_signals are full-set):
 ${JSON.stringify(context).slice(0, 120000)}
@@ -1858,6 +1863,36 @@ If previous_briefing is non-null, explain probability/score deltas vs it. Keep p
         warning: unexplainedPts > 10
           ? `${unexplainedPts} pts of probability loss not explained by listed risks — Duncan may be missing a risk.`
           : null,
+      };
+    }
+
+    // ─── Persist email pulse summary on payload (counts only, no raw content) ──
+    if (email_pulse) {
+      const sigs = email_pulse.signals || {};
+      const commitments = Array.isArray(sigs.commitments) ? sigs.commitments : [];
+      const risks = Array.isArray(sigs.risks) ? sigs.risks : [];
+      const unowned = commitments.filter((c: any) => !c.owner || String(c.owner).trim() === "" || /unknown|tbd|n\/?a/i.test(String(c.owner))).length;
+      const critical = risks.filter((r: any) => /critical|high/i.test(String(r.severity || ""))).length;
+
+      parsed.payload = parsed.payload || {};
+      parsed.payload.email_pulse = {
+        window_hours: email_pulse.window_hours ?? 24,
+        mailboxes_eligible: email_pulse.mailboxes_eligible ?? 0,
+        mailboxes_total: email_pulse.mailboxes_total ?? 0,
+        mailboxes_skipped_optout: email_pulse.mailboxes_skipped_optout ?? 0,
+        emails_analysed: email_pulse.emails_analysed ?? 0,
+        per_mailbox: email_pulse.per_mailbox ?? [],
+        silent_leaders: email_pulse.silent_leaders ?? [],
+        counts: {
+          commitments: commitments.length,
+          unowned_commitments: unowned,
+          risks: risks.length,
+          critical_risks: critical,
+          escalations: Array.isArray(sigs.escalations) ? sigs.escalations.length : 0,
+          board_mentions: Array.isArray(sigs.board_mentions) ? sigs.board_mentions.length : 0,
+          customer_issues: Array.isArray(sigs.customer_issues) ? sigs.customer_issues.length : 0,
+          vendor_signals: Array.isArray(sigs.vendor_signals) ? sigs.vendor_signals.length : 0,
+        },
       };
     }
 
