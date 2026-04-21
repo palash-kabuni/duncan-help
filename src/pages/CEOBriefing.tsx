@@ -198,25 +198,7 @@ const CEOBriefing = () => {
                   />
                 )}
 
-                <Section n={1} title="Company Pulse — Narrative">
-                  <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">{p.company_pulse || "—"}</p>
-                </Section>
-
-                <Section n={2} title="Outcome Probability — June 7">
-                  <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-                    <p className="text-2xl font-bold text-foreground tabular-nums">{briefing.outcome_probability ?? "—"}%</p>
-                    <p className="text-xs text-muted-foreground">{p.probability_movement || "No movement context."}</p>
-                  </div>
-                </Section>
-
-                <Section n={3} title="Execution Score">
-                  <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-                    <p className="text-2xl font-bold text-foreground tabular-nums">{briefing.execution_score ?? "—"}/100</p>
-                    <p className="text-xs text-muted-foreground">{p.execution_explanation || "—"}</p>
-                  </div>
-                </Section>
-
-                <Section n={4} title="What Changed Yesterday">
+                <Section n={1} title="What Changed Yesterday">
                   <div className="space-y-3">
                     {(p.what_changed || []).map((g: any, i: number) => (
                       <div key={i} className="rounded-lg border border-border bg-card p-4 space-y-2">
