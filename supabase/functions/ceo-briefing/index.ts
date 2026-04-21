@@ -3185,6 +3185,29 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
       ap.company_usage = automation_leverage.company_usage;
       ap.top_users = automation_leverage.top_users;
 
+      // ─── Compute adoption_pct = active_users_30d / approved Kabuni headcount ──
+      // This replaces the old misleading `automation.percent` (which falsely
+      // implied "% of company workflows automated"). What we can actually
+      // measure is *team adoption* of Duncan.
+      let headcount = 12; // fallback if profiles query fails
+      try {
+        const { count } = await admin
+          .from("profiles")
+          .select("id", { count: "exact", head: true })
+          .eq("approval_status", "approved");
+        if (typeof count === "number" && count > 0) headcount = count;
+      } catch (_e) { /* keep fallback */ }
+      const activeUsers30d = Number(automation_leverage?.company_usage?.active_users || 0);
+      const adoption_pct = Math.max(0, Math.min(100, Math.round((activeUsers30d / Math.max(1, headcount)) * 100)));
+
+      // Overwrite any LLM-authored automation.percent with the grounded adoption metric.
+      const autoObj = (parsed.payload.automation && typeof parsed.payload.automation === "object")
+        ? parsed.payload.automation : {};
+      autoObj.percent = adoption_pct;
+      autoObj.adoption_active_users = activeUsers30d;
+      autoObj.adoption_headcount = headcount;
+      parsed.payload.automation = autoObj;
+
       const modelRecs: any[] = Array.isArray(ap.recommendations) ? ap.recommendations.filter((r) => r && typeof r === "object" && r.title) : [];
       const isGreen = String(parsed.trajectory || "").toLowerCase() === "on track";
 
