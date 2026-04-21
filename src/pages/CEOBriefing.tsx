@@ -215,7 +215,7 @@ const CEOBriefing = () => {
                   <RiskRadar risks={p.risks || []} reconciliation={p.risk_reconciliation || null} />
                 </Section>
 
-                <Section n={6} title="Cross-Functional Friction">
+                <Section n={3} title="Cross-Functional Friction">
                   {(() => {
                     const frictionList: any[] = Array.isArray(p.friction) ? p.friction : [];
                     const trajectory = String(briefing.trajectory || "").toLowerCase();
