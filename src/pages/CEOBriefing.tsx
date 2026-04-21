@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { isCEO } from "@/lib/ceoAccess";
 import AppLayout from "@/components/AppLayout";
