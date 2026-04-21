@@ -1,112 +1,111 @@
 
 
-## Fix: Section 6 "Cross-Functional Friction" is always empty
+## Fix: Section 8 "Accountability Watchlist" is empty on every briefing
 
 ### Root cause
 
-The briefing schema declares `friction: [{issue, teams, consequence}]` but **the prompt never tells the AI when or how to populate it**. There are no rules, no evidence sources, no examples, no minimum count, no deterministic floor. The model returns `[]` on every briefing — which is what you're seeing.
+Same shape of bug as Section 6 was. The schema declares `watchlist[{workstream, owner, status, good_looks_like, missing, data_blind_spot}]` and there are quality rules for *each row* (good_looks_like, owner concentration cap, blind-spot tagging) — but **no rule tells the AI when watchlist must be populated and what minimum coverage looks like**. So the model returns `[]` and ships.
 
-Compare to Risk Radar (works) — has explicit reconciliation rules, severity floors, and synthetic injection. Friction has zero rules.
+Confirmed on the latest 2026-04-21 morning briefing: `watchlist_count = 0`, despite `workstream_scores`, silent leaders, and Red coverage domains all being present.
 
-Last briefing (2026-04-21 morning): `friction_count = 0`. Confirmed in DB.
+The post-processor at line 1469 only runs *if* `watchlist.length > 0` — so it rebalances owner concentration but never injects rows when the AI returns nothing. The UI then renders an empty `<table>` with headers and zero rows, which looks like a broken section.
 
-### What "cross-functional friction" should actually mean
+### What "Accountability Watchlist" should actually mean
 
-A friction is a structural blocker between ≥2 functions/teams that no single owner can unblock alone. Examples Duncan can detect from existing data:
+A watchlist row is a **named workstream + named owner + what "done" looks like + what's missing right now**. Duncan already has every input it needs:
 
-- **Workstream owner mismatch** — card owned by Marketing but blocked by Tech (cross-team dependency in `workstream_cards.notes` or assignee chains)
-- **Meeting decisions without a single owner** — Plaud transcript shows agreement but no owner assigned, decision spans two functions
-- **Email escalations crossing functions** — `ceo-email-pulse` already extracts `escalations[{from, to, topic}]` — cross-function ones are friction signals
-- **Domain/priority handoff gaps** — e.g. India launch (Lightning Strike) has Marketing artifacts but no Ops runbook, or Trials Ops has no Product spec — derivable from `data_coverage_audit.strategic_coverage`
-- **Silent leader on an active priority** — if a priority has cards moving but its expected owner is `silent` in `leader_signal_map`, that's friction between the active doers and the absent owner
-- **Conflicting source data** — `document_intelligence.contradicted_by` already flags doc-vs-system conflicts; cross-function ones (e.g. CFO plan vs CMO spend) are friction
+- Every entry in `workstream_scores` that isn't Green is a candidate
+- Every `silent_priority` (priority with no owned workstream) is a candidate — owner = expected_owner from `PRIORITY_DEFINITIONS`
+- Every Red/Yellow domain in `data_coverage_audit.strategic_coverage` with no matching watchlist row is a candidate
+- Every `silent` leader who owns a 2026 priority is a candidate
 
 ### The fix
 
-**1. Add explicit prompt rules for `friction[]`** (after the existing `risks` reconciliation rule on line 155):
+**1. Add explicit `watchlist[]` population rules** (in the same CRITICAL RULES block, after rule 148):
 
 ```text
-- payload.friction RULES:
-  Cross-functional friction is a structural blocker between ≥2 functions
-  that NO single owner can unblock alone. You MUST scan for friction in:
-    a. workstream_cards where the owner's function ≠ the function of the
-       blocker mentioned in card.notes/title (e.g. CMO-owned card blocked
-       by tech delivery)
-    b. meetings_recent where transcript_summary mentions a decision
-       spanning two functions but no single owner is named
-    c. email_pulse.escalations where from.function ≠ to.function
-    d. data_coverage_audit.strategic_coverage where a priority has
-       artifacts in one domain (e.g. Marketing) but is Red in another
-       (e.g. Operations) — that handoff IS friction
-    e. leader_signal_map where a priority has active cards but the
-       expected_owner is "silent" — friction between doers and absent owner
-    f. document_intelligence.contradicted_by entries that span functions
-       (e.g. CFO budget contradicts CMO spend plan)
+- payload.watchlist POPULATION RULES:
+  watchlist[] is the operational accountability ledger. It MUST contain
+  one row for EACH of the following, with NO duplicates:
+    a. Every workstream_score where rag != "green" (Red, Yellow, At Risk)
+    b. Every entry in headline_context.silent_priorities (owner =
+       PRIORITY_DEFINITIONS.expected_owner, status = "No owned workstream",
+       missing = "No cards, no Azure items, no releases attributed")
+    c. Every 2026 priority where data_coverage_audit.strategic_coverage
+       coverage_pct < 50 that is not already covered by (a) or (b)
+    d. Every leader_signal_map entry with signal_status="silent" AND
+       owns_priorities.length > 0 (one row per priority they own)
 
-  For EACH friction:
-    - "issue": one sentence naming the structural blocker (not a task)
-    - "teams": EXACTLY the function names involved (≥2), e.g.
-      ["Marketing","Operations"] or ["CFO","CMO"]
-    - "consequence": which 2026 priority this puts at risk + by when
-    - NEW field "evidence_source": one of
-      "workstream_card"|"meeting"|"email"|"coverage_gap"|"silent_leader"|"doc_conflict"
-    - NEW field "recommended_resolver": "CEO" if cross-divisional,
-      otherwise the most senior shared manager
+  MINIMUM count = max(3, count of non-green workstreams + silent_priorities).
+  An empty watchlist[] when outcome_probability < 70 OR coverage_gaps
+  is non-empty is a reporting failure.
 
-  MINIMUM: If outcome_probability < 50 OR any 2026 priority has
-  coverage_pct < 40, friction[] MUST contain ≥3 entries. An empty
-  friction[] on a Red briefing is a reporting failure, not an honest
-  signal of harmony.
+  For each row:
+    - "workstream": exact name from workstream_scores OR the 2026 priority name
+    - "owner": real accountable person (rule 148 still applies)
+    - "status": one of "Red", "Yellow", "At Risk", "Silent", "Uncovered"
+    - "good_looks_like": observable definition of done (rule 146)
+    - "missing": the SPECIFIC artifact, decision, or signal that's absent
+    - "data_blind_spot": Red/Yellow domain name if applicable, else null
 ```
 
-**2. Deterministic post-processor floor** (mirrors the Risk Radar pattern):
+**2. Deterministic post-processor floor** (mirrors the friction fix, runs *before* the existing 40% concentration cap):
 
-After AI output, before persisting:
+After AI output, before the existing `wl.length > 0` block:
 
-- For every `silentMissing` priority, if no friction entry mentions it, **inject** one: `{issue: "${priority} has active workstream activity but its expected owner (${owner}) is silent — handoff broken", teams: [owner_function, "Cross-functional"], consequence: "${priority} target at risk", evidence_source: "silent_leader", recommended_resolver: "CEO", auto_injected: true}`
-- For every email `escalation` where sender and recipient functions differ, inject one if not already covered
-- If `outcome_probability < 50` and final friction count is still 0, inject a system-flagged entry: `"Friction detection ran but found nothing — verify Duncan has visibility into cross-team blockers, this is unusual on a Red briefing"`
+- Build `requiredRows[]` from: non-green workstream_scores + silent_priorities + Red coverage domains + silent leaders owning priorities
+- For each `requiredRow` not already represented in `parsed.payload.watchlist` (matched by case-insensitive workstream name), inject:
+  ```
+  { workstream, owner: <expected_owner or "Cross-functional — escalate to CEO">,
+    status: <derived: Silent | Uncovered | Red | Yellow>,
+    good_looks_like: <from PRIORITY_DEFINITIONS.success_criteria when known>,
+    missing: <"No owned workstream" | "Coverage <40% in {domain}" | "Owner silent 7d">,
+    data_blind_spot: <domain name or null>,
+    auto_injected: true }
+  ```
+- If final watchlist is still empty AND `outcome_probability < 70`, inject one system row: `{workstream: "Watchlist detection failed", owner: "Duncan", status: "Red", missing: "Verify briefing has visibility into workstreams + priorities — unusual on a non-green briefing", auto_injected: true}`
 
-**3. UI: surface evidence + auto-flag tag**
+Then run the existing 40% owner-concentration cap on the combined list.
+
+**3. UI: surface auto-flag tag + explicit empty state**
 
 ```text
-EDIT src/pages/CEOBriefing.tsx (Section 6)
-  - For each friction, render:
-      • issue (already there)
-      • teams as colored chips, not joined string
-      • consequence (already there)
-      • NEW: small "Evidence: {source}" mono chip
-      • NEW: dashed border + "Auto-flagged" tag when auto_injected=true
-      • NEW: "Resolver: {recommended_resolver}" line
-  - Empty state when truly zero AND briefing is Green: show
-    "No structural friction detected" with a ShieldCheck icon
-    (currently it just shows nothing, which looks broken)
+EDIT src/pages/CEOBriefing.tsx (Section 8)
+  - Add new column "Source" (small mono chip): "AI" | "Auto-flagged"
+    using w.auto_injected
+  - For auto_injected rows: dashed left border on the <tr>
+  - When watchlist is truly [] AND briefing is Green: show
+    "All workstreams green and fully evidenced — no accountability gaps"
+    with a ShieldCheck icon (mirrors the §6 empty state)
+  - Currently it just renders an empty <table> body which looks broken
 ```
 
 ### Files to edit
 
 ```text
 EDIT supabase/functions/ceo-briefing/index.ts
-  - Update friction schema entry (line 105) to include evidence_source,
-    recommended_resolver, auto_injected
-  - Add the friction RULES block to the prompt (after line 155)
-  - Add post-processor: inject synthetic friction for silent priorities,
-    cross-function email escalations, and Red-briefing fallback
+  - Add watchlist POPULATION RULES block after line 148
+  - Update schema entry (line 107) to add "auto_injected": boolean
+  - New post-processor block BEFORE the existing line 1469 block:
+    inject required rows from non-green workstreams, silent priorities,
+    Red coverage domains, silent leaders owning priorities
+  - Existing 40% concentration cap then runs on the combined list
 
 EDIT src/pages/CEOBriefing.tsx
-  - Section 6 rendering: team chips, evidence chip, auto-flag styling,
-    explicit empty state
+  - Section 8 table: add Source column with AI / Auto-flagged chip
+  - Dashed left border on auto_injected rows
+  - Empty-state card with ShieldCheck when truly zero on a Green briefing
 ```
 
 ### Outcome
 
-- Section 6 will populate on every briefing where friction actually exists in the data — currently the most common signals (silent leaders blocking active priorities, cross-function email escalations, coverage handoff gaps) are completely invisible.
-- A Red briefing can no longer ship with an empty Section 6.
-- Each friction tells the CEO not just *what* but *who needs to break the deadlock* (recommended_resolver) and *how Duncan knows* (evidence_source).
+- Section 8 will populate on every non-green briefing — currently the most common signals (silent priorities, uncovered domains, silent leaders) are completely invisible there.
+- Each row tells the CEO *which workstream*, *who owns it*, *what done looks like*, and *what's missing right now* — and whether Duncan inferred it deterministically (`Auto-flagged`) or the AI surfaced it.
+- A Red briefing can no longer ship with an empty Section 8.
 
 ### Out of scope (ask if you want)
 
-- One-click "Send to resolver" using `send-ceo-briefing-actions` for each friction
-- Friction trend chart — count over the last 14 briefings to spot recurring deadlocks
-- Auto-creating a workstream card per friction with the resolver as owner
+- One-click "Send to owner" per watchlist row using `send-ceo-briefing-actions`
+- Auto-create a workstream card per `Uncovered` / `Silent` row with the owner pre-assigned
+- Trend chart of watchlist size + auto-injection ratio across the last 14 briefings (early signal of AI under-reporting)
 
