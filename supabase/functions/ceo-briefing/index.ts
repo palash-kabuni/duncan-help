@@ -346,6 +346,82 @@ const OPERATING_SYSTEM_CHECKLIST: Record<string, string[]> = {
   ],
 };
 
+// ─── Leadership Roster — direct reports Duncan MUST assess every briefing ──
+const LEADERSHIP_ROSTER: Array<{
+  name: string;
+  role: string;
+  aliases: string[];
+  owns_priorities?: string[];
+}> = [
+  { name: "Nimesh", role: "CEO", aliases: ["nimesh", "nimesh patel"], owns_priorities: ["lightning_strike"] },
+  { name: "Patrick", role: "CFO", aliases: ["patrick", "patrick badenoch"], owns_priorities: ["preorders"] },
+  { name: "Ellaine", role: "COO / General Counsel", aliases: ["ellaine"] },
+  { name: "Matt", role: "CPO", aliases: ["matt"], owns_priorities: ["team_selection"] },
+  { name: "Alex", role: "CMO", aliases: ["alex"], owns_priorities: ["kpl_registrations", "preorders"] },
+  { name: "Simon", role: "Operations Director", aliases: ["simon", "simon wood"], owns_priorities: ["lightning_strike", "trials", "team_selection"] },
+  { name: "Palash", role: "Head of Duncan", aliases: ["palash", "palash soundarkar"], owns_priorities: ["duncan_automation"] },
+  { name: "Parmy", role: "CTO", aliases: ["parmy", "parmy virk"] },
+];
+
+// Per-leader signal tally — deterministic, server-authoritative.
+function computeLeaderSignalMap(input: {
+  meetings: Array<{ title: string | null; participants?: string[] | null; summary: string | null; meeting_date: string | null }>;
+  cards: Array<{ title: string | null; owner_id?: string | null }>;
+  workItems: Array<{ title: string | null; assigned_to?: string | null }>;
+  releases: Array<{ title: string | null; version: string | null; published_at: string | null }>;
+  profiles: Array<{ display_name: string | null }>;
+}) {
+  const norm = (s: string) => s.toLowerCase().trim();
+  return LEADERSHIP_ROSTER.map((leader) => {
+    const aliases = leader.aliases.map(norm);
+    const matchAny = (h: string | null | undefined) => {
+      if (!h) return false;
+      const s = norm(String(h));
+      return aliases.some((a) => s.includes(a));
+    };
+
+    const meetingHits = (input.meetings || []).filter((m) => {
+      const partHit = Array.isArray(m.participants) && m.participants.some((p) => matchAny(p));
+      return partHit || matchAny(m.summary) || matchAny(m.title);
+    });
+    const cardHits = (input.cards || []).filter((c) => {
+      const ownerName = (input.profiles || []).find((p) => norm(String(p.display_name || "")) === norm(String(c.owner_id || "")))?.display_name;
+      return matchAny(ownerName as string | null) || matchAny(c.title);
+    });
+    const azureHits = (input.workItems || []).filter((w) => matchAny(w.assigned_to) || matchAny(w.title));
+    const releaseHits = (input.releases || []).filter((r) => matchAny(r.title));
+
+    const sources: string[] = [];
+    if (meetingHits.length) sources.push("meetings");
+    if (cardHits.length) sources.push("workstreams");
+    if (azureHits.length) sources.push("azure");
+    if (releaseHits.length) sources.push("releases");
+
+    const signal_status: "active" | "low_signal" | "silent" =
+      sources.length >= 2 ? "active" : sources.length === 1 ? "low_signal" : "silent";
+
+    return {
+      name: leader.name,
+      role: leader.role,
+      owns_priorities: leader.owns_priorities ?? [],
+      signal_status,
+      sources,
+      counts: {
+        meetings: meetingHits.length,
+        workstreams: cardHits.length,
+        azure: azureHits.length,
+        releases: releaseHits.length,
+      },
+      sources_detail: {
+        meetings: meetingHits.slice(0, 3).map((m) => ({ title: m.title, date: m.meeting_date })),
+        workstreams: cardHits.slice(0, 3).map((c) => ({ title: c.title })),
+        azure: azureHits.slice(0, 3).map((w) => ({ title: w.title })),
+        releases: releaseHits.slice(0, 3).map((r) => ({ title: r.title, version: r.version })),
+      },
+    };
+  });
+}
+
 // ─── Cross-system signal inference — what evidence in OTHER systems implies a doc should exist ──
 function inferArtifactSignals(input: {
   meetings: Array<{ title: string | null; meeting_date: string | null; summary: string | null }>;
