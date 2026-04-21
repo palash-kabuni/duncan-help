@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callLLMWithFallback } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -224,28 +225,21 @@ Transcript:
 
 Do not include any explanation outside JSON.`;
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-4.1",
+  let aiData: any;
+  try {
+    aiData = await callLLMWithFallback({
+      workflow: "hireflix-sync-interviews",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-    }),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    console.error("AI scoring error:", response.status, errText);
-    throw new Error(`AI scoring failed: ${response.status}`);
+      max_tokens: 2048,
+    });
+  } catch (err: any) {
+    console.error("AI scoring error:", err?.status, err?.message);
+    throw new Error(`AI scoring failed: ${err?.status || "unknown"}`);
   }
 
-  const aiData = await response.json();
   const content = aiData.choices?.[0]?.message?.content || "";
   const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, content];
   const jsonStr = (jsonMatch[1] || content).trim();

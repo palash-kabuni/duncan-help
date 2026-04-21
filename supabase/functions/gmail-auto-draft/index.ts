@@ -3,6 +3,7 @@
 // Triggered every 10 min by pg_cron.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callLLMWithFallback } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -86,9 +87,6 @@ async function generateReply(
   threadContext: { from: string; date: string; body: string }[],
   userEmail: string,
 ): Promise<string | null> {
-  const openaiKey = Deno.env.get("OPENAI_API_KEY");
-  if (!openaiKey) return null;
-
   const conversation = threadContext
     .map((m) => `From: ${m.from}\nDate: ${m.date}\n\n${m.body.slice(0, 2000)}`)
     .join("\n\n---\n\n");
@@ -107,25 +105,21 @@ RULES:
 - Do NOT add greetings like "Hi [Name]" unless that matches the user's style.
 - Keep it under 120 words unless the thread clearly needs detail.`;
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${openaiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "gpt-4o",
+  try {
+    const data = await callLLMWithFallback({
+      workflow: "gmail-auto-draft",
       temperature: 0.7,
       max_tokens: 400,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `Draft a reply to this email thread:\n\n${conversation}` },
       ],
-    }),
-  });
-  if (!res.ok) {
-    console.error("OpenAI error:", await res.text());
+    });
+    return data.choices?.[0]?.message?.content?.trim() || null;
+  } catch (err: any) {
+    console.error("LLM error:", err?.status, err?.message);
     return null;
   }
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content?.trim() || null;
 }
 
 async function processUser(

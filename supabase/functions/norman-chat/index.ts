@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { streamLLM } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -3636,52 +3637,29 @@ Format as a natural, readable summary with clear sections. If a section has no d
       requestBody.tools = tools;
     }
 
-    // Helper to call OpenAI with retry on 429 + fallback model
-    const MAX_RETRIES = 4;
-    const FALLBACK_MODEL = "gpt-4.1-mini";
-
+    // Helper to call LLM via the shared router (Claude primary, OpenAI fallback).
+    // Returns a synthetic Response whose .body is OpenAI-shaped SSE so downstream parser
+    // (parseSSEStream) keeps working unchanged.
     async function fetchAIWithRetry(body: any): Promise<Response> {
-      const modelsToTry = body?.model === FALLBACK_MODEL
-        ? [body.model]
-        : [body.model, FALLBACK_MODEL];
-
-      for (const model of modelsToTry) {
-        const requestBody = { ...body, model };
-
-        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-          const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${OPENAI_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(requestBody),
-          });
-
-          if (resp.status === 429 && attempt < MAX_RETRIES - 1) {
-            const retryAfter = parseInt(resp.headers.get("retry-after") || "0", 10);
-            const baseDelay = retryAfter > 0 ? retryAfter * 1000 : Math.pow(2, attempt + 1) * 1000;
-            const jitter = Math.floor(Math.random() * 400);
-            const delay = baseDelay + jitter;
-            console.log(`AI 429 on ${model}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
-            await new Promise((r) => setTimeout(r, delay));
-            continue;
-          }
-
-          if (resp.status !== 429) return resp;
-          break;
-        }
+      try {
+        const stream = await streamLLM({
+          workflow: "norman-chat",
+          messages: body.messages,
+          tools: body.tools,
+          tool_choice: body.tool_choice,
+          temperature: body.temperature,
+          max_tokens: body.max_tokens,
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      } catch (err: any) {
+        const status = err?.status || 500;
+        const text = err?.message || "LLM router error";
+        console.error("[norman-chat] streamLLM failed:", status, text);
+        return new Response(text, { status });
       }
-
-      // Final attempt response (429) for caller handling
-      return await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
     }
 
     const response = await fetchAIWithRetry(requestBody);

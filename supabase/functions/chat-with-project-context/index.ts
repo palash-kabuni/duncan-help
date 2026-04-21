@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callLLMWithFallback } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -207,76 +208,29 @@ Deno.serve(async (req) => {
 
     aiMessages.push({ role: "user", content: message.trim() });
 
-    // 9. Call OpenAI
-    const PRIMARY_MODEL = "gpt-4.1";
-    const FALLBACK_MODEL = "gpt-4.1-mini";
-    const MAX_RETRIES = 4;
-
-    async function fetchAIWithRetry(body: any): Promise<Response> {
-      const modelsToTry = body?.model === FALLBACK_MODEL
-        ? [body.model]
-        : [body.model, FALLBACK_MODEL];
-
-      for (const model of modelsToTry) {
-        const requestBody = { ...body, model };
-        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-          const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${OPENAI_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(requestBody),
-          });
-
-          if (resp.status === 429 && attempt < MAX_RETRIES - 1) {
-            const retryAfter = parseInt(resp.headers.get("retry-after") || "0", 10);
-            const baseDelay = retryAfter > 0 ? retryAfter * 1000 : Math.pow(2, attempt + 1) * 1000;
-            const jitter = Math.floor(Math.random() * 400);
-            await new Promise((r) => setTimeout(r, baseDelay + jitter));
-            continue;
-          }
-
-          if (resp.status !== 429) return resp;
-          break;
-        }
-      }
-
-      return await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
+    // 9. Call LLM via router (Claude primary, OpenAI fallback)
+    let aiData: any;
+    try {
+      aiData = await callLLMWithFallback({
+        workflow: "chat-with-project-context",
+        messages: aiMessages,
+        temperature: 0.7,
+        max_tokens: 4096,
       });
-    }
-
-    const aiResponse = await fetchAIWithRetry({
-      model: PRIMARY_MODEL,
-      messages: aiMessages,
-      temperature: 0.7,
-      max_tokens: 4096,
-    });
-
-    if (!aiResponse.ok) {
-      const errText = await aiResponse.text();
-      console.error("AI error:", aiResponse.status, errText);
-
-      if (aiResponse.status === 429) {
+    } catch (err: any) {
+      console.error("AI error:", err?.status, err?.message);
+      if (err?.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again shortly." }), {
           status: 429,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-
       return new Response(JSON.stringify({ error: "AI service error" }), {
         status: 502,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const aiData = await aiResponse.json();
     const reply = aiData.choices?.[0]?.message?.content || "I couldn't generate a response.";
 
     // 10. Save assistant message

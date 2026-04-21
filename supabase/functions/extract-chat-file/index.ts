@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callLLMWithFallback } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -89,14 +90,11 @@ Deno.serve(async (req) => {
           });
         }
 
-        const aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "gpt-4.1-mini",
+        try {
+          const aiData = await callLLMWithFallback({
+            workflow: "extract-chat-file",
+            force_provider: "openai",
+            max_tokens: 16000,
             messages: [
               {
                 role: "system",
@@ -116,16 +114,10 @@ Deno.serve(async (req) => {
                 ],
               },
             ],
-            max_tokens: 16000,
-          }),
-        });
-
-        if (aiResp.ok) {
-          const aiData = await aiResp.json();
+          });
           extractedText = aiData.choices?.[0]?.message?.content || "";
-        } else {
-          const errText = await aiResp.text();
-          console.error("AI PDF extraction failed:", aiResp.status, errText);
+        } catch (aiErr: any) {
+          console.error("AI PDF extraction failed:", aiErr?.status, aiErr?.message);
           return new Response(JSON.stringify({ error: "Failed to extract text from PDF" }), {
             status: 502,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
