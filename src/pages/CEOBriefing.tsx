@@ -18,6 +18,7 @@ import CompanyPulseCard, { type CompanyPulseStatus } from "@/components/ceo/Comp
 import DataCoverageCard, { type DataCoverageAudit } from "@/components/ceo/DataCoverageCard";
 import EmailPulseCard from "@/components/ceo/EmailPulseCard";
 import CEORoutingPanel from "@/components/ceo/CEORoutingPanel";
+import LovableContributorsCard from "@/components/ceo/LovableContributorsCard";
 
 const Section = ({ n, title, children }: { n: number; title: string; children: React.ReactNode }) => (
   <section className="space-y-3">
@@ -568,6 +569,9 @@ const CEOBriefing = () => {
                             <p className="text-[10px] text-muted-foreground mt-2 italic">Hours-saved is a rough estimate (tokens × 4 chars / 5 chars per word / 250 wpm).</p>
                           </div>
                         )}
+
+                        {/* Block B2 — Lovable contributors (manual snapshot via chat) */}
+                        <LovableContributorsCard />
 
                         {/* Block C — Top 3 recommendations */}
                         {recs.length > 0 ? (

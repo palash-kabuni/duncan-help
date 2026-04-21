@@ -1085,6 +1085,94 @@ async function executeReleaseTool(
   };
 }
 
+const LOVABLE_CONTRIBUTORS_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "update_lovable_contributors",
+      description: "Parse an attached screenshot of the Lovable Project Settings → People page and store the per-member usage rows as a new dated snapshot. Use this ONLY when the user has attached an image AND asks to refresh / update / import the Lovable contributors leaderboard for the Team Briefing. Admin-only. Reads the image directly from the latest user message — do NOT pass the image as an argument.",
+      parameters: {
+        type: "object",
+        properties: {
+          rows: {
+            type: "array",
+            description: "Parsed rows extracted from the screenshot. One entry per visible person.",
+            items: {
+              type: "object",
+              properties: {
+                member_name: { type: "string", description: "Person's full name as shown in the People list" },
+                role: { type: "string", description: "Role label, e.g. 'Owner', 'Admin', 'Collaborator'. Empty string if not visible." },
+                period_credits: { type: "number", description: "The 'Apr usage' (or current period usage) credit count for this person. Integer." },
+                period_label: { type: "string", description: "Header label of the period column, e.g. 'Apr usage'." },
+                total_credits: { type: "number", description: "The 'Total usage' credit count for this person. Integer." },
+                credit_limit: { type: "number", description: "The 'Credit limit' for this person if shown, otherwise omit." },
+              },
+              required: ["member_name", "period_credits", "total_credits"],
+            },
+          },
+        },
+        required: ["rows"],
+      },
+    },
+  },
+];
+
+async function executeLovableContributorsTool(
+  toolName: string,
+  args: any,
+  supabaseAdmin: any,
+  userId: string,
+): Promise<any> {
+  if (toolName !== "update_lovable_contributors") return { error: "Unknown tool" };
+  if (!userId) return { error: "Authentication required" };
+
+  const { data: isAdmin } = await supabaseAdmin.rpc("has_role", {
+    _user_id: userId,
+    _role: "admin",
+  });
+  if (!isAdmin) return { error: "Updating Lovable contributors requires admin permission." };
+
+  const rawRows = Array.isArray(args?.rows) ? args.rows : [];
+  const cleaned = rawRows
+    .map((r: any) => ({
+      member_name: typeof r?.member_name === "string" ? r.member_name.trim() : "",
+      role: typeof r?.role === "string" ? r.role.trim() : null,
+      period_credits: Number.isFinite(Number(r?.period_credits)) ? Math.round(Number(r.period_credits)) : null,
+      period_label: typeof r?.period_label === "string" ? r.period_label.trim() : null,
+      total_credits: Number.isFinite(Number(r?.total_credits)) ? Math.round(Number(r.total_credits)) : 0,
+      credit_limit: Number.isFinite(Number(r?.credit_limit)) ? Math.round(Number(r.credit_limit)) : null,
+    }))
+    .filter((r: any) => r.member_name.length > 0 && r.period_credits !== null);
+
+  if (cleaned.length === 0) {
+    return { error: "No valid rows could be parsed from the screenshot. Each row needs a name and a period usage number." };
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const insertRows = cleaned.map((r: any) => ({
+    snapshot_date: today,
+    member_name: r.member_name,
+    role: r.role,
+    period_credits: r.period_credits,
+    period_label: r.period_label,
+    total_credits: r.total_credits,
+    credit_limit: r.credit_limit,
+    created_by: userId,
+  }));
+
+  const { error: insErr } = await supabaseAdmin
+    .from("lovable_usage_snapshots")
+    .insert(insertRows);
+  if (insErr) return { error: `Failed to save snapshot: ${insErr.message}` };
+
+  return {
+    success: true,
+    snapshot_date: today,
+    row_count: cleaned.length,
+    message: `Saved ${cleaned.length} Lovable contributor${cleaned.length === 1 ? "" : "s"} as of ${today}. Visible now in Team Briefing → Section 07.`,
+  };
+}
+
 const EXEC_SUMMARY_TOOLS = [
   {
     type: "function",
@@ -3633,6 +3721,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
     tools.push(...EXEC_SUMMARY_TOOLS);
     // Release logging tool (admin-only enforced inside executor)
     tools.push(...RELEASE_TOOLS);
+    // Lovable contributors snapshot (admin-only, requires attached screenshot)
+    tools.push(...LOVABLE_CONTRIBUTORS_TOOLS);
     if (tools.length > 0) {
       requestBody.tools = tools;
     }
@@ -3761,6 +3851,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
       const workstreamMgmtToolNames = ["list_team_members", "create_workstream_card", "add_tasks_to_card", "update_workstream_card", "check_team_availability"];
       const execSummaryToolNames = ["generate_exec_summary_document"];
       const releaseToolNames = ["log_release_change"];
+      const lovableContribToolNames = ["update_lovable_contributors"];
       const toolResults: any[] = [];
 
       for (const tc of toolCalls) {
@@ -3815,6 +3906,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
               result = await executeExecSummaryTool(tc.function.name, args, supabaseUrl, authHeader || "");
           } else if (releaseToolNames.includes(tc.function.name)) {
               result = await executeReleaseTool(tc.function.name, args, supabaseAdmin, userId || "");
+          } else if (lovableContribToolNames.includes(tc.function.name)) {
+              result = await executeLovableContributorsTool(tc.function.name, args, supabaseAdmin, userId || "");
           } else {
           }
           
