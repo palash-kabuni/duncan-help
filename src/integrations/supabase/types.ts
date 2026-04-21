@@ -927,6 +927,45 @@ export type Database = {
         }
         Relationships: []
       }
+      lovable_usage_snapshots: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          credit_limit: number | null
+          id: string
+          member_name: string
+          period_credits: number
+          period_label: string | null
+          role: string | null
+          snapshot_date: string
+          total_credits: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          credit_limit?: number | null
+          id?: string
+          member_name: string
+          period_credits?: number
+          period_label?: string | null
+          role?: string | null
+          snapshot_date?: string
+          total_credits?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          credit_limit?: number | null
+          id?: string
+          member_name?: string
+          period_credits?: number
+          period_label?: string | null
+          role?: string | null
+          snapshot_date?: string
+          total_credits?: number
+        }
+        Relationships: []
+      }
       meetings: {
         Row: {
           action_items: Json | null
