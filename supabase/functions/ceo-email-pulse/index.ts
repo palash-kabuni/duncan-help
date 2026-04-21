@@ -9,6 +9,7 @@
 // only. Nothing other than the structured JSON below is persisted.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callLLMWithFallback } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
