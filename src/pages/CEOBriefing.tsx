@@ -70,7 +70,7 @@ const CEOBriefing = () => {
             <h1 className="text-2xl font-bold tracking-tight text-foreground">CEO Briefing</h1>
             <p className="text-sm text-muted-foreground font-mono">{dateLabel}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Tabs value={type} onValueChange={(v) => setType(v as BriefingType)}>
               <TabsList>
                 <TabsTrigger value="morning">Morning</TabsTrigger>
@@ -81,6 +81,17 @@ const CEOBriefing = () => {
               {generating ? <RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-2" />}
               {briefing ? "Regenerate" : "Generate"}
             </Button>
+            {briefing && type === "morning" && (
+              <Button onClick={() => setSendOpen(true)} disabled={generating} size="sm" variant="outline">
+                <Send className="h-3.5 w-3.5 mr-2" />
+                Send team actions
+              </Button>
+            )}
+            {lastSent && (
+              <Badge variant="outline" className="text-[10px] font-mono">
+                Last sent {new Date(lastSent).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+              </Badge>
+            )}
           </div>
         </div>
 
