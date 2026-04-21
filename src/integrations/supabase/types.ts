@@ -350,6 +350,45 @@ export type Database = {
           },
         ]
       }
+      ceo_briefing_jobs: {
+        Row: {
+          briefing_id: string | null
+          briefing_type: string
+          created_at: string
+          error: string | null
+          id: string
+          phase: string
+          progress: number
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          briefing_id?: string | null
+          briefing_type?: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          phase?: string
+          progress?: number
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          briefing_id?: string | null
+          briefing_type?: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          phase?: string
+          progress?: number
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       ceo_briefings: {
         Row: {
           briefing_date: string
