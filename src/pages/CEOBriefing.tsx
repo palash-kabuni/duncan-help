@@ -243,71 +243,155 @@ const CEOBriefing = () => {
                 <Section n={3} title="Cross-Functional Friction">
                   {(() => {
                     const frictionList: any[] = Array.isArray(p.friction) ? p.friction : [];
+                    const meta: any = p.friction_meta || {};
                     const trajectory = String(briefing.trajectory || "").toLowerCase();
                     const isGreen = trajectory.includes("on track");
-                    const sourceLabel: Record<string, string> = {
-                      workstream_card: "Workstream",
-                      meeting: "Meeting",
-                      email: "Email pulse",
-                      coverage_gap: "Coverage gap",
-                      silent_leader: "Silent leader",
-                      doc_conflict: "Doc conflict",
+                    const sysLabel: Record<string, string> = {
+                      workstream: "Workstreams",
+                      azure: "Azure DevOps",
+                      meeting: "Meetings",
+                      calendar: "Calendar",
+                      xero: "Xero",
+                      release: "Releases",
+                      document: "Documents",
+                      email: "Email (supporting)",
                     };
+                    const urgencyStyles: Record<string, string> = {
+                      red: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/40",
+                      yellow: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/40",
+                    };
+
+                    const SourceProvenance = () => (
+                      <p className="text-[11px] font-mono text-muted-foreground/80 mt-2">
+                        Scanned: Workstreams · Azure DevOps · Meetings · Calendar · Xero · Releases · Documents · Email (supporting only).
+                        Not connected: Slack inbound channels · HubSpot.
+                      </p>
+                    );
+
                     if (frictionList.length === 0) {
                       return (
-                        <div className="rounded-lg border border-border bg-card p-4 flex items-center gap-3">
-                          <ShieldCheck className={`w-5 h-5 ${isGreen ? "text-emerald-500" : "text-muted-foreground"}`} />
-                          <p className="text-sm text-muted-foreground">
-                            {isGreen
-                              ? "No structural friction detected. Cross-functional handoffs are clean."
-                              : "No friction surfaced — but headline isn't green. Review whether Duncan has visibility into cross-team blockers."}
-                          </p>
+                        <div className="rounded-lg border border-border bg-card p-4 space-y-2">
+                          <div className="flex items-center gap-3">
+                            <ShieldCheck className={`w-5 h-5 ${isGreen ? "text-emerald-500" : "text-muted-foreground"}`} />
+                            <p className="text-sm text-muted-foreground">
+                              {isGreen
+                                ? "No cross-system friction patterns reached the threshold. Handoffs are clean."
+                                : "No cross-system friction pattern reached the threshold. Single-system issues appear in Risks (§2); inbox-only items appear in the Email Pulse, not here."}
+                            </p>
+                          </div>
+                          <SourceProvenance />
                         </div>
                       );
                     }
                     return (
-                      <div className="space-y-2">
+                      <div className="space-y-3">
                         {frictionList.map((f: any, i: number) => {
-                          const teams: string[] = Array.isArray(f.teams) ? f.teams : (f.teams ? [String(f.teams)] : []);
+                          const teams: string[] = Array.isArray(f.teams) ? f.teams.filter(Boolean) : [];
+                          const systems: string[] = Array.isArray(f.systems) ? f.systems.filter(Boolean) : [];
                           const auto = !!f.auto_injected;
-                          const evSrc = sourceLabel[String(f.evidence_source)] || "Source";
+                          const urgency = String(f.urgency || "yellow").toLowerCase();
+                          const score = Number(f.friction_score) || 0;
+                          const owner = String(f.suggested_owner || f.recommended_resolver || "CEO");
+                          const nextAction = String(f.next_action || "").trim();
+                          const evidence = String(f.evidence || "").trim();
+                          const why = String(f.why_friction || "").trim();
+                          const impact = String(f.business_impact || f.consequence || "").trim();
+                          const description = String(f.description || "").trim();
                           return (
                             <div
                               key={i}
-                              className={`rounded-lg p-4 space-y-2 bg-card ${auto ? "border border-dashed border-amber-500/60" : "border border-border"}`}
+                              className={`rounded-lg p-4 space-y-3 bg-card ${auto ? "border border-dashed border-amber-500/60" : "border border-border"}`}
                             >
+                              {/* Header: title + urgency + score */}
                               <div className="flex items-start justify-between gap-3">
-                                <h4 className="text-sm font-semibold text-foreground leading-snug">{f.issue}</h4>
-                                {auto && (
-                                  <Badge variant="outline" className="shrink-0 text-[10px] font-mono uppercase border-amber-500/60 text-amber-600 dark:text-amber-400">
-                                    Auto-flagged
-                                  </Badge>
-                                )}
+                                <div className="min-w-0 flex-1">
+                                  <h4 className="text-sm font-semibold text-foreground leading-snug">{f.issue}</h4>
+                                  {description && (
+                                    <p className="text-xs text-muted-foreground mt-1">{description}</p>
+                                  )}
+                                </div>
+                                <div className="flex flex-col items-end gap-1 shrink-0">
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono uppercase border ${urgencyStyles[urgency] || urgencyStyles.yellow}`}>
+                                    {urgency}
+                                  </span>
+                                  <span className="text-[10px] font-mono text-muted-foreground" title="Friction Score: cross-fn impact + delay + ownership ambiguity + customer/revenue risk + recurrence">
+                                    Score {score}
+                                  </span>
+                                  {auto && (
+                                    <Badge variant="outline" className="shrink-0 text-[10px] font-mono uppercase border-amber-500/60 text-amber-600 dark:text-amber-400">
+                                      Auto-flagged
+                                    </Badge>
+                                  )}
+                                </div>
                               </div>
-                              {teams.length > 0 && (
+
+                              {/* Teams + Systems chips */}
+                              {(teams.length > 0 || systems.length > 0) && (
                                 <div className="flex flex-wrap gap-1.5">
                                   {teams.map((t, ti) => (
                                     <span
-                                      key={ti}
+                                      key={`t-${ti}`}
                                       className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-muted text-foreground border border-border"
                                     >
                                       {t}
                                     </span>
                                   ))}
+                                  {systems.map((s, si) => (
+                                    <span
+                                      key={`s-${si}`}
+                                      className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-mono bg-muted/40 text-muted-foreground border border-dashed border-border"
+                                    >
+                                      {sysLabel[s] || s}
+                                    </span>
+                                  ))}
                                 </div>
                               )}
-                              {f.consequence && <p className="text-xs text-muted-foreground">{f.consequence}</p>}
-                              <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px] font-mono text-muted-foreground">
-                                <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-muted/50 border border-border">
-                                  Evidence: {evSrc}
-                                </span>
-                                {f.recommended_resolver && (
-                                  <span>Resolver: <span className="text-foreground">{f.recommended_resolver}</span></span>
+
+                              {/* Body: why / evidence / impact */}
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                                {why && (
+                                  <div>
+                                    <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1">Why this is friction</div>
+                                    <p className="text-foreground/90">{why}</p>
+                                  </div>
+                                )}
+                                {impact && (
+                                  <div>
+                                    <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1">Business impact</div>
+                                    <p className="text-foreground/90">{impact}</p>
+                                  </div>
+                                )}
+                                {evidence && (
+                                  <div className="md:col-span-2">
+                                    <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1">Evidence</div>
+                                    <p className="text-muted-foreground">{evidence}</p>
+                                  </div>
                                 )}
                               </div>
+
+                              {/* Footer: action + owner */}
+                              {(nextAction || owner) && (
+                                <div className="pt-2 border-t border-border/60 flex flex-col md:flex-row md:items-start md:justify-between gap-2 text-xs">
+                                  {nextAction && (
+                                    <div className="flex-1 min-w-0">
+                                      <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mr-2">Next action</span>
+                                      <span className="text-foreground">{nextAction}</span>
+                                    </div>
+                                  )}
+                                  <div className="text-[11px] font-mono text-muted-foreground shrink-0">
+                                    Owner: <span className="text-foreground">{owner}</span>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           );
                         })}
+                        {(meta.dropped_email_only > 0 || meta.dropped_single_system > 0) && (
+                          <p className="text-[11px] font-mono text-muted-foreground/80 px-1">
+                            Filtered out: {meta.dropped_email_only || 0} email-only signal{(meta.dropped_email_only || 0) === 1 ? "" : "s"}, {meta.dropped_single_system || 0} single-system signal{(meta.dropped_single_system || 0) === 1 ? "" : "s"} (insufficient cross-system corroboration).
+                          </p>
+                        )}
+                        <SourceProvenance />
                       </div>
                     );
                   })()}
