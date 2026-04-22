@@ -276,7 +276,6 @@ const Sidebar = ({
           <Settings className="h-3.5 w-3.5" />
           Settings
         </button>
-        <p className="text-[10px] font-mono text-muted-foreground/50">v0.1.0</p>
       </div>
     </aside>
   );
