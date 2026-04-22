@@ -1,64 +1,68 @@
 
+## Goal
+Fix the **“What Changed Yesterday”** section so it never renders as a blank block, and surface exactly which mailboxes are currently opted out of the daily briefing email scan.
 
-## What's actually broken
+## Current findings
+- The latest saved briefing still has `payload.what_changed = []`.
+- The current empty-state injection in `supabase/functions/ceo-briefing/index.ts` only runs when **all** tracked sources are zero:
+  - workstream cards 24h = **1**
+  - Azure 24h = **0**
+  - meetings 24h = **0**
+  - Slack notifications 24h = **0**
+  - email pulse signals = **non-zero**
+- Because that guard requires everything to be zero, the section stays blank even though the UI has no fallback for an empty `what_changed` array.
 
-Three concrete bugs are making your Team Briefing look empty:
-
-### 1. Email pulse silently returns nothing (the big one)
-`ceo-email-pulse` ran for every opted-in mailbox, but **every single mailbox failed JSON parsing**. Logs show repeated:
-```
-extractSignals error: SyntaxError: Unexpected token '`', "```json …
-```
-Claude is wrapping its JSON in ```` ```json ... ``` ```` fences and `JSON.parse` chokes. The function then returns empty arrays for commitments / risks / escalations / board mentions — so the briefing thinks "no email activity exists" even though 7 mailboxes were scanned. Confirmed in DB: latest 3 briefings have `email_pulse_signals = null` / 0 commitments.
-
-### 2. "What's moved in the last 24h" is genuinely empty — because the data window is empty
-Hard counts from the DB right now:
-- `workstream_cards` updated in 24h → **1**
-- `azure_work_items` changed in 24h → **0**
-- `meetings` in 24h → **0**
-- `slack_notification_logs` in 24h → **0**
-
-So `payload.what_changed` = `[]` is technically correct, but the briefing presents it as "nothing happened" instead of "no signal in the tracked sources". The model also currently silently emits `[]` when sources are thin, with no honest empty-state copy.
-
-### 3. Slack is read-only and shallow
-Slack is **not actively checked** — the briefing only reads `slack_notification_logs` (Duncan's own outbound DMs about overdue cards). It does not call the Slack API to read channel messages, mentions, or DMs. So when you ask "is it checking across Slack" — no, it's only looking at what Duncan itself sent.
-
----
+## Opted-out mailboxes right now
+These 3 mailboxes are currently not included in the daily briefing email scan:
+- `adit@kabuni.com`
+- `duncan@kabuni.com`
+- `parmy@kabuni.com`
 
 ## Fix
+### 1. Make “What Changed Yesterday” always explain itself
+In `supabase/functions/ceo-briefing/index.ts`:
+- Replace the narrow `all_sources_empty_24h` guard with a broader fallback:
+  - if `parsed.payload.what_changed` is empty after generation/post-processing, inject a deterministic explanation row.
+- Make that row reflect the real source counts, for example:
+  - cards: 1
+  - Azure: 0
+  - meetings: 0
+  - Slack notifications: 0
+  - email signals: non-zero
+- The fallback copy should explain that Duncan saw signal in some systems but did not have enough structured movement to populate the section, instead of leaving the section visually empty.
 
-### A. `supabase/functions/ceo-email-pulse/index.ts`
-Strip code-fence wrappers before `JSON.parse` in `extractSignals`. One helper:
-```ts
-const stripFences = (s: string) =>
-  s.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/,"").trim();
-const parsed = JSON.parse(stripFences(raw));
-```
-Also wrap in a second-chance regex extractor (`/\{[\s\S]*\}/`) and log the first 200 chars of `raw` on failure so we can see what came back. Add a `response_format: { type: "json_object" }` reminder in the system prompt ("Return ONLY a JSON object. No markdown, no fences, no prose.").
+### 2. Distinguish between “no activity” vs “activity exists but nothing summarised”
+Use two deterministic fallback reasons:
+- `all_sources_empty_24h` when every source is truly zero
+- `what_changed_empty_despite_signals` when at least one source has activity but no rows were produced
 
-### B. `supabase/functions/ceo-briefing/index.ts` — honest empty state
-In the deterministic post-processing (where `what_changed` is finalised), if all four 24h counters (cards, Azure, meetings, slack notifications) are zero AND `email_pulse_signals` is null, inject one row:
-```
-{ function_area: "Operations & Delivery",
-  moved: "No tracked activity in the last 24h.",
-  did_not_move: "Cards / Azure / meetings / Slack / email pulse all returned 0 signals.",
-  needs_attention: "Verify Plaud, Azure DevOps sync, and email pulse are running." }
-```
-So the section never renders blank — it tells you *why* it's blank.
+This keeps the section honest and debuggable.
 
-### C. Surface Slack scope honestly
-In Section 04 / data-coverage footer, add a one-line provenance note: "Slack: Duncan's own outbound notifications only. Inbound channel messages are not scanned." (No new integration — just stop implying we read Slack.)
+### 3. Surface opted-out mailbox names in the email pulse payload
+In `supabase/functions/ceo-email-pulse/index.ts`:
+- Extend the response so it returns a lightweight `opted_out_mailboxes` array alongside the current counts.
+- Populate it from the already computed `skipped` mailboxes.
+- Keep it to mailbox address + display name only.
 
-### D. (Optional, ask before doing) Real Slack scan
-If you want the briefing to actually read Slack channels for the last 24h (mentions of leaders, channels going silent, etc.), that's a new edge function `ceo-slack-pulse` using the existing `SLACK_API_KEY` connector — `conversations.history` over the leadership DMs + key public channels, then a second LLM extraction pass like email pulse. Out of scope for this fix unless you confirm.
+### 4. Show the opted-out mailboxes in the UI
+In `src/components/ceo/EmailPulseCard.tsx`:
+- Add a small expandable line under the mailbox summary:
+  - “3 opted out”
+  - expands to show `Adit`, `Duncan`, `Parmy` with email addresses
+- This makes the count actionable instead of opaque.
 
----
+### 5. Add a UI fallback as a second safety net
+In `src/pages/CEOBriefing.tsx`:
+- If `p.what_changed` is empty, render a bordered explanation card instead of a blank section.
+- This protects the page even if an older briefing payload or future regression returns `[]`.
 
 ## Files touched
-- Edit: `supabase/functions/ceo-email-pulse/index.ts` — fenced-JSON tolerance + better logging.
-- Edit: `supabase/functions/ceo-briefing/index.ts` — honest empty-state row in `what_changed`; Slack provenance note in coverage.
+- `supabase/functions/ceo-briefing/index.ts`
+- `supabase/functions/ceo-email-pulse/index.ts`
+- `src/components/ceo/EmailPulseCard.tsx`
+- `src/pages/CEOBriefing.tsx`
 
 ## Out of scope
-- New Slack reader (D above) — needs your go-ahead.
-- Backfilling missing meetings (Plaud sync gap) — separate diagnosis.
-
+- No schema changes
+- No Slack channel reader yet
+- No change to who is opted in/out; only visibility and reporting
