@@ -1,97 +1,118 @@
 
-## Exact issue identified: Google Drive is wired as per-user in the UI, but implemented as a shared singleton in the backend
+## Fix Azure Boards project duplication in Operations
+
+### Exact issue
+Yes — the same work item should not appear copied across multiple projects unless it truly belongs to each one, which Azure Boards work items do not.
+
+The duplication is being introduced during sync in `supabase/functions/sync-azure-work-items/index.ts`, not in the Operations table UI.
 
 ### Root cause
-The Google Drive integration is currently inconsistent across the stack:
+There are two compounding problems in the sync function:
 
-- In `src/pages/Integrations.tsx`, Google Drive is defined as:
-  - `type: "user"`
-  - connection status check = query `google_drive_tokens` where `connected_by = current user`
-- But in the backend, Google Drive is implemented as a shared/singleton integration:
-  - `supabase/migrations/20260208165300_c4d0bbfb-c747-456e-8fd6-d1d3c5518c9e.sql` creates a singleton `google_drive_tokens` table
-  - `supabase/functions/google-drive-callback/index.ts` deletes all existing rows, then stores one fresh token
-  - `supabase/functions/google-drive-api/index.ts` explicitly falls back to the most recent token if the current user has none
+1. **The WIQL query is not explicitly scoped to the current project**
+   - Current query:
+   ```sql
+   SELECT [System.Id]
+   FROM workitems
+   WHERE [System.ChangedDate] >= @Today - 30
+   ORDER BY [System.ChangedDate] DESC
+   ```
+   - This does not include a `System.TeamProject` filter.
+   - Result: each project loop can pull the same recently changed org-wide work item IDs.
 
-### What this means in practice
-For any user who did not personally authorize Google Drive:
-
-- the frontend checks `google_drive_tokens.connected_by = current user`
-- that query returns empty
-- the Integrations page shows Google Drive as disconnected / not working
-
-But the backend is actually designed to allow shared access through the latest stored token.
-
-### Evidence from the current code
-1. Frontend per-user check:
-   - `src/pages/Integrations.tsx`
-   - `checkGoogleDriveConnection()`:
+2. **The synced row is labeled with the loop’s project name instead of the item’s real project**
+   - Current code writes:
    ```ts
-   supabase
-     .from("google_drive_tokens")
-     .select("id")
-     .eq("connected_by", user.id)
+   project_name: project.name
+   ```
+   - But the actual project should come from the work item fields, e.g. `fields["System.TeamProject"]`.
+   - Result: the same work item can be fetched repeatedly and then incorrectly stamped as belonging to every iterated project.
+
+### Why the UI looks wrong
+`src/pages/Operations.tsx` simply reads `azure_work_items` and shows:
+- `external_id`
+- `title`
+- `project_name`
+
+So if sync inserts the same Azure item multiple times with different `project_name` values, the Operations page will faithfully show those incorrect duplicates.
+
+### Evidence in current code
+- `src/pages/Operations.tsx`
+  - reads directly from `azure_work_items`
+  - no client-side duplication logic
+- `supabase/functions/sync-azure-work-items/index.ts`
+  - loops over all Azure projects
+  - runs WIQL per project without `System.TeamProject`
+  - batch-fetches item details
+  - writes `project_name: project.name`
+- `supabase/functions/azure-devops-webhook/index.ts`
+  - already uses the correct source:
+  ```ts
+  project_name: resource.revision?.fields?.["System.TeamProject"] || null
+  ```
+  This confirms the sync function is the inconsistent part.
+
+### What to change
+1. **Scope WIQL to the current project**
+   - Update the query to include:
+   ```sql
+   AND [System.TeamProject] = @project
+   ```
+   or the equivalent explicit project name condition for the current loop.
+
+2. **Store the real project from the returned work item**
+   - Replace:
+   ```ts
+   project_name: project.name
+   ```
+   with:
+   ```ts
+   project_name: fields["System.TeamProject"] || project.name
    ```
 
-2. Backend shared fallback:
-   - `supabase/functions/google-drive-api/index.ts`
-   - `getValidToken()`:
-   ```ts
-   .eq("connected_by", userId)
+3. **Keep the existing composite uniqueness**
+   - The table already has:
+   ```sql
+   UNIQUE (external_id, project_name)
    ```
-   then if none:
-   ```ts
-   .order("created_at", { ascending: false }).limit(1)
-   ```
+   - Once project attribution is correct, this becomes meaningful instead of preserving bad duplicates.
 
-3. Singleton storage model:
-   - `supabase/functions/google-drive-callback/index.ts`
-   ```ts
-   await supabaseAdmin.from("google_drive_tokens").delete()...
-   await supabaseAdmin.from("google_drive_tokens").insert(...)
-   ```
+4. **Clean up already-synced bad rows**
+   - Add a migration or one-time cleanup to remove wrongly duplicated `azure_work_items` rows created by previous syncs.
+   - Safest cleanup:
+     - identify rows where the same `external_id` exists under multiple `project_name`s
+     - keep the row whose `project_name` matches `raw_data->fields->System.TeamProject` when present
+     - remove mismatched copies
 
-### Exact issue summary
-The integration is not primarily failing because OAuth is broken.
+5. **Optional hardening**
+   - Store an additional canonical field such as `team_project` sourced from `System.TeamProject` for easier audits/debugging.
+   - If desired, show that canonical project field in Operations instead of relying only on inferred labeling.
 
-The exact issue is:
-- the frontend assumes Google Drive is a per-user integration
-- the backend stores and serves it as a shared singleton integration
-- so the UI connection check is wrong for most users
+### Files to update
+- `supabase/functions/sync-azure-work-items/index.ts`
+- `supabase/migrations/...` for cleanup of bad duplicated rows
+- optionally `src/pages/Operations.tsx` if you want to expose a clearer project/source field for verification
 
-### Secondary inconsistencies found
-These are not the main root cause, but they reinforce the problem:
-
-- `google-drive-api` action `"status"` also checks only `connected_by = user.id`, so it can report disconnected even though shared fallback exists
-- disconnect logic also deletes only the current user’s row, which is inconsistent with singleton/shared storage
-- `src/pages/Integrations.tsx` calls `checkGoogleDriveConnection()` twice on mount
-- there is a duplicated `else if (isGoogleDrive)` branch in the detail modal status logic
-
-### Recommended fix
-Align Google Drive to one model consistently.
-
-Safest path, based on the existing backend:
-1. Treat Google Drive as a shared/company-style integration in the UI
-2. Change frontend connection status to check whether any valid shared Drive token exists, not only one owned by the current user
-3. Update the modal copy so it reflects shared access behavior
-4. Clean up the duplicate Google Drive conditionals and duplicate mount check
-5. Optionally align backend `status` / `disconnect` behavior with the chosen shared model
-
-### Scope of implementation
-Files likely involved:
-- `src/pages/Integrations.tsx`
-- optionally `supabase/functions/google-drive-api/index.ts` if status/disconnect should match the shared model
-
-### Expected outcome after fix
-- Google Drive shows connected when the shared token exists
-- users no longer see a false “not connected” state
-- chat/report features that already rely on fallback behavior match what the Integrations UI displays
-- connection/disconnection semantics become consistent across UI and backend
+### Expected outcome
+After the fix:
+- a work item appears only under its real Azure project
+- the same ID will no longer be duplicated across unrelated projects
+- project filters in Operations will become trustworthy
+- future syncs and webhook updates will align on the same project attribution model
 
 ## Technical detail
-This is an architecture mismatch, not just a rendering bug:
-
+Current flawed flow:
 ```text
-Frontend model:      user-specific token required
-Backend model:       singleton token + fallback to latest token
-Observed result:     UI says disconnected while backend can still operate
+for each Azure project
+  run broad WIQL
+  fetch item details
+  save item with project_name = loop project
+```
+
+Correct flow:
+```text
+for each Azure project
+  run WIQL scoped to that project
+  fetch item details
+  save item with project_name = System.TeamProject
 ```
