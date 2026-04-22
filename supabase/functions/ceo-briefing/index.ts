@@ -1132,7 +1132,7 @@ Deno.serve(async (req) => {
       safe(admin.from("purchase_orders").select("po_number,vendor_name,total_amount,status,category,created_at").gte("created_at", since).limit(20)),
       safe(admin.from("issues").select("title,severity,issue_type,created_at").gte("created_at", since).limit(20)),
       safe(admin.from("sync_logs").select("integration,status,sync_type,started_at,error_message").gte("started_at", since).limit(30)),
-      safe(admin.from("profiles").select("display_name,role_title,department")),
+      safe(admin.from("profiles").select("user_id,display_name,role_title,department")),
       safe(admin.from("ceo_briefings").select("briefing_date,outcome_probability,execution_score,trajectory")
         .eq("briefing_type", briefing_type).order("briefing_date", { ascending: false }).limit(1)),
       safe(admin.from("slack_notification_logs").select("event_key,status,sent_at,payload").gte("created_at", since).limit(40)),
