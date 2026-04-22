@@ -3805,24 +3805,45 @@ Format as a natural, readable summary with clear sections. If a section has no d
     ): Promise<{ fullContent: string; toolCalls: any[] }> {
       const reader = streamResponse.body!.getReader();
       const decoder = new TextDecoder();
-      const INACTIVITY_TIMEOUT_MS = 3_000;
-      const MAX_STREAM_DURATION_MS = 15_000;
+      const TEXT_INACTIVITY_TIMEOUT_MS = 3_000;
+      const TEXT_MAX_STREAM_DURATION_MS = 15_000;
+      const TOOL_INACTIVITY_TIMEOUT_MS = 10_000;
+      const TOOL_MAX_STREAM_DURATION_MS = 30_000;
       const READ_POLL_MS = 500;
       let fullContent = "";
       const toolCalls: any[] = [];
       let buffer = "";
       const startTime = Date.now();
       let lastChunkTime = startTime;
+      let hasToolCallStarted = false;
+
+      const isValidToolCall = (toolCall: any) => {
+        const name = toolCall?.function?.name;
+        const args = toolCall?.function?.arguments;
+        return (
+          typeof toolCall?.id === "string" &&
+          toolCall.id.trim().length > 0 &&
+          typeof name === "string" &&
+          name.trim().length > 0 &&
+          typeof args === "string" &&
+          args.trim().length > 0
+        );
+      };
+
+      const hasIncompleteToolCall = () => hasToolCallStarted && toolCalls.some((toolCall) => toolCall && !isValidToolCall(toolCall));
 
       try {
         while (true) {
           const totalMs = Date.now() - startTime;
           const inactivityMs = Date.now() - lastChunkTime;
+          const inactivityTimeoutMs = hasToolCallStarted ? TOOL_INACTIVITY_TIMEOUT_MS : TEXT_INACTIVITY_TIMEOUT_MS;
+          const maxDurationMs = hasToolCallStarted ? TOOL_MAX_STREAM_DURATION_MS : TEXT_MAX_STREAM_DURATION_MS;
 
-          if (inactivityMs > INACTIVITY_TIMEOUT_MS || totalMs > MAX_STREAM_DURATION_MS) {
+          if (totalMs > maxDurationMs || (inactivityMs > inactivityTimeoutMs && !hasIncompleteToolCall())) {
             console.log("SSE timeout triggered", {
               inactivityMs,
               totalMs,
+              hasToolCallStarted,
             });
             break;
           }
@@ -3865,6 +3886,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
               }
 
               if (delta?.tool_calls) {
+                hasToolCallStarted = true;
                 for (const tc of delta.tool_calls) {
                   const index = tc.index;
                   if (!toolCalls[index]) {
@@ -3899,7 +3921,15 @@ Format as a natural, readable summary with clear sections. If a section has no d
         }
       }
 
-      return { fullContent, toolCalls };
+      const validToolCalls = hasToolCallStarted ? toolCalls.filter(isValidToolCall) : toolCalls;
+
+      console.log("SSE tool stream state", {
+        hasToolCallStarted,
+        toolCallsLength: validToolCalls.length,
+        streamDurationMs: Date.now() - startTime,
+      });
+
+      return { fullContent, toolCalls: validToolCalls };
     }
 
     const TOOL_EXECUTION_TIMEOUT_MS = 20_000;
