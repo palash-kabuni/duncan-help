@@ -495,6 +495,8 @@ function SlackColumn({ pulse }: { pulse: SlackPulseSummary | null | undefined })
 
 export default function CommsPulseCard({ emailPulse, slackPulse, hubspotSignal, githubSignal }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const showHubSpot = hubspotSignal?.status === "connected" || hubspotSignal?.connected === true;
+  const showGitHub = githubSignal?.status === "connected" || githubSignal?.connected === true;
 
   // Leadership status from email pulse (slack equivalent doesn't exist yet)
   const status = emailPulse?.leadership_status || [];
@@ -513,7 +515,7 @@ export default function CommsPulseCard({ emailPulse, slackPulse, hubspotSignal, 
         }))
       : [];
 
-  const hasAnyComms = !!(emailPulse?.per_mailbox || slackPulse || hubspotSignal || githubSignal);
+  const hasAnyComms = !!(emailPulse?.per_mailbox || slackPulse || showHubSpot || showGitHub);
   if (!hasAnyComms) {
     return (
       <div className="rounded-lg border border-dashed border-border bg-card p-4">
@@ -542,20 +544,24 @@ export default function CommsPulseCard({ emailPulse, slackPulse, hubspotSignal, 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <EmailColumn pulse={emailPulse} />
           <SlackColumn pulse={slackPulse} />
-          <ExternalSignalColumn
-            title="HubSpot"
-            icon={Database}
-            signal={hubspotSignal}
-            primaryMetric={{ label: "Accounts", value: Number(hubspotSignal?.accounts_scanned || 0) }}
-            secondaryMetric={{ label: "Stale / Risk", value: `${Number(hubspotSignal?.stale_deals || 0)} / ${Number(hubspotSignal?.at_risk_accounts || 0)}` }}
-          />
-          <ExternalSignalColumn
-            title="GitHub"
-            icon={GitBranch}
-            signal={githubSignal}
-            primaryMetric={{ label: "Repos", value: Number(githubSignal?.repos_scanned || 0) }}
-            secondaryMetric={{ label: "Open / Blocked", value: `${Number(githubSignal?.open_prs || 0)} / ${Number(githubSignal?.blocked_prs || 0)}` }}
-          />
+          {showHubSpot && (
+            <ExternalSignalColumn
+              title="HubSpot"
+              icon={Database}
+              signal={hubspotSignal}
+              primaryMetric={{ label: "Accounts", value: Number(hubspotSignal?.accounts_scanned || 0) }}
+              secondaryMetric={{ label: "Stale / Risk", value: `${Number(hubspotSignal?.stale_deals || 0)} / ${Number(hubspotSignal?.at_risk_accounts || 0)}` }}
+            />
+          )}
+          {showGitHub && (
+            <ExternalSignalColumn
+              title="GitHub"
+              icon={GitBranch}
+              signal={githubSignal}
+              primaryMetric={{ label: "Repos", value: Number(githubSignal?.repos_scanned || 0) }}
+              secondaryMetric={{ label: "Open / Blocked", value: `${Number(githubSignal?.open_prs || 0)} / ${Number(githubSignal?.blocked_prs || 0)}` }}
+            />
+          )}
         </div>
 
         {(silent.length > 0 || optedOutLeaders.length > 0 || notConnected.length > 0 || errored.length > 0 || legacySilent.length > 0) && (
