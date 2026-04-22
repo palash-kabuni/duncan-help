@@ -538,6 +538,15 @@ const IntegrationDetail = ({
   const s = statusConfig[status];
   const [apiKey, setApiKey] = useState("");
   const isCompany = integration.type === "company";
+  const isSlack = integration.id === "slack";
+  const credentialLabel = isSlack
+    ? "Password"
+    : isCompany
+    ? "Company API Key / Token"
+    : "API Key / Token";
+  const credentialPlaceholder = isSlack
+    ? "Enter your Slack password..."
+    : `Enter your ${integration.name} API key...`;
   
   // User integration mutations
   const connectMutation = useConnectIntegration();
@@ -555,7 +564,7 @@ const IntegrationDetail = ({
 
   const handleConnect = async () => {
     if (!apiKey.trim()) {
-      toast.error("Please enter an API key");
+      toast.error(isSlack ? "Please enter a password" : "Please enter an API key");
       return;
     }
     try {
@@ -849,12 +858,12 @@ const IntegrationDetail = ({
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="api-key" className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
-                      {isCompany ? "Company API Key / Token" : "API Key / Token"}
+                      {credentialLabel}
                     </Label>
                     <Input
                       id="api-key"
                       type="password"
-                      placeholder={`Enter your ${integration.name} API key...`}
+                      placeholder={credentialPlaceholder}
                       value={apiKey}
                       onChange={(e) => setApiKey(e.target.value)}
                       className="bg-secondary/30 border-border"
