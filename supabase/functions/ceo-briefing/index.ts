@@ -3536,6 +3536,8 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         },
       };
     }
+
+    // ─── Automation Progress: ground in server data + recommendation floor ──
     if (briefing_type === "morning") {
       parsed.payload = parsed.payload || {};
       const ap = (parsed.payload.automation_progress && typeof parsed.payload.automation_progress === "object")
