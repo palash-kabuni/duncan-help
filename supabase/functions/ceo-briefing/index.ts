@@ -2093,7 +2093,7 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
       const cards24h = (cards as any[])?.length || 0;
       const azure24h = (workItems as any[])?.length || 0;
       const meetings24h = (meetings as any[])?.length || 0;
-      const slack24h = (slackLogs as any[])?.length || 0;
+      const slackOutbound24h = (slackLogs as any[])?.length || 0;
       const epSignals = (email_pulse as any)?.signals;
       const emailSignalCount = epSignals
         ? ((epSignals.commitments?.length || 0) +
@@ -2103,29 +2103,38 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
            (epSignals.customer_issues?.length || 0) +
            (epSignals.vendor_signals?.length || 0))
         : 0;
+      const spSignals = (slack_pulse as any)?.signals;
+      const slackSignalCount = spSignals
+        ? ((spSignals.commitments?.length || 0) +
+           (spSignals.escalations?.length || 0) +
+           (spSignals.confusion?.length || 0) +
+           (spSignals.customer_issues?.length || 0) +
+           (spSignals.risks?.length || 0))
+        : 0;
       const emailMailboxesScanned = (email_pulse as any)?.mailboxes_eligible || 0;
+      const slackChannelsScanned = (slack_pulse as any)?.channels_scanned || 0;
+      const slackMessagesScanned = (slack_pulse as any)?.messages_analysed || 0;
       const wc = Array.isArray(parsed.payload.what_changed) ? parsed.payload.what_changed : [];
       const allZero =
         cards24h === 0 && azure24h === 0 && meetings24h === 0 &&
-        slack24h === 0 && emailSignalCount === 0;
+        slackOutbound24h === 0 && emailSignalCount === 0 && slackSignalCount === 0;
 
       if (wc.length === 0) {
         if (allZero) {
           parsed.payload.what_changed = [{
             function_area: "Operations & Delivery",
             moved: "No tracked activity in the last 24 hours.",
-            did_not_move: `Workstream cards (0), Azure work items (0), meetings (0), Slack notifications (0), and email pulse (${emailMailboxesScanned} mailboxes scanned, 0 signals extracted) all returned empty.`,
-            needs_attention: "Verify Plaud meeting sync, Azure DevOps sync, and the ceo-email-pulse function are running. An empty 24h window usually means an integration is silent, not that the company is.",
+            did_not_move: `Workstream cards (0), Azure work items (0), meetings (0), Slack outbound (0), email pulse (${emailMailboxesScanned} mailboxes scanned, 0 signals extracted), and Slack pulse (${slackChannelsScanned} channels / ${slackMessagesScanned} messages scanned, 0 signals extracted) all returned empty.`,
+            needs_attention: "Verify Plaud meeting sync, Azure DevOps sync, and the ceo-email-pulse / ceo-slack-pulse functions are running. An empty 24h window usually means an integration is silent, not that the company is.",
             auto_injected: true,
             auto_injected_reason: "all_sources_empty_24h",
           }];
         } else {
-          // Activity exists in at least one source, but the model produced no rows.
           parsed.payload.what_changed = [{
             function_area: "Operations & Delivery",
-            moved: `Signals were detected (cards: ${cards24h}, Azure: ${azure24h}, meetings: ${meetings24h}, Slack notifications: ${slack24h}, email signals: ${emailSignalCount} across ${emailMailboxesScanned} mailboxes) but Duncan could not synthesise structured movement rows from them.`,
+            moved: `Signals were detected (cards: ${cards24h}, Azure: ${azure24h}, meetings: ${meetings24h}, Slack outbound: ${slackOutbound24h}, email signals: ${emailSignalCount} across ${emailMailboxesScanned} mailboxes, slack signals: ${slackSignalCount} across ${slackChannelsScanned} channels) but Duncan could not synthesise structured movement rows from them.`,
             did_not_move: "No commitments, blockers, or material status changes were extractable from the available sources in the last 24h.",
-            needs_attention: "Likely causes: thin source content, generic email/meeting context, or model under-extraction. Re-run the briefing or check raw signals in the data coverage section.",
+            needs_attention: "Likely causes: thin source content, generic email/meeting/slack context, or model under-extraction. Re-run the briefing or check raw signals in the data coverage section.",
             auto_injected: true,
             auto_injected_reason: "what_changed_empty_despite_signals",
           }];
@@ -2201,12 +2210,18 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
 
     // 4b. Data Coverage Audit — inject + apply confidence cap
     parsed.payload.data_coverage_audit = data_coverage_audit;
-    // Provenance note: be honest about what "Slack coverage" actually means
-    // in this briefing. We do NOT call Slack APIs to read channels/DMs;
-    // we only read Duncan's own outbound notification logs.
+    // Provenance note: describe each source honestly. Slack now covers BOTH
+    // outbound notifications (slack_notification_logs) AND inbound channel
+    // messages via ceo-slack-pulse for channels Duncan is a member of.
+    const spChannelsScanned = (slack_pulse as any)?.channels_scanned || 0;
+    const spMessagesAnalysed = (slack_pulse as any)?.messages_analysed || 0;
+    const spChannelsMember = (slack_pulse as any)?.channels_member || 0;
+    const spChannelsTotal = (slack_pulse as any)?.channels_total || 0;
     (parsed.payload.data_coverage_audit as any).source_provenance = {
       ...((parsed.payload.data_coverage_audit as any)?.source_provenance || {}),
-      slack: "Duncan's own outbound notifications only (slack_notification_logs). Inbound Slack channel messages, DMs, and mentions are NOT scanned.",
+      slack: slack_pulse
+        ? `Inbound: scanned ${spChannelsScanned} of ${spChannelsMember} member channels (out of ${spChannelsTotal} total), ${spMessagesAnalysed} messages via ceo-slack-pulse. Outbound: slack_notification_logs. Channels Duncan is not a member of are not scanned.`
+        : "Duncan's own outbound notifications only (slack_notification_logs). Slack inbound pulse did not run on this briefing.",
       email: "Per-mailbox 24h scan via ceo-email-pulse for opted-in users only.",
       meetings: "Plaud-ingested transcripts via fetch-plaud-meetings (last 24h for activity, last 10 transcripts for priority signals).",
       azure_devops: "azure_work_items table — last 24h changes.",
@@ -3220,7 +3235,7 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         auto_injected: frictionAutoInjected,
         dropped_email_only: frictionDroppedEmailOnly,
         dropped_single_system: frictionDroppedSingleSystem,
-        sources_unavailable: ["slack_inbound", "hubspot"],
+        sources_unavailable: ["hubspot"],
         rule: "Cross-system corroboration required (≥2 non-email systems). Email is supporting evidence only.",
       };
     }
