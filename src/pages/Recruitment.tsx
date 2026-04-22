@@ -76,7 +76,29 @@ function InterviewScorePill({ score, label, reason, evidence }: { score: number;
   );
 }
 
-function ScoreRing({ score, label }: { score: number | null; label: string }) {
+function getCandidateCompetencyScore(candidate: any): number | null {
+  if (typeof candidate?.competency_score === "number" && Number.isFinite(candidate.competency_score)) {
+    return candidate.competency_score;
+  }
+
+  const competencies = (candidate?.scoring_details as any)?.competencies;
+  if (!competencies || typeof competencies !== "object") {
+    return null;
+  }
+
+  const scores = Object.values(competencies)
+    .map((entry: any) => entry?.score)
+    .filter((score): score is number => typeof score === "number" && Number.isFinite(score));
+
+  if (scores.length === 0) {
+    return null;
+  }
+
+  const average = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+  return Math.round(average * 10) / 10;
+}
+
+function ScoreRing({ score, label, displayValue }: { score: number | null; label: string; displayValue?: string }) {
   if (score == null) return <span className="text-muted-foreground text-xs">—</span>;
   const pct = (score / 5) * 100;
   const color = score >= 4 ? "text-primary" : score >= 3 ? "text-yellow-500" : "text-destructive";
@@ -88,7 +110,7 @@ function ScoreRing({ score, label }: { score: number | null; label: string }) {
         <circle cx="22" cy="22" r={r} fill="none" stroke="hsl(var(--border))" strokeWidth="3" />
         <circle cx="22" cy="22" r={r} fill="none" stroke={stroke} strokeWidth="3" strokeDasharray={`${circ * pct / 100} ${circ}`} strokeLinecap="round" />
       </svg>
-      <span className={`text-sm font-bold ${color} -mt-8`}>{score}</span>
+      <span className={`text-sm font-bold ${color} -mt-8`}>{displayValue ?? score}</span>
       <span className="text-[10px] text-muted-foreground mt-3">{label}</span>
     </div>
   );
@@ -552,6 +574,7 @@ const Recruitment = () => {
                       const vals = details?.values;
                       const comps = details?.competencies;
                       const compEntries = comps ? (Object.entries(comps) as [string, any][]) : [];
+                        const competencyScore = getCandidateCompetencyScore(c);
                       const isEligible = isInviteEligible(c);
 
                       return (
@@ -673,7 +696,11 @@ const Recruitment = () => {
                           <TableCell>
                             <div className="flex items-center justify-center gap-3">
                               <ScoreRing score={c.values_score} label="Values" />
-                              <ScoreRing score={c.competency_score} label="Comp." />
+                              <ScoreRing
+                                score={competencyScore}
+                                label="Comp."
+                                displayValue={competencyScore != null ? competencyScore.toFixed(1) : undefined}
+                              />
                               <div className="flex flex-col items-center border-l border-border/50 pl-3">
                                 <span className={`text-xl font-bold ${c.total_score >= 4 ? "text-primary" : c.total_score >= 3 ? "text-yellow-500" : "text-destructive"}`}>
                                   {c.total_score ?? "—"}
