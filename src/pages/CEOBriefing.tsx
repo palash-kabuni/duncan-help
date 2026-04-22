@@ -453,7 +453,7 @@ const CEOBriefing = () => {
                   })()}
                 </Section>
 
-                <Section n={5} title="Accountability Watchlist">
+                <Section n={4} title="Accountability Watchlist">
                   {(p.watchlist || []).length === 0 ? (
                     <div className="rounded-lg border border-border bg-card p-6 flex items-start gap-3">
                       <ShieldCheck className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
@@ -525,7 +525,7 @@ const CEOBriefing = () => {
                   )}
                 </Section>
 
-                <Section n={6} title="Decisions the CEO Must Make">
+                <Section n={5} title="Decisions the CEO Must Make">
                   {(() => {
                     const decisions = (p.decisions || []) as any[];
                     const trajectory = String(briefing.trajectory || "").toLowerCase();
@@ -604,7 +604,7 @@ const CEOBriefing = () => {
                   })()}
                 </Section>
 
-                <Section n={7} title="Duncan Adoption & Automation">
+                <Section n={6} title="Duncan Adoption & Automation">
                   <p className="text-xs text-muted-foreground italic mb-3">
                     Adoption is measured from usage logs. Automation % of company workflows is a 2026 goal — not yet instrumented.
                   </p>
@@ -772,7 +772,7 @@ const CEOBriefing = () => {
                   })()}
                 </Section>
 
-                <Section n={8} title="One Brutal Truth">
+                <Section n={7} title="One Brutal Truth">
                   <div className="rounded-lg border-2 border-red-500/40 bg-red-500/5 p-6">
                     <p className="text-base font-medium text-foreground leading-relaxed">{p.brutal_truth || "—"}</p>
                   </div>
