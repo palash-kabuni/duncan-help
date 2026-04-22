@@ -3276,7 +3276,7 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         slack_pulse_error: slack_pulse_error || null,
         email_pulse_error: email_pulse_error || null,
         scanned: {
-          workstream_cards: Array.isArray(workstream_cards) ? workstream_cards.length : 0,
+          workstream_cards: Array.isArray(cards) ? (cards as any[]).length : 0,
           azure_work_items: Array.isArray(workItems) ? workItems.length : 0,
           meetings_7d: Array.isArray(meetings) ? meetings.length : 0,
           slack_channels_scanned: (slack_pulse as any)?.channels_scanned || 0,
