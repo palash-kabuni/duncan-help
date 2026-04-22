@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { forwardRef, useState } from "react";
 import { Navigate, Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { canViewBriefing, canGenerateBriefing } from "@/lib/ceoAccess";
@@ -20,14 +20,18 @@ import CommsPulseCard from "@/components/ceo/CommsPulseCard";
 import CEORoutingPanel from "@/components/ceo/CEORoutingPanel";
 import LovableContributorsCard from "@/components/ceo/LovableContributorsCard";
 
-const Section = ({ n, title, children }: { n: number; title: string; children: React.ReactNode }) => (
-  <section className="space-y-3">
-    <h2 className="text-sm font-mono uppercase tracking-widest text-muted-foreground">
-      {String(n).padStart(2, "0")} · {title}
-    </h2>
-    {children}
-  </section>
+const Section = forwardRef<HTMLElement, { n: number; title: string; children: React.ReactNode }>(
+  ({ n, title, children }, ref) => (
+    <section ref={ref} className="space-y-3">
+      <h2 className="text-sm font-mono uppercase tracking-widest text-muted-foreground">
+        {String(n).padStart(2, "0")} · {title}
+      </h2>
+      {children}
+    </section>
+  )
 );
+
+Section.displayName = "Section";
 
 const CEOBriefing = () => {
   const { user, loading: authLoading } = useAuth();
