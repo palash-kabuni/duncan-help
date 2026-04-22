@@ -1,63 +1,82 @@
 
 
 ## Goal
-Make Slack a real input to the daily Team Briefing — read the last 24h of channel conversations, run the same kind of structured signal extraction we run on email, and feed the result into the briefing payload. Today Slack is only used for outbound notifications; the briefing prompt itself even labels Slack inbound as "NOT scanned."
+Two related fixes so Section 03 (Cross-Functional Friction) actually works the way you described:
 
-## What's in place today
+1. **Make Slack actually run** — the last briefing has `slack_pulse=null` and stale `sources_unavailable: ["slack_inbound", ...]`. The `ceo-slack-pulse` function was never invoked. Until that's fixed, friction has nothing cross-system to ground on and the section will keep coming up empty.
 
-- **Slack connector**: bot connection already linked, with `channels:history`, `channels:read`, `groups:history`, `mpim:history`, `im:read` scopes — sufficient to read public channels the bot is in, plus private channels/DMs where it's been invited.
-- **Email pulse**: `ceo-email-pulse` Edge Function pulls 24h of inbox/sent per opted-in mailbox, runs `gpt-4o-mini` extraction, returns structured `signals` (commitments, risks, escalations, board mentions, customer issues, vendor signals) and `leadership_status`. The briefing function calls it, writes results into `payload.email_pulse`, and feeds `email_pulse_signals` to the LLM.
-- **Briefing**: `ceo-briefing` already lists `slack_inbound` in `sources_unavailable` and explicitly tells the prompt Slack inbound isn't scanned.
-- **Friction Section 03**: requires ≥2 non-email systems for evidence. A real Slack reader will count as one of those non-email systems and unlock genuine cross-system friction items (e.g., Slack escalation + stuck card, Slack confusion + Azure slip).
+2. **Tighten the friction reasoning** to match what you described: scan every system, then specifically check each signal against **cards (Workstreams)** and **Azure work items** to find where things are stuck or drifting from strategy.
 
-## What we'll build
+## Why the current output is wrong
 
-### 1. New Edge Function: `ceo-slack-pulse`
-Mirrors `ceo-email-pulse` in shape and contract.
+Evidence from the latest briefing row:
+- `payload.slack_pulse` → **null** (Slack scan never ran)
+- `friction_meta.sources_unavailable` → still contains `"slack_inbound"` (old code path)
+- `friction_meta.total = 0`, `dropped_email_only = 0` — the model emitted zero items, none filtered. Without Slack signals, it had nothing to corroborate against and gave up silently.
+- `ceo-slack-pulse` edge function logs: **none** — never invoked.
 
-- **Discover channels**: `conversations.list` (`types=public_channel,private_channel`, `exclude_archived=true`, paginated). Skip channels the bot isn't a member of (Slack returns `not_in_channel` on history calls otherwise). Cap at 30 most-active channels by message count to keep latency bounded.
-- **Pull last 24h of messages** per channel via `conversations.history` with `oldest = now - 86400`. Skip bot/system messages, join messages, and Duncan's own posts (filter by bot user ID).
-- **Resolve user IDs** to display names via `users.info` (cached per run) so signals reference real people, not `U0ABC…`.
-- **Extract signals** with one `gpt-4o-mini` call per channel (or batched, depending on size), using the same schema as email pulse plus Slack-specific fields:
-  - `commitments` — promises with owner + due date hint
-  - `escalations` — unresolved threads with repeated follow-ups (≥3 messages from ≥2 people without resolution)
-  - `confusion` — threads showing ownership/decision ambiguity
-  - `customer_issues` — customer names or product complaints surfaced
-  - `silent_channels` — channels that were active in the prior 7 days but had 0 human messages in the last 24h
-- **Return**: `{ channels_scanned, channels_eligible, per_channel: [...], signals: {...}, generated_at }`.
+So "No cross-system friction pattern reached the threshold" is technically true but hides that Slack and several reasoning checks weren't actually performed.
 
-### 2. Wire it into `ceo-briefing/index.ts`
-- Add a `slack_pulse` fetch alongside the existing `email_pulse` block (~line 1202). Same try/catch pattern, same non-blocking failure mode.
-- Add `slack_pulse_signals` to the LLM payload alongside `email_pulse_signals`.
-- Update the friction prompt rule (line 199) so Slack escalations/confusion count as a **non-email system** — meaning a friction item can now legitimately combine "Slack escalation in #product + Azure work item slipping" without violating the ≥2-non-email-systems rule.
-- Update the "all zero" empty-state guard (~line 2089) to include Slack signal counts so the briefing reports honestly when both Slack and email returned nothing.
-- Remove the `slack_inbound` entry from `sources_unavailable` and the "Slack inbound NOT scanned" provenance line (~line 2188); replace with a real "Slack: scanned N channels, X messages, Y signals extracted" provenance note.
+## What we'll change
 
-### 3. Coverage card
-- `DataCoverageCard` / coverage_summary already enumerates email mailboxes. Add a parallel `slack_channels` row showing channels scanned vs total, mirroring the mailbox treatment so the CEO can see Slack coverage at a glance.
+### 1. Force Slack to run
+- Re-deploy `ceo-slack-pulse` and `ceo-briefing` together.
+- Add a hard sanity check: if `slack_pulse` returns null OR errors, capture the reason on `friction_meta.slack_pulse_error` instead of silently swallowing it.
+- Drop `slack_inbound` from `sources_unavailable` once Slack actually returns data.
 
-### 4. UI: surface Slack signals in the existing pulse area
-- Currently the "Email Pulse" card shows email-derived signals.
-- Rename the section to **Comms Pulse** and show two grouped columns: **Email** (existing) and **Slack** (new). Same metric chips: commitments, risks raised, escalations, customer issues. Tooltips already in place from prior change.
-- Empty state per column when nothing returned.
+### 2. Make the friction reasoning explicit and traceable
+Today the prompt says "≥2 non-email systems." We'll change it to a **structured 4-pass scan** that mirrors how you described it:
+
+**Pass A — Strategy alignment**
+For each 2026 priority (from your CEO operating system), pull the cards + Azure items tagged or semantically linked to it. Flag anything where:
+- Strategy says priority X, but no cards/Azure items moved on it in 7 days
+- Strategy says priority X, but Slack/email surfaced commitments that aren't represented in cards or Azure
+
+**Pass B — Cards ↔ Azure consistency**
+- Workstream card says "blocked on engineering" → check Azure for the matching work item. If Azure shows it active and on-track, that's friction (mismatched view of reality).
+- Azure work item slipping past due → check if any card or Slack thread acknowledges it. If silent, that's friction (delivery slip with no ops awareness).
+
+**Pass C — Cross-system corroboration**
+For every Slack escalation, email risk, or meeting action item, check whether it appears in cards/Azure within 48h. If not → "raised but not actioned" friction.
+
+**Pass D — Strategic gaps**
+Compare the union of (cards + Azure + meetings + slack signals) against the 2026 priority list. Any priority with **zero activity in any system** in the last 7 days = "strategic gap" friction item, even if nothing is "broken" — it's drift.
+
+Each friction item must declare:
+- Which pass found it (A/B/C/D)
+- Exact card IDs, Azure work item IDs, Slack message refs, or meeting refs as evidence
+- Which 2026 priority it relates to (or "none — orphan work")
+
+### 3. Honest empty state
+Replace the vague one-liner with a structured breakdown so you can see the reasoning even when nothing fires:
+
+```
+03 · CROSS-FUNCTIONAL FRICTION — none surfaced
+
+Scanned:
+• Workstream cards: 47   • Azure work items: 23
+• Meetings (7d): 12      • Slack channels: 14 of 30 (16 not invited)
+• Slack messages: 312    • Email mailboxes: 3 of 8 opted in
+• 2026 priorities checked: 6
+
+Reasoning passes:
+• Pass A (Strategy alignment): 0 gaps
+• Pass B (Cards ↔ Azure consistency): 0 mismatches
+• Pass C (Cross-system corroboration): 4 candidates, all actioned within 48h
+• Pass D (Strategic drift): 0 priorities silent
+
+Sources offline: HubSpot (not connected).
+```
+
+If `slack_pulse_error` is set, prepend a warning: **"Slack scan failed: <reason>. Friction may be under-reported."**
 
 ## Files touched
-- New: `supabase/functions/ceo-slack-pulse/index.ts` — channel discovery, history pull, user resolution, LLM extraction.
-- Edit: `supabase/functions/ceo-briefing/index.ts` — invoke slack-pulse, pass into LLM payload, update friction rule + provenance + empty-state guard, drop `slack_inbound` from `sources_unavailable`.
-- Edit: `src/components/ceo/EmailPulseCard.tsx` (rename to `CommsPulseCard.tsx`) — two-column Email/Slack layout.
-- Edit: `src/components/ceo/DataCoverageCard.tsx` — add Slack channels row.
-- Edit: `src/pages/CEOBriefing.tsx` — import the renamed component, pass `slack_pulse` data.
-
-## Guardrails
-- **Read-only**: no posting, no reactions, no DMs sent. Bot only listens.
-- **Privacy**: raw Slack messages are sent to OpenAI for one-time extraction only (same pattern as email pulse) — nothing stored except the structured JSON signals.
-- **Bounded cost**: cap at 30 channels × 200 messages each per run; one `gpt-4o-mini` call per channel batch.
-- **Failure isolation**: if Slack pulse fails, the rest of the briefing still generates (same try/catch as email pulse).
-- **Bot membership**: only channels the bot is a member of are scanned. The plan does NOT auto-join channels — surfacing channels the bot isn't in as "not scanned" in the coverage card lets the team explicitly invite Duncan where they want it listening.
+- `supabase/functions/ceo-briefing/index.ts` — re-deploy; capture `slack_pulse_error`; rewrite friction prompt to declare the 4-pass scan; populate `friction_meta.scanned` (counts) and `friction_meta.passes` (per-pass results).
+- `supabase/functions/ceo-slack-pulse/index.ts` — re-deploy as-is; add explicit error returns instead of silent failures.
+- `src/pages/CEOBriefing.tsx` — Section 03 empty state: render the structured breakdown above using `friction_meta`.
 
 ## Out of scope
-- HubSpot integration (separate connector, not yet wired).
-- DM scanning by default (the bot doesn't have access to user DMs unless directly messaged; we'll only read DMs sent *to* the bot, which is essentially zero today).
-- Slack search API (requires user-token, not bot-token; not needed for a 24h windowed scan).
-- Auto-inviting the bot to channels.
+- HubSpot connector (still not wired — surfaced as "offline" in the empty state).
+- Auto-inviting Duncan to Slack channels (listed in coverage so the team can invite manually).
+- Changing the 2026 priority list itself — we read it from the existing CEO operating system memory.
 
