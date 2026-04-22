@@ -1,24 +1,31 @@
 
 
 ## Goal
-Publish a new "What's New" release covering everything shipped today since the last published release.
+Make the **Accountability Watchlist (Section 05)** fully deterministic — rows AND owners computed server-side from `workstream_cards`, `workstream_card_assignees`, `azure_work_items`, and `priority_definitions`. The LLM no longer chooses watchlist content.
 
-## Today's changes to log
-1. **Lovable Contributors leaderboard (Section 07)** — new `lovable_usage_snapshots` table, `update_lovable_contributors` Duncan tool, `LovableContributorsCard` mounted in CEO/Team Briefing. Paste a Lovable People screenshot in chat and ask Duncan to refresh.
-2. **Initiative Snapshot cleanup (Section 04)** — silent workstream tags (`duncan`, `kabuni-helpdesk`, `kabuni-mvp`) with zero cards no longer appear as empty "0 cards · silent" rows in the Team Briefing.
+## Current state
+The post-LLM injection block (lines 2240-2412 in `supabase/functions/ceo-briefing/index.ts`) already deterministically injects rows for: non-green workstreams, silent priorities, uncovered coverage domains, and silent leaders. But:
+1. **Owner attribution** still leans on `ws.owner` (LLM-written) or falls back to `expected_owner`, not real assignees from cards / Azure work items.
+2. **The LLM's own watchlist rows** are merged in first, so model-invented entries can still slip through.
 
-## How it ships
-1. Read the latest published release from `releases` to confirm the previous version and pick the next semver bump (patch bump unless you want minor).
-2. Either:
-   - **(a)** Insert a new draft via `log_release_change` tool calls (one per change), then call the `finalize-release` Edge Function to publish, **or**
-   - **(b)** Insert directly: create a `releases` row with `status='published'`, `published_at=now()`, auto-generated title + summary, and a `changes` JSON array containing the two items above (types: `feature`, `improvement`).
-3. Verify the new entry appears at the top of `/whats-new` as "Latest".
+## Fix
+In `supabase/functions/ceo-briefing/index.ts`:
 
-No UI or schema changes — this is a content publish only.
+1. **Discard LLM watchlist entirely.** Replace `const wlIn = [...parsed.payload.watchlist]` with `const wlIn = []`. The model no longer contributes rows — it only provides `workstream_scores` (which are themselves grounded in cards + Azure).
+2. **Compute owner deterministically per workstream.** Add a helper `resolveOwnerForWorkstream(name)` that:
+   - Looks up the most recent non-archived `workstream_cards` row for that `project_tag` and resolves its `owner_id` via `team_directory.display_name`.
+   - If no card owner, falls back to the most-frequent `azure_work_items.assigned_to` for the matching project.
+   - If neither, falls back to `PRIORITY_DEFINITIONS.expected_owner`.
+   - If still nothing, `"Unassigned — CEO to allocate"`.
+3. **Use the resolver in all four injection branches** (a non-green workstreams, b silent priorities, c uncovered domains, d silent leaders) instead of `ws?.owner` / `expected_owner` first-pass.
+4. **Tag every row with provenance.** Add `owner_source: "card_assignee" | "azure_assignee" | "priority_definition" | "unassigned"` so the UI/debug can show where the name came from.
+5. **Update the prompt** (lines ~111, ~181-191, ~269): remove the watchlist schema entry from the model output spec and add `- Do NOT emit watchlist — the server computes it deterministically from cards + Azure + priorities.` to the existing "Do NOT emit" list at line 1786.
 
 ## Files touched
-- None. Database insert into `releases` (and optional `release_changes` if that's the schema) via the existing release pipeline.
+- Edit: `supabase/functions/ceo-briefing/index.ts` — add `resolveOwnerForWorkstream` helper, gut the LLM watchlist input, wire the resolver into the four injection branches, add `owner_source`, strip `watchlist` from the LLM output spec.
 
-## Open question
-Should I also trigger **Send Notification** (email blast via `send-release-emails`) once published, or leave that for you to fire manually from `/whats-new`?
+## Out of scope
+- No UI changes to `src/components/ceo/` (existing watchlist renderer already handles the same row shape; new `owner_source` field is ignored unless we surface it later).
+- No schema changes.
+- Workstream Scorecard prose (Goal/Exec/$/Deps) stays LLM-generated as today — only the Watchlist becomes deterministic.
 
