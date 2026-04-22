@@ -546,7 +546,7 @@ const IntegrationDetail = ({
   const isGoogleDrive = integration.id === "google-drive";
   const isHubSpot = integration.id === "hubspot";
   const isGitHub = integration.id === "github";
-  const isConnectorManaged = isHubSpot || isGitHub;
+  const isRuntimeStatusIntegration = isHubSpot || isGitHub;
   const isGoogleOAuth = isGoogleCalendar;
   const isOAuthFlow = isGoogleOAuth || isBasecamp || isGmail || isAzureDevOps || isGoogleDrive;
   
@@ -596,35 +596,41 @@ const IntegrationDetail = ({
   const [azureDevOpsLoading, setAzureDevOpsLoading] = useState(false);
   const [googleDriveLoading, setGoogleDriveLoading] = useState(false);
 
+  const fetchRuntimeStatus = async () => {
+    if (!isRuntimeStatusIntegration) {
+      setStatusDetail(null);
+      return;
+    }
+
+    const fn = isHubSpot ? "hubspot-api" : "github-api";
+    try {
+      const data = await invokeEdge<any>(fn, { body: { action: "status" } });
+      setStatusDetail(data);
+    } catch (error) {
+      setStatusDetail({
+        status: "degraded",
+        degraded_reason: error instanceof Error ? error.message : "Status check failed",
+      });
+    }
+  };
+
   useEffect(() => {
     let active = true;
-    if (!isConnectorManaged) {
+    if (!isRuntimeStatusIntegration) {
       setStatusDetail(null);
       return () => {
         active = false;
       };
     }
 
-    const fn = isHubSpot ? "hubspot-api" : "github-api";
-    invokeEdge<any>(fn, { body: { action: "status" } })
-      .then((data) => {
-        if (active) setStatusDetail(data);
-      })
-      .catch((error) => {
-        if (active) {
-          setStatusDetail({
-            status: "degraded",
-            degraded_reason: error instanceof Error ? error.message : "Status check failed",
-          });
-        }
-      });
+    fetchRuntimeStatus().catch(() => undefined);
 
     return () => {
       active = false;
     };
-  }, [isConnectorManaged, isHubSpot, isGitHub]);
+  }, [isRuntimeStatusIntegration, isHubSpot, isGitHub, integrationData?.updated_at]);
 
-  const resolvedStatus: IntegrationStatus = isConnectorManaged && statusDetail
+  const resolvedStatus: IntegrationStatus = isRuntimeStatusIntegration && statusDetail
     ? statusDetail.status === "connected"
       ? "connected"
       : statusDetail.status === "degraded"
@@ -641,6 +647,7 @@ const IntegrationDetail = ({
     try {
       if (isCompany) {
         await companyMutation.mutateAsync({ integrationId: integration.id, apiKey });
+        await fetchRuntimeStatus();
       } else {
         await connectMutation.mutateAsync({ integrationId: integration.id, apiKey });
       }
@@ -698,6 +705,7 @@ const IntegrationDetail = ({
 
       if (isCompany) {
         await companyMutation.mutateAsync({ integrationId: integration.id, action: "disconnect" });
+        await fetchRuntimeStatus();
       } else {
         await disconnectMutation.mutateAsync(integration.id);
       }
@@ -890,13 +898,43 @@ const IntegrationDetail = ({
           {/* Action */}
           {resolvedStatus === "disconnected" ? (
             canEdit ? (
-              isConnectorManaged ? (
+              isRuntimeStatusIntegration ? (
                 <div className="space-y-4">
                   <div className="rounded-lg border border-border bg-secondary/20 p-4 space-y-2">
-                    <p className="text-sm text-foreground">Connect this integration from Connectors to make it available to Team Briefing.</p>
-                    <p className="text-xs text-muted-foreground">Duncan will keep generating the briefing even while this stays disconnected, but it will flag the missing visibility.</p>
+                    <p className="text-sm text-foreground">Use a workspace connector if available, or paste a company token below for the fastest path.</p>
+                    <p className="text-xs text-muted-foreground">Team Briefing keeps generating even while this remains disconnected, but it will explicitly flag the blind spot.</p>
                     {statusDetail?.degraded_reason ? <p className="text-xs text-muted-foreground">Current status: {statusDetail.degraded_reason}</p> : null}
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="api-key" className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+                      {credentialLabel}
+                    </Label>
+                    <Input
+                      id="api-key"
+                      type="password"
+                      placeholder={credentialPlaceholder}
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      className="bg-secondary/30 border-border"
+                    />
+                  </div>
+                  <button
+                    onClick={handleConnect}
+                    disabled={isPending}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-3 text-sm font-medium hover:bg-primary/90 transition-all disabled:opacity-50"
+                  >
+                    {isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <Plug className="h-4 w-4" />
+                        Connect {integration.name}
+                      </>
+                    )}
+                  </button>
                 </div>
               ) : isOAuthFlow ? (
                 // OAuth flow (Calendar, Drive, or Basecamp)
@@ -984,7 +1022,7 @@ const IntegrationDetail = ({
                   <span className="text-[10px] font-mono text-muted-foreground">{new Date(statusDetail?.last_verified_at || integrationData?.last_sync).toLocaleDateString()}</span>
                 )}
               </div>
-              {(isConnectorManaged || isSlack) && (
+              {(isRuntimeStatusIntegration || isSlack) && (
                 <div className="rounded-lg border border-border bg-secondary/20 p-4 space-y-2">
                   <div className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Used by Team Briefing</div>
                   <p className="text-sm text-foreground/80">
@@ -1018,6 +1056,28 @@ const IntegrationDetail = ({
               {statusDetail?.degraded_reason ? (
                 <div className="rounded-lg border border-border bg-secondary/20 p-4 text-sm text-foreground/80">
                   {statusDetail.degraded_reason}
+                </div>
+              ) : null}
+              {canEdit && isRuntimeStatusIntegration ? (
+                <div className="space-y-2">
+                  <Label htmlFor="retry-api-key" className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+                    Replace token
+                  </Label>
+                  <Input
+                    id="retry-api-key"
+                    type="password"
+                    placeholder={credentialPlaceholder}
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    className="bg-secondary/30 border-border"
+                  />
+                  <button
+                    onClick={handleConnect}
+                    disabled={isPending}
+                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary text-primary-foreground py-3 text-sm font-medium hover:bg-primary/90 transition-all disabled:opacity-50"
+                  >
+                    {isPending ? "Retrying..." : `Retry ${integration.name} verification`}
+                  </button>
                 </div>
               ) : null}
             </div>
