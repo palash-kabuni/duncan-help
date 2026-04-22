@@ -2051,8 +2051,8 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
     parsed.payload = parsed.payload || {};
 
     // 2-pre. Honest empty-state for "what changed in the last 24h".
-    // If every tracked source returned zero AND email pulse is null/empty,
-    // tell the CEO *why* the section is blank instead of rendering empty.
+    // If the LLM produced an empty `what_changed`, inject a deterministic
+    // explanation row so the section never renders blank.
     if (briefing_type === "morning") {
       const cards24h = (cards as any[])?.length || 0;
       const azure24h = (workItems as any[])?.length || 0;
@@ -2069,16 +2069,31 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         : 0;
       const emailMailboxesScanned = (email_pulse as any)?.mailboxes_eligible || 0;
       const wc = Array.isArray(parsed.payload.what_changed) ? parsed.payload.what_changed : [];
-      const allZero = cards24h === 0 && azure24h === 0 && meetings24h === 0 && slack24h === 0;
-      if (allZero && emailSignalCount === 0 && wc.length === 0) {
-        parsed.payload.what_changed = [{
-          function_area: "Operations & Delivery",
-          moved: "No tracked activity in the last 24 hours.",
-          did_not_move: `Workstream cards (0), Azure work items (0), meetings (0), Slack notifications (0), and email pulse (${emailMailboxesScanned} mailboxes scanned, 0 signals extracted) all returned empty.`,
-          needs_attention: "Verify Plaud meeting sync, Azure DevOps sync, and the ceo-email-pulse function are running. An empty 24h window usually means an integration is silent, not that the company is.",
-          auto_injected: true,
-          auto_injected_reason: "all_sources_empty_24h",
-        }];
+      const allZero =
+        cards24h === 0 && azure24h === 0 && meetings24h === 0 &&
+        slack24h === 0 && emailSignalCount === 0;
+
+      if (wc.length === 0) {
+        if (allZero) {
+          parsed.payload.what_changed = [{
+            function_area: "Operations & Delivery",
+            moved: "No tracked activity in the last 24 hours.",
+            did_not_move: `Workstream cards (0), Azure work items (0), meetings (0), Slack notifications (0), and email pulse (${emailMailboxesScanned} mailboxes scanned, 0 signals extracted) all returned empty.`,
+            needs_attention: "Verify Plaud meeting sync, Azure DevOps sync, and the ceo-email-pulse function are running. An empty 24h window usually means an integration is silent, not that the company is.",
+            auto_injected: true,
+            auto_injected_reason: "all_sources_empty_24h",
+          }];
+        } else {
+          // Activity exists in at least one source, but the model produced no rows.
+          parsed.payload.what_changed = [{
+            function_area: "Operations & Delivery",
+            moved: `Signals were detected (cards: ${cards24h}, Azure: ${azure24h}, meetings: ${meetings24h}, Slack notifications: ${slack24h}, email signals: ${emailSignalCount} across ${emailMailboxesScanned} mailboxes) but Duncan could not synthesise structured movement rows from them.`,
+            did_not_move: "No commitments, blockers, or material status changes were extractable from the available sources in the last 24h.",
+            needs_attention: "Likely causes: thin source content, generic email/meeting context, or model under-extraction. Re-run the briefing or check raw signals in the data coverage section.",
+            auto_injected: true,
+            auto_injected_reason: "what_changed_empty_despite_signals",
+          }];
+        }
       }
     }
 

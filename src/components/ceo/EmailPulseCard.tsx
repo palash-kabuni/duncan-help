@@ -28,6 +28,7 @@ export interface EmailPulseSummary {
     unowned_commitments: number;
   };
   silent_leaders?: Array<{ leader: string; reason: string }>;
+  opted_out_mailboxes?: Array<{ email: string | null; display_name: string | null }>;
 }
 
 interface Props {
