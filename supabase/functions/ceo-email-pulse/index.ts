@@ -188,7 +188,20 @@ RULES:
       temperature: 0.2,
     });
     const raw = data?.choices?.[0]?.message?.content ?? "{}";
-    const parsed = JSON.parse(raw);
+    let parsed: any;
+    try {
+      parsed = parseLLMJson(raw);
+    } catch (parseErr) {
+      console.error(
+        "extractSignals JSON parse failed for",
+        mailboxOwner,
+        "— raw[0..200]:",
+        String(raw).slice(0, 200),
+        "err:",
+        parseErr,
+      );
+      throw parseErr;
+    }
     return {
       commitments: Array.isArray(parsed.commitments) ? parsed.commitments : [],
       risks: Array.isArray(parsed.risks) ? parsed.risks : [],
@@ -198,7 +211,7 @@ RULES:
       vendor_signals: Array.isArray(parsed.vendor_signals) ? parsed.vendor_signals : [],
     };
   } catch (e) {
-    console.error("extractSignals error:", e);
+    console.error("extractSignals error for", mailboxOwner, ":", e);
     return {
       commitments: [],
       risks: [],
