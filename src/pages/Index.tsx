@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, lazy, Suspense } from "react";
+import { useState, useRef, useEffect, useCallback, lazy, Suspense, forwardRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Trash2, Loader2, Download, Copy, Check,
@@ -57,16 +57,14 @@ const CopyButton = ({ content, messageRef }: { content: string; messageRef: Reac
 };
 
 /* ── Message bubble ── */
-const MessageBubble = ({
-  msg, downloadingUrl, handleAuthenticatedDownload,
-}: {
+const MessageBubble = forwardRef<HTMLDivElement, {
   msg: { role: "user" | "assistant"; content: string };
   downloadingUrl: string | null;
   handleAuthenticatedDownload: (url: string) => void;
-}) => {
+}>(({ msg, downloadingUrl, handleAuthenticatedDownload }, ref) => {
   const contentRef = useRef<HTMLDivElement>(null);
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+    <motion.div ref={ref} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
       {msg.role === "assistant" && (
         <div className="mr-2 sm:mr-3 mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg overflow-hidden border border-primary/20">
           <img src={duncanAvatar} alt="Duncan" className="h-full w-full object-cover object-[50%_30%] scale-150" />
@@ -102,7 +100,9 @@ const MessageBubble = ({
       </div>
     </motion.div>
   );
-};
+});
+
+MessageBubble.displayName = "MessageBubble";
 
 /* ── Main Page ── */
 const Index = () => {
