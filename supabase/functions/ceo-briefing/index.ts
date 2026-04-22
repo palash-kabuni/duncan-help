@@ -3012,13 +3012,80 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
       };
     }
 
-    // ─── 8. Cross-Functional Friction post-processor (deterministic floor) ──
+    // ─── 8. Cross-Functional Friction post-processor (corroboration filter + score) ──
+    // Goal: NEVER let email volume be the headline. A friction item must be
+    // grounded in ≥2 NON-EMAIL systems. Email is supporting evidence only.
     if (briefing_type === "morning") {
       parsed.payload = parsed.payload || {};
       let friction: any[] = Array.isArray(parsed.payload.friction) ? [...parsed.payload.friction] : [];
       let frictionAutoInjected = 0;
+      let frictionDroppedEmailOnly = 0;
+      let frictionDroppedSingleSystem = 0;
 
-      // Recompute silentMissing in this scope (defined earlier in section 6 block, out of scope here).
+      const NON_EMAIL_SYSTEMS = new Set([
+        "workstream", "azure", "meeting", "calendar", "xero", "release", "document",
+      ]);
+
+      const normaliseSystems = (raw: any, evSrc: string): string[] => {
+        const out = new Set<string>();
+        if (Array.isArray(raw)) {
+          for (const s of raw) {
+            const v = String(s || "").toLowerCase().trim();
+            if (!v) continue;
+            const mapped = v === "workstream_card" ? "workstream"
+              : v === "doc_conflict" ? "document"
+              : v === "silent_leader" ? "workstream"
+              : v === "coverage_gap" ? "workstream"
+              : v;
+            out.add(mapped);
+          }
+        }
+        const ev = String(evSrc || "").toLowerCase();
+        const evMap: Record<string, string> = {
+          workstream_card: "workstream",
+          meeting: "meeting",
+          coverage_gap: "workstream",
+          silent_leader: "workstream",
+          doc_conflict: "document",
+          azure: "azure",
+          xero: "xero",
+          calendar: "calendar",
+          email: "email",
+        };
+        if (evMap[ev]) out.add(evMap[ev]);
+        return Array.from(out);
+      };
+
+      const computeScore = (f: any): number => {
+        const explicit = Number(f?.friction_score);
+        if (Number.isFinite(explicit) && explicit > 0) return Math.max(0, Math.min(100, Math.round(explicit)));
+        const teams = Array.isArray(f?.teams) ? f.teams.length : 0;
+        const sys = normaliseSystems(f?.systems, f?.evidence_source).filter((s) => NON_EMAIL_SYSTEMS.has(s)).length;
+        const blob = `${f?.issue || ""} ${f?.consequence || ""} ${f?.business_impact || ""}`.toLowerCase();
+        const cust = /customer|client|revenue|deal|invoice|launch|board|investor/.test(blob) ? 22 : 8;
+        const recur = /recurring|repeat|again|every (week|day)|chronic/.test(blob) ? 12 : 4;
+        const ownership = /unowned|no owner|unassigned|unclear|nobody/.test(blob) ? 13 : 5;
+        const delay = /stuck|stall|stale|blocked|overdue|delayed|days/.test(blob) ? 17 : 6;
+        const cross = Math.min(25, teams * 8) + Math.min(10, sys * 3);
+        return Math.max(0, Math.min(100, cross + delay + ownership + cust + recur));
+      };
+
+      const computeUrgency = (score: number, blob: string): "red" | "yellow" => {
+        if (score >= 70) return "red";
+        if (/customer|revenue|launch|board/.test(blob) && score >= 55) return "red";
+        return "yellow";
+      };
+
+      // 8a. Inject friction for silent priorities — ONLY when ≥2 corroborating
+      //     non-email signals exist (stuck card, related Azure work item, or
+      //     recent meeting mention). Otherwise it's a coverage gap, not friction.
+      const cardBlobAll = (Array.isArray(allCards) ? allCards : [])
+        .map((c: any) => `${c?.title || ""} ${c?.project_tag || ""} ${c?.description || ""}`).join(" \n ").toLowerCase();
+      const azureBlobAll = (Array.isArray(allWorkItems) ? allWorkItems : [])
+        .map((w: any) => `${w?.title || ""} ${w?.area_path || ""} ${w?.tags || ""}`).join(" \n ").toLowerCase();
+      const meetingBlob = (Array.isArray(meetings) ? meetings : [])
+        .map((m: any) => `${m?.title || ""} ${m?.summary || ""}`).join(" \n ").toLowerCase();
+
       const silentMissing = (Array.isArray(missing) ? missing : []).filter((mm: any) => {
         const sig = signalsByPriority?.get?.(mm.priority_id);
         return !sig || (Array.isArray(sig.mentions) && sig.mentions.length === 0);
@@ -3033,80 +3100,107 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         });
       };
 
-      // 8a. Inject friction for every silent priority not already covered.
       for (const sm of silentMissing) {
         const priorityName = sm.priority || "";
         const firstWord = priorityName.toLowerCase().split(/[\s—-]+/)[0] || "";
-        if (firstWord && frictionMentions(firstWord)) continue;
+        if (!firstWord) continue;
+        if (frictionMentions(firstWord)) continue;
+        const corroboratingSystems: string[] = [];
+        if (cardBlobAll.includes(firstWord)) corroboratingSystems.push("workstream");
+        if (azureBlobAll.includes(firstWord)) corroboratingSystems.push("azure");
+        if (meetingBlob.includes(firstWord)) corroboratingSystems.push("meeting");
+        if (corroboratingSystems.length < 2) continue; // not friction — leave for coverage_gaps
         const ownerName = sm.expected_owner || "Unassigned";
+        const score = 78;
         friction.push({
-          issue: `${priorityName} has no visible activity, yet remains a 2026 non-negotiable — handoff between strategy and execution is broken`,
+          issue: `${priorityName}: active execution but no accountable owner`,
+          description: `Work is happening across ${corroboratingSystems.join(", ")} but ${ownerName} is silent — handoff between strategy and execution is broken.`,
           teams: [ownerName, "Cross-functional"],
+          systems: corroboratingSystems,
+          why_friction: "Active work in multiple systems with no leader holding the priority — execution drifts without a single accountable owner.",
+          evidence: `Cross-system activity referencing "${firstWord}" found in ${corroboratingSystems.join(" + ")}; expected owner ${ownerName} has no signal.`,
+          business_impact: `${priorityName} target at risk; no team is structurally accountable.`,
+          urgency: "red" as const,
+          next_action: `CEO 1:1 with ${ownerName} to confirm ownership or reassign the priority.`,
+          suggested_owner: "CEO",
+          friction_score: score,
           consequence: `${priorityName} target at risk; no team is structurally accountable.`,
           evidence_source: "silent_leader",
           recommended_resolver: "CEO",
           auto_injected: true,
-          auto_injected_reason: "silent_priority",
+          auto_injected_reason: "silent_priority_with_corroboration",
         });
         frictionAutoInjected++;
       }
 
-      // 8b. Inject friction for cross-function email escalations not already covered.
-      try {
-        const escalations = email_pulse?.signals?.escalations;
-        if (Array.isArray(escalations)) {
-          for (const esc of escalations) {
-            const fromFn = String(esc?.from_function || esc?.from || "").trim();
-            const toFn = String(esc?.to_function || esc?.to || "").trim();
-            const topic = String(esc?.topic || "").trim();
-            if (!fromFn || !toFn || fromFn.toLowerCase() === toFn.toLowerCase()) continue;
-            if (topic && frictionMentions(topic)) continue;
-            friction.push({
-              issue: `Email escalation crossing functions: ${fromFn} → ${toFn}${topic ? ` re "${topic}"` : ""} — no shared owner has resolved it`,
-              teams: [fromFn, toFn],
-              consequence: topic ? `Unresolved cross-team item: ${topic}` : "Cross-functional escalation pending resolution.",
-              evidence_source: "email",
-              recommended_resolver: "CEO",
-              auto_injected: true,
-              auto_injected_reason: "cross_function_email_escalation",
-            });
-            frictionAutoInjected++;
-          }
+      // 8b. (REMOVED) Email-only escalation auto-injection.
+      //     Email is no longer permitted as a standalone friction signal.
+
+      // 8c. (REMOVED) Red-briefing meta-fallback. Empty friction[] is now an
+      //     honest signal — the UI will render an explicit explanation.
+
+      // Filter out any model-emitted friction grounded only in email,
+      // or that fails the ≥2-non-email-system corroboration rule.
+      friction = friction.filter((f: any) => {
+        const sys = normaliseSystems(f?.systems, f?.evidence_source);
+        const nonEmail = sys.filter((s) => NON_EMAIL_SYSTEMS.has(s));
+        const evSrc = String(f?.evidence_source || "").toLowerCase();
+        if (evSrc === "email" && nonEmail.length === 0) {
+          frictionDroppedEmailOnly++;
+          return false;
         }
-      } catch (_) { /* non-fatal */ }
+        if (nonEmail.length < 2 && !f?.auto_injected) {
+          frictionDroppedSingleSystem++;
+          return false;
+        }
+        return true;
+      });
 
-      // 8c. Red briefing fallback — empty friction on a red briefing is itself a finding.
-      const _outcomeProb = typeof parsed.outcome_probability === "number" ? parsed.outcome_probability : 50;
-      if (_outcomeProb < 50 && friction.length === 0) {
-        friction.push({
-          issue: "Friction detection ran but found no cross-functional blockers — this is unusual on a Red briefing",
-          teams: ["Duncan", "Leadership"],
-          consequence: "Verify Duncan has visibility into cross-team blockers (workstream notes, meeting transcripts, email pulse opt-ins) before trusting harmony as real.",
-          evidence_source: "coverage_gap",
-          recommended_resolver: "CEO",
-          auto_injected: true,
-          auto_injected_reason: "red_briefing_empty_friction",
-        });
-        frictionAutoInjected++;
-      }
+      friction = friction.map((f: any) => {
+        const sys = normaliseSystems(f?.systems, f?.evidence_source);
+        const score = computeScore(f);
+        const blob = `${f?.issue || ""} ${f?.consequence || ""} ${f?.business_impact || ""}`.toLowerCase();
+        const urgencyRaw = String(f?.urgency || "").toLowerCase();
+        const urgency: "red" | "yellow" =
+          urgencyRaw === "red" ? "red"
+          : urgencyRaw === "yellow" ? "yellow"
+          : computeUrgency(score, blob);
+        const validEvSrc = ["workstream_card", "meeting", "coverage_gap", "silent_leader", "doc_conflict", "azure", "xero", "calendar"];
+        const evidence_source = validEvSrc.includes(String(f?.evidence_source)) ? f.evidence_source : "workstream_card";
+        const teamsArr = Array.isArray(f?.teams)
+          ? f.teams.filter(Boolean).map((t: any) => String(t))
+          : (f?.teams ? [String(f.teams)] : []);
+        return {
+          issue: String(f?.issue || "").trim() || "Unspecified friction",
+          description: String(f?.description || "").trim(),
+          teams: teamsArr,
+          systems: sys,
+          why_friction: String(f?.why_friction || "").trim(),
+          evidence: String(f?.evidence || "").trim(),
+          business_impact: String(f?.business_impact || f?.consequence || "").trim(),
+          urgency,
+          next_action: String(f?.next_action || "").trim(),
+          suggested_owner: String(f?.suggested_owner || f?.recommended_resolver || "CEO").trim() || "CEO",
+          friction_score: score,
+          consequence: String(f?.consequence || f?.business_impact || "").trim(),
+          evidence_source,
+          recommended_resolver: String(f?.recommended_resolver || f?.suggested_owner || "CEO").trim() || "CEO",
+          auto_injected: !!f?.auto_injected,
+          ...(f?.auto_injected_reason ? { auto_injected_reason: f.auto_injected_reason } : {}),
+        };
+      });
 
-      // Normalise: ensure required fields on every entry.
-      friction = friction.map((f: any) => ({
-        issue: String(f?.issue || "").trim() || "Unspecified friction",
-        teams: Array.isArray(f?.teams) ? f.teams.filter(Boolean).map((t: any) => String(t)) : (f?.teams ? [String(f.teams)] : []),
-        consequence: String(f?.consequence || "").trim(),
-        evidence_source: ["workstream_card", "meeting", "email", "coverage_gap", "silent_leader", "doc_conflict"].includes(String(f?.evidence_source))
-          ? f.evidence_source
-          : "workstream_card",
-        recommended_resolver: String(f?.recommended_resolver || "CEO").trim() || "CEO",
-        auto_injected: !!f?.auto_injected,
-        ...(f?.auto_injected_reason ? { auto_injected_reason: f.auto_injected_reason } : {}),
-      }));
+      friction.sort((a, b) => (b.friction_score || 0) - (a.friction_score || 0));
+      friction = friction.slice(0, 5);
 
       parsed.payload.friction = friction;
       parsed.payload.friction_meta = {
         total: friction.length,
         auto_injected: frictionAutoInjected,
+        dropped_email_only: frictionDroppedEmailOnly,
+        dropped_single_system: frictionDroppedSingleSystem,
+        sources_unavailable: ["slack_inbound", "hubspot"],
+        rule: "Cross-system corroboration required (≥2 non-email systems). Email is supporting evidence only.",
       };
     }
 
