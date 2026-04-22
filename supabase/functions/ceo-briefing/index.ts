@@ -1217,10 +1217,14 @@ Deno.serve(async (req) => {
     // ─── Company-wide email + slack pulse (last 24h) ────
     let email_pulse: any = null;
     let slack_pulse: any = null;
+    let hubspot_signal: any = null;
+    let github_signal: any = null;
     let slack_pulse_error: string | null = null;
     let email_pulse_error: string | null = null;
+    let hubspot_signal_error: string | null = null;
+    let github_signal_error: string | null = null;
     try {
-      const [epRes, spRes] = await Promise.all([
+      const [epRes, spRes, hubspotRes, githubRes] = await Promise.all([
         fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/ceo-email-pulse`, {
           method: "POST",
           headers: {
@@ -1237,6 +1241,22 @@ Deno.serve(async (req) => {
           },
           body: JSON.stringify({}),
         }).catch((e) => { console.warn("ceo-slack-pulse fetch failed:", e); slack_pulse_error = `fetch failed: ${e?.message || e}`; return null; }),
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/hubspot-api`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ action: "briefing_summary" }),
+        }).catch((e) => { console.warn("hubspot-api fetch failed:", e); hubspot_signal_error = `fetch failed: ${e?.message || e}`; return null; }),
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/github-api`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ action: "briefing_summary" }),
+        }).catch((e) => { console.warn("github-api fetch failed:", e); github_signal_error = `fetch failed: ${e?.message || e}`; return null; }),
       ]);
       if (epRes && epRes.ok) {
         email_pulse = await epRes.json();
@@ -1252,12 +1272,28 @@ Deno.serve(async (req) => {
         slack_pulse_error = `HTTP ${spRes.status}`;
         console.warn("ceo-slack-pulse non-200:", spRes.status);
       }
+      if (hubspotRes && hubspotRes.ok) {
+        hubspot_signal = await hubspotRes.json();
+        if (hubspot_signal?.ok === false) hubspot_signal_error = hubspot_signal?.error || "hubspot returned ok=false";
+      } else if (hubspotRes) {
+        hubspot_signal_error = `HTTP ${hubspotRes.status}`;
+        console.warn("hubspot-api non-200:", hubspotRes.status);
+      }
+      if (githubRes && githubRes.ok) {
+        github_signal = await githubRes.json();
+        if (github_signal?.ok === false) github_signal_error = github_signal?.error || "github returned ok=false";
+      } else if (githubRes) {
+        github_signal_error = `HTTP ${githubRes.status}`;
+        console.warn("github-api non-200:", githubRes.status);
+      }
     } catch (e: any) {
       console.warn("comms pulse invoke failed:", e);
       if (!slack_pulse_error) slack_pulse_error = `invoke failed: ${e?.message || e}`;
       if (!email_pulse_error) email_pulse_error = `invoke failed: ${e?.message || e}`;
+      if (!hubspot_signal_error) hubspot_signal_error = `invoke failed: ${e?.message || e}`;
+      if (!github_signal_error) github_signal_error = `invoke failed: ${e?.message || e}`;
     }
-    console.log(`[ceo-briefing] email_pulse: ${email_pulse ? 'ok' : 'null'} (err=${email_pulse_error}); slack_pulse: ${slack_pulse ? 'ok' : 'null'} (err=${slack_pulse_error})`);
+    console.log(`[ceo-briefing] email_pulse: ${email_pulse ? 'ok' : 'null'} (err=${email_pulse_error}); slack_pulse: ${slack_pulse ? 'ok' : 'null'} (err=${slack_pulse_error}); hubspot: ${hubspot_signal ? 'ok' : 'null'} (err=${hubspot_signal_error}); github: ${github_signal ? 'ok' : 'null'} (err=${github_signal_error})`);
 
     // ─── Calendar events for leaders (last 7d) — best-effort, opt-in via google_calendar_tokens ─
     let leaderCalendarEvents: Array<{ summary: string | null; start: string | null; organiser_alias?: string | null; attendee_aliases?: string[] }> = [];
@@ -2256,6 +2292,12 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
             ? `Slack scanned with reduced scopes — public channels only (${(slack_pulse as any)?.degraded_reason || "permission limited"}). Inbound: ${spChannelsScanned} of ${spChannelsMember} member channels (out of ${spChannelsTotal} total), ${spMessagesAnalysed} messages. Outbound: slack_notification_logs.`
             : `Inbound: scanned ${spChannelsScanned} of ${spChannelsMember} member channels (out of ${spChannelsTotal} total), ${spMessagesAnalysed} messages via ceo-slack-pulse. Outbound: slack_notification_logs. Channels Duncan is not a member of are not scanned.`)
         : `Duncan's own outbound notifications only (slack_notification_logs). Slack inbound pulse did not run on this briefing${slack_pulse_error ? ` — error: ${slack_pulse_error}` : ""}.`,
+      hubspot: hubspot_signal
+        ? `HubSpot ${hubspot_signal.status === "connected" ? "connected" : hubspot_signal.status}. Accounts scanned: ${hubspot_signal.accounts_scanned ?? 0}. ${hubspot_signal.summary || hubspot_signal.degraded_reason || "No material CRM signal returned."}`
+        : `HubSpot summary unavailable${hubspot_signal_error ? ` — error: ${hubspot_signal_error}` : ""}.`,
+      github: github_signal
+        ? `GitHub ${github_signal.status === "connected" ? "connected" : github_signal.status}. Repos scanned: ${github_signal.repos_scanned ?? 0}. ${github_signal.summary || github_signal.degraded_reason || "No material engineering signal returned."}`
+        : `GitHub summary unavailable${github_signal_error ? ` — error: ${github_signal_error}` : ""}.`,
       email: "Per-mailbox 24h scan via ceo-email-pulse for opted-in users only.",
       meetings: "Plaud-ingested transcripts via fetch-plaud-meetings (last 24h for activity, last 10 transcripts for priority signals).",
       azure_devops: "azure_work_items table — last 24h changes.",
@@ -2945,6 +2987,20 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         evidence, blockers, positive_signals: positives, confidence,
       };
 
+      if (hubspot_signal?.status && hubspot_signal.status !== "connected") {
+        company_pulse_status.blockers.push(`Commercial visibility reduced — HubSpot is ${hubspot_signal.status}${hubspot_signal.degraded_reason ? ` (${hubspot_signal.degraded_reason})` : ""}.`);
+      } else if (hubspot_signal?.summary) {
+        company_pulse_status.evidence.push(`HubSpot: ${hubspot_signal.summary}`);
+      }
+      if (github_signal?.status && github_signal.status !== "connected") {
+        company_pulse_status.blockers.push(`Engineering delivery visibility reduced — GitHub is ${github_signal.status}${github_signal.degraded_reason ? ` (${github_signal.degraded_reason})` : ""}.`);
+      } else if (github_signal?.summary) {
+        company_pulse_status.evidence.push(`GitHub: ${github_signal.summary}`);
+      }
+      if (slack_pulse?.degraded && slack_pulse?.degraded_codes?.length) {
+        company_pulse_status.blockers.push(`Slack visibility is partial — ${slack_pulse.degraded_codes.join(", ")}.`);
+      }
+
       parsed.payload.company_pulse_status = company_pulse_status;
 
       // Force company_pulse prose to begin with the server status + reason.
@@ -3265,9 +3321,11 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
 
       parsed.payload.friction = friction;
 
-      // Build sources_unavailable honestly (HubSpot always; Slack only if it never returned)
-      const sourcesUnavailable: string[] = ["hubspot"];
+      // Build sources_unavailable honestly from actual fetch outcomes.
+      const sourcesUnavailable: string[] = [];
       if (!slack_pulse) sourcesUnavailable.push("slack_inbound");
+      if (!hubspot_signal || hubspot_signal?.status !== "connected" || !hubspot_signal?.summary) sourcesUnavailable.push("hubspot");
+      if (!github_signal || github_signal?.status !== "connected" || !github_signal?.summary) sourcesUnavailable.push("github");
 
       // Per-pass tally from the LLM-emitted friction items (best-effort)
       const passTally = { A: 0, B: 0, C: 0, D: 0, unspecified: 0 };
@@ -3285,6 +3343,8 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         sources_unavailable: sourcesUnavailable,
         slack_pulse_error: slack_pulse_error || null,
         email_pulse_error: email_pulse_error || null,
+        hubspot_signal_error: hubspot_signal_error || null,
+        github_signal_error: github_signal_error || null,
         scanned: {
           workstream_cards: Array.isArray(cards) ? (cards as any[]).length : 0,
           azure_work_items: Array.isArray(workItems) ? workItems.length : 0,
@@ -3581,11 +3641,19 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
       parsed.payload = parsed.payload || {};
       parsed.payload.slack_pulse = {
         window_hours: slack_pulse.window_hours ?? 24,
+        degraded: slack_pulse.degraded ?? false,
+        degraded_reason: slack_pulse.degraded_reason ?? null,
+        degraded_codes: slack_pulse.degraded_codes ?? [],
+        visibility_scope: slack_pulse.visibility_scope ?? "full_public",
         channels_total: slack_pulse.channels_total ?? 0,
         channels_member: slack_pulse.channels_member ?? 0,
         channels_eligible: slack_pulse.channels_eligible ?? 0,
         channels_scanned: slack_pulse.channels_scanned ?? 0,
         messages_analysed: slack_pulse.messages_analysed ?? 0,
+        not_member_channels_count: slack_pulse.not_member_channels_count ?? 0,
+        inaccessible_private_channels_count: slack_pulse.inaccessible_private_channels_count ?? 0,
+        history_failures_count: slack_pulse.history_failures_count ?? 0,
+        channels_with_errors: slack_pulse.channels_with_errors ?? [],
         per_channel: slack_pulse.per_channel ?? [],
         silent_channels: slack_pulse.silent_channels ?? [],
         not_member_channels: slack_pulse.not_member_channels ?? [],
@@ -3600,6 +3668,31 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         },
       };
     }
+
+    parsed.payload = parsed.payload || {};
+    parsed.payload.hubspot_signal = {
+      status: hubspot_signal?.status ?? "not_configured",
+      connected: hubspot_signal?.connected ?? false,
+      accounts_scanned: hubspot_signal?.accounts_scanned ?? 0,
+      stale_deals: hubspot_signal?.stale_deals ?? 0,
+      at_risk_accounts: hubspot_signal?.at_risk_accounts ?? 0,
+      escalations: hubspot_signal?.customer_escalations ?? 0,
+      signals: hubspot_signal?.signals ?? [],
+      summary: hubspot_signal?.summary ?? null,
+      degraded_reason: hubspot_signal?.degraded_reason ?? hubspot_signal_error ?? null,
+    };
+    parsed.payload.github_signal = {
+      status: github_signal?.status ?? "not_configured",
+      connected: github_signal?.connected ?? false,
+      repos_scanned: github_signal?.repos_scanned ?? 0,
+      open_prs: github_signal?.open_prs ?? 0,
+      blocked_prs: github_signal?.blocked_prs ?? 0,
+      stale_prs: github_signal?.stale_prs ?? 0,
+      release_risks: github_signal?.release_risks ?? 0,
+      signals: github_signal?.signals ?? [],
+      summary: github_signal?.summary ?? null,
+      degraded_reason: github_signal?.degraded_reason ?? github_signal_error ?? null,
+    };
 
     // ─── Automation Progress: ground in server data + recommendation floor ──
     if (briefing_type === "morning") {

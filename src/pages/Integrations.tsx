@@ -11,6 +11,7 @@ import AppLayout from "@/components/AppLayout";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { invokeEdge } from "@/lib/edgeApi";
 import { fastApi, withFastApi } from "@/lib/fastApiClient";
 import { useGoogleCalendar } from "@/hooks/useGoogleCalendar";
 import { useAzureBlobStorage } from "@/hooks/useAzureBlobStorage";
@@ -60,16 +61,16 @@ const integrations: Integration[] = [
   {
     id: "slack",
     name: "Slack",
-    description: "Monitor channels, automate responses, and sync conversations into Duncan's knowledge base.",
+    description: "Surface channel activity into Team Briefing with explicit degraded visibility when Duncan cannot see private or unjoined channels.",
     icon: MessageSquare,
     category: "Communication",
     services: ["Channels", "Direct Messages", "Threads", "Reactions"],
     type: "user",
     setupSteps: [
-      "Create a Slack App at api.slack.com/apps",
-      "Add Bot Token Scopes (channels:read, chat:write, etc.)",
-      "Install the app to your workspace",
-      "Copy the Bot User OAuth Token to Duncan's settings",
+      "Connect Slack from Connectors so Duncan can read workspace activity",
+      "Public channels are visible by default through the connector",
+      "Private channels still require Duncan to be invited before Team Briefing can see them",
+      "If coverage is partial, Duncan will now show the exact visibility limitation in Team Briefing",
     ],
   },
   {
@@ -143,6 +144,36 @@ const integrations: Integration[] = [
       "An admin clicks Connect Google Drive below",
       "Sign in with Google and grant read-only access to the shared Drive workspace",
       "You'll be redirected back to Duncan and the connection becomes available across the company",
+    ],
+  },
+  {
+    id: "hubspot",
+    name: "HubSpot",
+    description: "Pull CRM risk and pipeline signals into Team Briefing without breaking generation when CRM data is unavailable.",
+    icon: Database,
+    category: "Revenue",
+    services: ["Accounts", "Deals", "Risk Signals", "Team Briefing"],
+    type: "company",
+    setupSteps: [
+      "Connect HubSpot from Connectors at the workspace level",
+      "Link the connection to this project so backend functions can read CRM data",
+      "Duncan verifies connection health before using HubSpot evidence in Team Briefing",
+      "If HubSpot is not connected, Team Briefing still runs and flags the CRM blind spot",
+    ],
+  },
+  {
+    id: "github",
+    name: "GitHub",
+    description: "Add engineering delivery and PR blockage signals to Team Briefing with graceful not-configured fallback.",
+    icon: GitBranch,
+    category: "Engineering",
+    services: ["Repositories", "Pull Requests", "Release Risks", "Team Briefing"],
+    type: "company",
+    setupSteps: [
+      "Connect GitHub from Connectors at the workspace level",
+      "Link the connection to this project when the workspace connection is ready",
+      "Duncan checks GitHub status before using repo evidence in Team Briefing",
+      "If GitHub is unavailable, the briefing still completes and marks engineering visibility as reduced",
     ],
   },
 ];
@@ -513,6 +544,9 @@ const IntegrationDetail = ({
   const isGmail = integration.id === "gmail";
   const isAzureDevOps = integration.id === "azure-devops";
   const isGoogleDrive = integration.id === "google-drive";
+  const isHubSpot = integration.id === "hubspot";
+  const isGitHub = integration.id === "github";
+  const isConnectorManaged = isHubSpot || isGitHub;
   const isGoogleOAuth = isGoogleCalendar;
   const isOAuthFlow = isGoogleOAuth || isBasecamp || isGmail || isAzureDevOps || isGoogleDrive;
   
@@ -535,8 +569,8 @@ const IntegrationDetail = ({
   }
   
   const integrationData = getIntegrationData(integration, userIntegrations, companyIntegrations);
-  const s = statusConfig[status];
   const [apiKey, setApiKey] = useState("");
+  const [statusDetail, setStatusDetail] = useState<any | null>(null);
   const isCompany = integration.type === "company";
   const isSlack = integration.id === "slack";
   const credentialLabel = isSlack
@@ -561,6 +595,43 @@ const IntegrationDetail = ({
   const [gmailLoading, setGmailLoading] = useState(false);
   const [azureDevOpsLoading, setAzureDevOpsLoading] = useState(false);
   const [googleDriveLoading, setGoogleDriveLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (!isConnectorManaged) {
+      setStatusDetail(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    const fn = isHubSpot ? "hubspot-api" : "github-api";
+    invokeEdge<any>(fn, { body: { action: "status" } })
+      .then((data) => {
+        if (active) setStatusDetail(data);
+      })
+      .catch((error) => {
+        if (active) {
+          setStatusDetail({
+            status: "degraded",
+            degraded_reason: error instanceof Error ? error.message : "Status check failed",
+          });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isConnectorManaged, isHubSpot, isGitHub]);
+
+  const resolvedStatus: IntegrationStatus = isConnectorManaged && statusDetail
+    ? statusDetail.status === "connected"
+      ? "connected"
+      : statusDetail.status === "degraded"
+      ? "pending"
+      : "disconnected"
+    : status;
+  const s = statusConfig[resolvedStatus];
 
   const handleConnect = async () => {
     if (!apiKey.trim()) {
@@ -817,9 +888,17 @@ const IntegrationDetail = ({
           )}
 
           {/* Action */}
-          {status === "disconnected" ? (
+          {resolvedStatus === "disconnected" ? (
             canEdit ? (
-              isOAuthFlow ? (
+              isConnectorManaged ? (
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-border bg-secondary/20 p-4 space-y-2">
+                    <p className="text-sm text-foreground">Connect this integration from Connectors to make it available to Team Briefing.</p>
+                    <p className="text-xs text-muted-foreground">Duncan will keep generating the briefing even while this stays disconnected, but it will flag the missing visibility.</p>
+                    {statusDetail?.degraded_reason ? <p className="text-xs text-muted-foreground">Current status: {statusDetail.degraded_reason}</p> : null}
+                  </div>
+                </div>
+              ) : isOAuthFlow ? (
                 // OAuth flow (Calendar, Drive, or Basecamp)
                 <div className="space-y-4">
                   <div className="rounded-lg border border-border bg-secondary/20 p-4 space-y-2">
@@ -894,17 +973,27 @@ const IntegrationDetail = ({
                 <span className="text-sm text-muted-foreground">Contact an admin to connect this integration</span>
               </div>
             )
-          ) : status === "connected" ? (
+          ) : resolvedStatus === "connected" ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between rounded-xl border border-norman-success/20 bg-norman-success/5 px-4 py-3">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-norman-success" />
                   <span className="text-sm font-medium text-norman-success">Connected & syncing</span>
                 </div>
-                {integrationData?.last_sync && (
-                  <span className="text-[10px] font-mono text-muted-foreground">{new Date(integrationData.last_sync).toLocaleDateString()}</span>
+                {(statusDetail?.last_verified_at || integrationData?.last_sync) && (
+                  <span className="text-[10px] font-mono text-muted-foreground">{new Date(statusDetail?.last_verified_at || integrationData?.last_sync).toLocaleDateString()}</span>
                 )}
               </div>
+              {(isConnectorManaged || isSlack) && (
+                <div className="rounded-lg border border-border bg-secondary/20 p-4 space-y-2">
+                  <div className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Used by Team Briefing</div>
+                  <p className="text-sm text-foreground/80">
+                    {isSlack
+                      ? "Only channels Duncan can access are scanned. Private or unjoined channels are now surfaced as reduced visibility."
+                      : statusDetail?.degraded_reason || "This integration is available to the Team Briefing pipeline."}
+                  </p>
+                </div>
+              )}
               {isBasecamp && (
                 <div className="mt-4">
                   <BasecampBrowser />
@@ -921,9 +1010,16 @@ const IntegrationDetail = ({
               )}
             </div>
           ) : (
-            <div className="flex items-center gap-2 rounded-xl border border-norman-warning/20 bg-norman-warning/5 px-4 py-3">
-              <AlertCircle className="h-4 w-4 text-norman-warning" />
-              <span className="text-sm text-norman-warning">Awaiting configuration</span>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 rounded-xl border border-norman-warning/20 bg-norman-warning/5 px-4 py-3">
+                <AlertCircle className="h-4 w-4 text-norman-warning" />
+                <span className="text-sm text-norman-warning">Connected with reduced visibility</span>
+              </div>
+              {statusDetail?.degraded_reason ? (
+                <div className="rounded-lg border border-border bg-secondary/20 p-4 text-sm text-foreground/80">
+                  {statusDetail.degraded_reason}
+                </div>
+              ) : null}
             </div>
           )}
         </div>

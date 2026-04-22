@@ -9,14 +9,21 @@ export interface SlackPulseSummary {
   window_hours?: number;
   degraded?: boolean;
   degraded_reason?: string | null;
+  degraded_codes?: string[];
+  visibility_scope?: "full_public" | "public_only" | "partial" | "not_configured";
   channels_total?: number;
   channels_member?: number;
   channels_eligible?: number;
   channels_scanned?: number;
   messages_analysed?: number;
+  not_member_channels_count?: number;
+  inaccessible_private_channels_count?: number;
+  history_failures_count?: number;
+  channels_with_errors?: Array<{ channel: string; reason: string }>;
   per_channel?: Array<{
     channel: string;
     status: string;
+    status_reason?: string | null;
     messages_scanned: number;
     commitments: number;
     escalations: number;
@@ -271,9 +278,16 @@ function SlackColumn({ pulse }: { pulse: SlackPulseSummary | null | undefined })
   const scanned = pulse.channels_scanned ?? 0;
   const member = pulse.channels_member ?? 0;
   const total = pulse.channels_total ?? 0;
-  const notMember = pulse.not_member_channels?.length ?? Math.max(0, total - member);
+  const notMember = pulse.not_member_channels_count ?? pulse.not_member_channels?.length ?? Math.max(0, total - member);
   const silent = pulse.silent_channels || [];
   const degraded = !!pulse.degraded;
+  const degradedLabel = pulse.visibility_scope === "not_configured"
+    ? "Connector not configured"
+    : pulse.visibility_scope === "public_only"
+    ? "Public channels only"
+    : pulse.visibility_scope === "partial"
+    ? "Partial channel visibility"
+    : "Reduced coverage";
 
   return (
     <div className="rounded border border-border bg-card p-3 space-y-2.5">
@@ -289,8 +303,9 @@ function SlackColumn({ pulse }: { pulse: SlackPulseSummary | null | undefined })
 
       {degraded && (
         <div className="rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1.5 text-[10px] text-amber-700 dark:text-amber-400 leading-snug">
-          Reduced coverage — public channels only.
+          {degradedLabel}.
           {pulse.degraded_reason ? <span className="block mt-0.5 text-muted-foreground">{pulse.degraded_reason}</span> : null}
+          {!!pulse.degraded_codes?.length && <span className="block mt-0.5 text-muted-foreground">{pulse.degraded_codes.join(" · ")}</span>}
         </div>
       )}
 
@@ -315,6 +330,13 @@ function SlackColumn({ pulse }: { pulse: SlackPulseSummary | null | undefined })
           <div className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
             Scanned: {scanned}
           </div>
+          {(pulse.inaccessible_private_channels_count || pulse.history_failures_count) ? (
+            <div className="text-[10px] text-muted-foreground mt-0.5">
+              {pulse.inaccessible_private_channels_count ? `${pulse.inaccessible_private_channels_count} private hidden` : null}
+              {pulse.inaccessible_private_channels_count && pulse.history_failures_count ? " · " : null}
+              {pulse.history_failures_count ? `${pulse.history_failures_count} channel fetch failures` : null}
+            </div>
+          ) : null}
           {showNotMember && pulse.not_member_channels && pulse.not_member_channels.length > 0 && (
             <div className="mt-1.5 space-y-0.5 max-h-32 overflow-y-auto">
               {pulse.not_member_channels.slice(0, 20).map((ch, i) => (
@@ -555,7 +577,7 @@ export default function CommsPulseCard({ emailPulse, slackPulse }: Props) {
                               {m.status === "ok" ? (
                                 <span className="text-green-600 dark:text-green-400">ok</span>
                               ) : (
-                                <span className="text-muted-foreground">{m.status}</span>
+                                <span className="text-muted-foreground">{m.status_reason || m.status}</span>
                               )}
                             </td>
                             <td className="px-2 py-1.5 tabular-nums">{m.messages_scanned}</td>

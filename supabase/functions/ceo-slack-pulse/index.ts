@@ -74,12 +74,14 @@ async function slackCall(
 async function listAllChannels(
   apiKey: string,
   lovableKey: string,
-): Promise<{ channels: SlackChannel[]; degraded: boolean; degraded_reason: string | null }> {
+): Promise<{ channels: SlackChannel[]; degraded: boolean; degraded_reason: string | null; degraded_codes: string[]; visibility_scope: "full_public" | "public_only" | "partial" | "not_configured" }> {
   const all: SlackChannel[] = [];
   let cursor = "";
   let pages = 0;
   let degraded = false;
   let degraded_reason: string | null = null;
+  const degraded_codes = new Set<string>();
+  let visibility_scope: "full_public" | "public_only" | "partial" | "not_configured" = "full_public";
   // Public channels only — `private_channel` requires `groups:read` scope which the
   // bot does not currently have. Including it causes Slack to throw `missing_scope`
   // and the whole pulse to fail. Private channel scanning is gated on an explicit
@@ -97,6 +99,9 @@ async function listAllChannels(
         const err = String(data.error || "unknown");
         if (err === "missing_scope" || err === "not_authed" || err === "invalid_auth") {
           degraded = true;
+          visibility_scope = err === "missing_scope" ? "public_only" : "partial";
+          degraded_codes.add(err === "missing_scope" ? "missing_scope" : "auth_failed");
+          if (err === "missing_scope") degraded_codes.add("public_only_visibility");
           degraded_reason = `conversations.list returned ${err} — connector scopes insufficient`;
           break;
         }
@@ -108,6 +113,10 @@ async function listAllChannels(
       const msg = String(e?.message || e);
       if (/missing_scope|not_authed|invalid_auth|not_in_channel/i.test(msg)) {
         degraded = true;
+        visibility_scope = /missing_scope/i.test(msg) ? "public_only" : "partial";
+        degraded_codes.add(/missing_scope/i.test(msg) ? "missing_scope" : "auth_failed");
+        if (/not_in_channel/i.test(msg)) degraded_codes.add("bot_not_invited");
+        if (/missing_scope/i.test(msg)) degraded_codes.add("public_only_visibility");
         degraded_reason = `conversations.list permission error — ${msg.slice(0, 200)}`;
         break;
       }
@@ -116,7 +125,7 @@ async function listAllChannels(
     pages++;
     if (pages > 10) break; // safety
   } while (cursor);
-  return { channels: all, degraded, degraded_reason };
+  return { channels: all, degraded, degraded_reason, degraded_codes: Array.from(degraded_codes), visibility_scope };
 }
 
 async function fetchChannelHistory(
@@ -294,11 +303,18 @@ Deno.serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!SLACK_API_KEY || !LOVABLE_API_KEY) {
       return json({
-        ok: false,
+        ok: true,
         error: "Slack connector not configured",
+        degraded: true,
+        visibility_scope: "not_configured",
+        degraded_codes: ["connector_not_configured"],
         channels_total: 0,
         channels_eligible: 0,
         channels_scanned: 0,
+        not_member_channels_count: 0,
+        inaccessible_private_channels_count: 0,
+        history_failures_count: 0,
+        channels_with_errors: [],
         per_channel: [],
         signals: emptySignals(),
       });
@@ -311,16 +327,22 @@ Deno.serve(async (req) => {
     let allChannels: SlackChannel[] = [];
     let degraded = false;
     let degraded_reason: string | null = null;
+    let degraded_codes: string[] = [];
+    let visibility_scope: "full_public" | "public_only" | "partial" | "not_configured" = "full_public";
     try {
       const listed = await listAllChannels(SLACK_API_KEY, LOVABLE_API_KEY);
       allChannels = listed.channels;
       degraded = listed.degraded;
       degraded_reason = listed.degraded_reason;
+      degraded_codes = listed.degraded_codes;
+      visibility_scope = listed.visibility_scope;
     } catch (e: any) {
       console.error("listAllChannels failed:", e);
       return json({
         ok: true,
         degraded: true,
+        visibility_scope: "partial",
+        degraded_codes: ["history_partial_failure"],
         degraded_reason: `channel listing failed: ${e?.message || String(e)}`,
         window_hours: 24,
         channels_total: 0,
@@ -328,6 +350,10 @@ Deno.serve(async (req) => {
         channels_eligible: 0,
         channels_scanned: 0,
         messages_analysed: 0,
+        not_member_channels_count: 0,
+        inaccessible_private_channels_count: 0,
+        history_failures_count: 0,
+        channels_with_errors: [],
         not_member_channels: [],
         per_channel: [],
         silent_channels: [],
@@ -388,6 +414,7 @@ Deno.serve(async (req) => {
             messages_scanned: 0,
             signals: emptySignals(),
             status: r.channel.is_member ? "no_messages" : "not_member",
+            status_reason: r.error ? "history_failed" : r.channel.is_member ? "no_recent_messages" : "bot_not_member",
           };
         }
         const signals = await extractChannelSignals(r.channel.name, enriched);
@@ -397,6 +424,7 @@ Deno.serve(async (req) => {
           messages_scanned: enriched.length,
           signals,
           status: "ok",
+          status_reason: null,
         };
       }),
     );
@@ -408,12 +436,18 @@ Deno.serve(async (req) => {
     const allCustomerIssues: any[] = [];
     const allRisks: any[] = [];
     const silentChannels: Array<{ channel: string; reason: string }> = [];
+    const channelsWithErrors: Array<{ channel: string; reason: string }> = [];
     let totalMessages = 0;
+    let historyFailures = 0;
 
     for (const r of perChannelOutput) {
       totalMessages += r.messages_scanned;
       if (r.status === "no_messages") {
         silentChannels.push({ channel: r.channel_name, reason: "0 human messages in last 24h" });
+        if (r.status_reason === "history_failed") {
+          historyFailures += 1;
+          channelsWithErrors.push({ channel: r.channel_name, reason: "History fetch failed" });
+        }
         continue;
       }
       const tag = (arr: any[]) => arr.map((x) => ({ ...x, _channel: r.channel_name }));
@@ -428,10 +462,19 @@ Deno.serve(async (req) => {
     const notMember = allChannels
       .filter((c) => !c.is_member && !c.is_archived)
       .map((c) => ({ id: c.id, name: c.name, is_private: !!c.is_private }));
+    const inaccessiblePrivateChannelsCount = allChannels.filter((c) => !!c.is_private && !c.is_member && !c.is_archived).length;
+    if (notMember.length > 0) degraded_codes.push("bot_not_invited");
+    if (inaccessiblePrivateChannelsCount > 0) degraded_codes.push("private_channels_inaccessible");
+    if (historyFailures > 0) degraded_codes.push("history_partial_failure");
+    const uniqueCodes = Array.from(new Set(degraded_codes));
+    const isDegraded = degraded || uniqueCodes.length > 0;
+    if (isDegraded && visibility_scope === "full_public") visibility_scope = "partial";
 
     return json({
       ok: true,
-      degraded,
+      degraded: isDegraded,
+      visibility_scope,
+      degraded_codes: uniqueCodes,
       degraded_reason,
       window_hours: 24,
       channels_total: allChannels.length,
@@ -439,10 +482,15 @@ Deno.serve(async (req) => {
       channels_eligible: eligible.length,
       channels_scanned: perChannelOutput.length,
       messages_analysed: totalMessages,
+      not_member_channels_count: notMember.length,
+      inaccessible_private_channels_count: inaccessiblePrivateChannelsCount,
+      history_failures_count: historyFailures,
+      channels_with_errors: channelsWithErrors,
       not_member_channels: notMember.slice(0, 50),
       per_channel: perChannelOutput.map((r) => ({
         channel: r.channel_name,
         status: r.status,
+        status_reason: r.status_reason,
         messages_scanned: r.messages_scanned,
         commitments: r.signals.commitments.length,
         escalations: r.signals.escalations.length,
