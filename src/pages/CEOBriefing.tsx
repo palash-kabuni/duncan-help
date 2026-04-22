@@ -312,7 +312,7 @@ const CEOBriefing = () => {
                   )}
                 </Section>
 
-                <Section n={5} title="Decisions the CEO Must Make">
+                <Section n={4} title="Decisions the CEO Must Make">
                   {(() => {
                     const decisions = (p.decisions || []) as any[];
                     const trajectory = String(briefing.trajectory || "").toLowerCase();
