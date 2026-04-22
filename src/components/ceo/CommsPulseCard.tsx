@@ -330,8 +330,6 @@ function SlackColumn({ pulse }: { pulse: SlackPulseSummary | null | undefined })
             </div>
           )}
         </div>
-          )}
-        </div>
         <div>
           <MetricLabel
             label="Commitments"
