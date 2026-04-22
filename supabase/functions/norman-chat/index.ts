@@ -3805,61 +3805,97 @@ Format as a natural, readable summary with clear sections. If a section has no d
     ): Promise<{ fullContent: string; toolCalls: any[] }> {
       const reader = streamResponse.body!.getReader();
       const decoder = new TextDecoder();
+      const INACTIVITY_TIMEOUT_MS = 3_000;
+      const MAX_STREAM_DURATION_MS = 15_000;
+      const READ_POLL_MS = 500;
       let fullContent = "";
       const toolCalls: any[] = [];
       let buffer = "";
+      const startTime = Date.now();
+      let lastChunkTime = startTime;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      try {
+        while (true) {
+          const totalMs = Date.now() - startTime;
+          const inactivityMs = Date.now() - lastChunkTime;
 
-        buffer += decoder.decode(value, { stream: true });
-
-        let newlineIndex: number;
-        while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
-          let line = buffer.slice(0, newlineIndex);
-          buffer = buffer.slice(newlineIndex + 1);
-
-          if (line.endsWith("\r")) line = line.slice(0, -1);
-          if (line.startsWith(":") || line.trim() === "") continue;
-          if (!line.startsWith("data: ")) continue;
-
-          const jsonStr = line.slice(6).trim();
-          if (jsonStr === "[DONE]") continue;
-
-          try {
-            const parsed = JSON.parse(jsonStr);
-            const delta = parsed.choices?.[0]?.delta;
-
-            if (delta?.content) {
-              fullContent += delta.content;
-            }
-
-            if (delta?.tool_calls) {
-              for (const tc of delta.tool_calls) {
-                const index = tc.index;
-                if (!toolCalls[index]) {
-                  toolCalls[index] = { id: tc.id, type: "function", function: { name: "", arguments: "" } };
-                }
-                if (tc.id) {
-                  toolCalls[index].id = tc.id;
-                }
-                if (tc.function?.name) {
-                  toolCalls[index].function.name = tc.function.name;
-                }
-                if (tc.function?.arguments) {
-                  toolCalls[index].function.arguments += tc.function.arguments;
-                }
-              }
-            }
-
-            if (onChunk) {
-              onChunk(`data: ${JSON.stringify(parsed)}\n\n`);
-            }
-          } catch {
-            buffer = line + "\n" + buffer;
+          if (inactivityMs > INACTIVITY_TIMEOUT_MS || totalMs > MAX_STREAM_DURATION_MS) {
+            console.log("SSE timeout triggered", {
+              inactivityMs,
+              totalMs,
+            });
             break;
           }
+
+          const readResult = await Promise.race<
+            ReadableStreamReadResult<Uint8Array> | { timeout: true }
+          >([
+            reader.read(),
+            new Promise((resolve) => setTimeout(() => resolve({ timeout: true as const }), READ_POLL_MS)),
+          ]);
+
+          if ("timeout" in readResult) {
+            continue;
+          }
+
+          const { done, value } = readResult;
+          if (done) break;
+
+          lastChunkTime = Date.now();
+          buffer += decoder.decode(value, { stream: true });
+
+          let newlineIndex: number;
+          while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+            let line = buffer.slice(0, newlineIndex);
+            buffer = buffer.slice(newlineIndex + 1);
+
+            if (line.endsWith("\r")) line = line.slice(0, -1);
+            if (line.startsWith(":") || line.trim() === "") continue;
+            if (!line.startsWith("data: ")) continue;
+
+            const jsonStr = line.slice(6).trim();
+            if (jsonStr === "[DONE]") continue;
+
+            try {
+              const parsed = JSON.parse(jsonStr);
+              const delta = parsed.choices?.[0]?.delta;
+
+              if (delta?.content) {
+                fullContent += delta.content;
+              }
+
+              if (delta?.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  const index = tc.index;
+                  if (!toolCalls[index]) {
+                    toolCalls[index] = { id: tc.id, type: "function", function: { name: "", arguments: "" } };
+                  }
+                  if (tc.id) {
+                    toolCalls[index].id = tc.id;
+                  }
+                  if (tc.function?.name) {
+                    toolCalls[index].function.name = tc.function.name;
+                  }
+                  if (tc.function?.arguments) {
+                    toolCalls[index].function.arguments += tc.function.arguments;
+                  }
+                }
+              }
+
+              if (onChunk) {
+                onChunk(`data: ${JSON.stringify(parsed)}\n\n`);
+              }
+            } catch {
+              buffer = line + "\n" + buffer;
+              break;
+            }
+          }
+        }
+      } finally {
+        try {
+          await reader.cancel();
+        } catch {
+          // best-effort cleanup only
         }
       }
 
