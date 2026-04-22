@@ -108,7 +108,7 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
     }],
     "friction": [{"issue": string, "teams": string[], "consequence": string, "evidence_source": "workstream_card"|"meeting"|"email"|"coverage_gap"|"silent_leader"|"doc_conflict", "recommended_resolver": string, "auto_injected": boolean}],
     "leadership": [{"name": string, "role": string, "output_vs_expectation": string, "risk_level": "low"|"medium"|"high", "blocking": string, "needs_support": string, "ceo_intervention_required": boolean, "signal_status": "active"|"low_signal"|"silent", "evidence_sources": [("meetings"|"workstreams"|"azure"|"releases"|"calendar"|"email"|"transcript")]}],
-    "watchlist": [{"workstream": string, "owner": string, "status": string, "good_looks_like": string, "missing": string, "data_blind_spot": string|null, "auto_injected": boolean}],
+    "_watchlist_note": "watchlist is computed server-side from cards + Azure + priorities — do not emit",
     "decisions": [{"decision": string, "why_it_matters": string, "consequence": string, "who_to_involve": string, "confidence": "high"|"medium"|"low", "blocked_by_missing_data": string|null, "evidence_source": "coverage_gap"|"silent_priority"|"risk"|"friction"|"email"|"silent_leader"|"data_blind_spot"|"workstream"|null, "auto_injected": boolean}],
     "automation": {"working": string, "manual": string, "next": string, "blockers": string},
     "automation_progress": {
@@ -178,16 +178,7 @@ CRITICAL RULES:
 - For each workstream score, all six analytical-framework axes are MANDATORY (progress_vs_goal, execution_quality, commercial_impact, dependency_strength + scores).
 - Risk windows (7d/30d/90d) must be structured objects, never loose strings.
 - Every workstream "evidence" string MUST quote a real card title, Azure work item, or release from the source data.
-- watchlist[].good_looks_like MUST be a concrete, observable definition of done for that workstream. Never vague.
-- watchlist[].data_blind_spot MUST be set (non-null) whenever the workstream's function area maps to a Red or Yellow domain in payload.data_coverage_audit. Name the missing document/signal explicitly. Set null ONLY when fully evidenced.
-- watchlist[].owner MUST be the person actually accountable for the SPECIFIC blocker — derived from workstream_cards.owner_id (resolved via team_directory display_name), azure_work_items.assigned_to, or the function area. Use PRIORITY_DEFINITIONS.expected_owner ONLY as a tie-breaker, NEVER as the default. NO single owner may appear on more than 40% of watchlist rows. Split concentrated rows into sub-issues attributed to the actual contributors (CMO for marketing blockers, CFO for funding gates, CTO for tech readiness, COO for execution gaps), or escalate to "Cross-functional — escalate to CEO".
-- payload.watchlist POPULATION RULES: watchlist[] is the operational accountability ledger. It MUST contain one row for EACH of the following, with NO duplicates (matched case-insensitively by workstream name):
-    a. Every workstream_score where rag != "green" (Red, Yellow, At Risk).
-    b. Every entry in headline_context.silent_priorities (owner = PRIORITY_DEFINITIONS.expected_owner, status = "Silent", missing = "No cards, no Azure items, no releases attributed in the last 7 days").
-    c. Every 2026 priority where data_coverage_audit.strategic_coverage coverage_pct < 50 that is not already covered by (a) or (b) — status = "Uncovered".
-    d. Every leader_signal_map entry with signal_status="silent" AND owns_priorities.length > 0 — one row per priority they own (status = "Silent", owner = leader name, missing = "Owner silent 7d — no operational signal").
-  MINIMUM count = max(3, count of non-green workstreams + silent_priorities). An empty watchlist[] when outcome_probability < 70 OR coverage_gaps is non-empty is a reporting failure.
-  For each row: "workstream" = exact name from workstream_scores OR the 2026 priority name; "status" = one of "Red"|"Yellow"|"At Risk"|"Silent"|"Uncovered"; "good_looks_like" = observable definition of done (rule above); "missing" = the SPECIFIC artifact, decision, or signal that's absent; "data_blind_spot" = Red/Yellow domain name if applicable, else null; "auto_injected" = false (only the post-processor sets true).
+- watchlist is fully server-computed from workstream_cards, workstream_card_assignees, azure_work_items, and PRIORITY_DEFINITIONS — do NOT emit it.
 - decisions[].confidence MUST NEVER exceed payload.data_coverage_audit.confidence_cap.
 - payload.data_coverage_audit.strategic_coverage is the SERVER-AUTHORITATIVE per-priority artifact gap list (required vs supplied per knowledge domain). When citing coverage, ground numbers in this structure — never invent a "% covered". When a 2026 priority has coverage_pct < 40 in payload.data_coverage_audit.strategic_coverage, payload.brutal_truth MUST name it explicitly with its % and the top 2 missing artifact names. decisions[].blocked_by_missing_data MUST cite specific missing artifact names from strategic_coverage when applicable, e.g. "Lightning Strike: missing India launch runbook + vendor MoU — operations blind spot".
 - decisions[].blocked_by_missing_data MUST name the Red domain whenever the decision cannot be honestly judged without that evidence. Format: "{domain_label}: {what specifically is missing}". Set null ONLY when fully grounded. When missing_artifacts_recommendations contains specific artifact names that would unblock this decision, prepend: "Needs: {artifact_name_1}, {artifact_name_2} — {domain_label} blind spot."
@@ -266,7 +257,7 @@ DATA RULES:
 - If data is weak → LOWER confidence and say so explicitly.
 - WORKSTREAM INTEGRITY: only score workstreams that exist in available_workstreams. Never fabricate. If a 2026 priority has no workstream, surface it as a coverage_gap — that gap is itself the most important signal.
 - RESPONSE DISCIPLINE: return compact, valid JSON only. Keep every prose field to 1-2 sentences. Prefer the shortest wording that preserves meaning.
-- ARRAY BUDGETS: cap workstream_scores to the provided workstreams only; cap risks to 6, friction to 5, leadership to 8, watchlist to 8, decisions to 6, document_intelligence to 6, missing_artifacts_recommendations domains to 5 with max 2 artifacts each.
+- ARRAY BUDGETS: cap workstream_scores to the provided workstreams only; cap risks to 6, friction to 5, leadership to 8, decisions to 6, document_intelligence to 6, missing_artifacts_recommendations domains to 5 with max 2 artifacts each.
 
 ANALYTICAL FRAMEWORK (apply to every workstream):
 1. Progress vs company goals
@@ -1132,7 +1123,7 @@ Deno.serve(async (req) => {
       safe(admin.from("purchase_orders").select("po_number,vendor_name,total_amount,status,category,created_at").gte("created_at", since).limit(20)),
       safe(admin.from("issues").select("title,severity,issue_type,created_at").gte("created_at", since).limit(20)),
       safe(admin.from("sync_logs").select("integration,status,sync_type,started_at,error_message").gte("started_at", since).limit(30)),
-      safe(admin.from("profiles").select("display_name,role_title,department")),
+      safe(admin.from("profiles").select("user_id,display_name,role_title,department")),
       safe(admin.from("ceo_briefings").select("briefing_date,outcome_probability,execution_score,trajectory")
         .eq("briefing_type", briefing_type).order("briefing_date", { ascending: false }).limit(1)),
       safe(admin.from("slack_notification_logs").select("event_key,status,sent_at,payload").gte("created_at", since).limit(40)),
@@ -1140,8 +1131,8 @@ Deno.serve(async (req) => {
       safe(admin.from("xero_invoices").select("invoice_number,contact_name,total,amount_due,amount_paid,status,type,due_date,date").gte("synced_at", since).order("date", { ascending: false }).limit(40)),
       safe(admin.from("xero_contacts").select("name,outstanding_balance,overdue_balance").gt("overdue_balance", 0).order("overdue_balance", { ascending: false }).limit(15)),
       safe(admin.from("integration_audit_logs").select("integration,action,details,created_at").gte("created_at", since).limit(40)),
-      safe(admin.from("workstream_cards").select("title,project_tag,status,due_date,updated_at,archived_at").is("archived_at", null).limit(500)),
-      safe(admin.from("azure_work_items").select("title,project_name").limit(500)),
+      safe(admin.from("workstream_cards").select("title,project_tag,status,owner_id,due_date,updated_at,archived_at").is("archived_at", null).limit(500)),
+      safe(admin.from("azure_work_items").select("title,project_name,assigned_to").limit(500)),
       safe(admin.from("meetings").select("title,meeting_date,transcript").not("transcript", "is", null).order("meeting_date", { ascending: false }).limit(10)),
       safe(admin.from("project_files").select("id,file_name,created_at,extracted_text").order("created_at", { ascending: false }).limit(1000)),
       safe(admin.from("meetings").select("title").order("meeting_date", { ascending: false }).limit(200)),
@@ -2237,14 +2228,132 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
       };
     }
 
-    // 4c-bis. Watchlist deterministic population floor.
-    //         The model often returns []. We inject required rows from
-    //         non-green workstream_scores, silent priorities, uncovered
-    //         coverage domains, and silent leaders owning priorities.
+    // 4c-bis. Watchlist — fully deterministic, server-computed.
+    //         Sources: workstream_cards (.owner_id), workstream_card_assignees,
+    //         azure_work_items (.assigned_to), PRIORITY_DEFINITIONS.expected_owner.
+    //         The LLM no longer contributes rows.
     if (briefing_type === "morning") {
       parsed.payload = parsed.payload || {};
-      const wlIn: any[] = Array.isArray(parsed.payload.watchlist) ? [...parsed.payload.watchlist] : [];
+
       const norm = (s: any) => String(s || "").toLowerCase().trim();
+
+      // ---- Build owner-resolution lookups ----
+      // profiles: user_id -> display_name
+      const profileById = new Map<string, string>();
+      for (const p of ((profiles as any[]) || [])) {
+        if (p?.user_id) profileById.set(String(p.user_id), String(p.display_name || "").trim());
+      }
+
+      // Most recent non-archived card owner per project_tag (uses allCards).
+      // allCards is sorted by updated_at desc-ish; we'll sort defensively.
+      const cardsForOwner: any[] = Array.isArray(allCards) ? [...allCards] : [];
+      cardsForOwner.sort((a, b) => String(b?.updated_at || "").localeCompare(String(a?.updated_at || "")));
+      const cardOwnerByTag = new Map<string, string>();
+      for (const c of cardsForOwner) {
+        const tag = norm(c?.project_tag);
+        if (!tag || cardOwnerByTag.has(tag)) continue;
+        const ownerName = c?.owner_id ? (profileById.get(String(c.owner_id)) || "") : "";
+        if (ownerName) cardOwnerByTag.set(tag, ownerName);
+      }
+
+      // Fetch additional card assignees (workstream_card_assignees) and
+      // index by project_tag for fallback when owner_id is null.
+      try {
+        const cardIdsByTag = new Map<string, string[]>();
+        const recentCardsWithIds = await safe(
+          admin.from("workstream_cards")
+            .select("id,project_tag,updated_at")
+            .is("archived_at", null)
+            .order("updated_at", { ascending: false })
+            .limit(500)
+        );
+        for (const c of (recentCardsWithIds as any[] | null) || []) {
+          const tag = norm(c?.project_tag);
+          if (!tag || !c?.id) continue;
+          if (!cardIdsByTag.has(tag)) cardIdsByTag.set(tag, []);
+          cardIdsByTag.get(tag)!.push(String(c.id));
+        }
+        const allCardIds = Array.from(cardIdsByTag.values()).flat().slice(0, 500);
+        if (allCardIds.length > 0) {
+          const assignees = await safe(
+            admin.from("workstream_card_assignees")
+              .select("card_id,user_id,assignment_status")
+              .in("card_id", allCardIds)
+              .eq("assignment_status", "accepted")
+          );
+          const userByCard = new Map<string, string>();
+          for (const a of (assignees as any[] | null) || []) {
+            if (a?.card_id && a?.user_id) userByCard.set(String(a.card_id), String(a.user_id));
+          }
+          for (const [tag, ids] of cardIdsByTag.entries()) {
+            if (cardOwnerByTag.has(tag)) continue;
+            for (const id of ids) {
+              const uid = userByCard.get(id);
+              const name = uid ? profileById.get(uid) : "";
+              if (name) { cardOwnerByTag.set(tag, name); break; }
+            }
+          }
+        }
+      } catch (_) { /* non-fatal */ }
+
+      // Most-frequent Azure assignee per project_name.
+      const azureAssigneeFreqByProject = new Map<string, Map<string, number>>();
+      for (const w of (Array.isArray(allWorkItems) ? allWorkItems : [])) {
+        const proj = norm((w as any)?.project_name);
+        const who = String((w as any)?.assigned_to || "").trim();
+        if (!proj || !who) continue;
+        if (!azureAssigneeFreqByProject.has(proj)) azureAssigneeFreqByProject.set(proj, new Map());
+        const m = azureAssigneeFreqByProject.get(proj)!;
+        m.set(who, (m.get(who) || 0) + 1);
+      }
+      const azureOwnerByProject = new Map<string, string>();
+      for (const [proj, freq] of azureAssigneeFreqByProject.entries()) {
+        let best: { name: string; n: number } | null = null;
+        for (const [name, n] of freq.entries()) {
+          if (!best || n > best.n) best = { name, n };
+        }
+        if (best) azureOwnerByProject.set(proj, best.name);
+      }
+
+      // Resolver
+      type OwnerSource = "card_assignee" | "azure_assignee" | "priority_definition" | "unassigned";
+      const resolveOwnerForWorkstream = (
+        name: string,
+        priorityIdHint?: string,
+      ): { owner: string; owner_source: OwnerSource } => {
+        const k = norm(name);
+        if (k && cardOwnerByTag.has(k)) {
+          return { owner: cardOwnerByTag.get(k)!, owner_source: "card_assignee" };
+        }
+        // Try first token (e.g. "kabuni-app" -> match "kabuni-app")
+        if (k && azureOwnerByProject.has(k)) {
+          return { owner: azureOwnerByProject.get(k)!, owner_source: "azure_assignee" };
+        }
+        // Try matching by first word
+        const firstWord = k.split(/[\s—-]+/)[0] || "";
+        if (firstWord) {
+          for (const [proj, who] of azureOwnerByProject.entries()) {
+            if (proj.startsWith(firstWord) || firstWord.startsWith(proj)) {
+              return { owner: who, owner_source: "azure_assignee" };
+            }
+          }
+          for (const [tag, who] of cardOwnerByTag.entries()) {
+            if (tag.startsWith(firstWord) || firstWord.startsWith(tag)) {
+              return { owner: who, owner_source: "card_assignee" };
+            }
+          }
+        }
+        if (priorityIdHint) {
+          const def = PRIORITY_DEFINITIONS.find((p) => p.id === priorityIdHint);
+          if (def?.expected_owner) {
+            return { owner: def.expected_owner, owner_source: "priority_definition" };
+          }
+        }
+        return { owner: "Unassigned — CEO to allocate", owner_source: "unassigned" };
+      };
+
+      // ---- Build the watchlist deterministically (LLM input discarded). ----
+      const wlIn: any[] = [];
       const hasRowFor = (workstream: string) => {
         const k = norm(workstream);
         if (!k) return false;
@@ -2268,11 +2377,6 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         return "Workstream owner has stated, evidenced, observable definition of done with a date.";
       };
 
-      const expectedOwnerFor = (priorityId: string, fallback?: string): string => {
-        const def = PRIORITY_DEFINITIONS.find((p) => p.id === priorityId);
-        return def?.expected_owner || fallback || "Cross-functional — escalate to CEO";
-      };
-
       // (a) Non-green workstream_scores → ensure a row exists.
       const wsScores: any[] = Array.isArray(parsed.workstream_scores) ? parsed.workstream_scores : [];
       for (const ws of wsScores) {
@@ -2281,9 +2385,11 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         const name = String(ws?.name || "").trim();
         if (!name || hasRowFor(name)) continue;
         const statusLabel = rag === "red" ? "Red" : (rag === "yellow" || rag === "amber") ? "Yellow" : "At Risk";
+        const { owner, owner_source } = resolveOwnerForWorkstream(name);
         wlIn.push({
           workstream: name,
-          owner: ws?.owner || "Unassigned — CEO to allocate",
+          owner,
+          owner_source,
           status: statusLabel,
           good_looks_like: ws?.good_looks_like || successCriteriaFor(name),
           missing: ws?.missing || `Workstream is ${statusLabel} but no specific blocker has been articulated by the owner.`,
@@ -2294,9 +2400,7 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         watchlistAutoInjected++;
       }
 
-      // (b) Silent priorities → ensure a row exists (one per silent priority).
-      // Derive locally from `missing` + `signalsByPriority` (silentMissing is
-      // computed later in section 6; we replicate it here to stay in scope).
+      // (b) Silent priorities → one row per silent priority.
       const silentMissingLocal = (Array.isArray(missing) ? missing : []).filter((mm: any) => {
         const sig = signalsByPriority?.get?.(mm.priority_id);
         return !sig || (Array.isArray(sig.mentions) && sig.mentions.length === 0);
@@ -2304,9 +2408,11 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
       for (const sm of silentMissingLocal) {
         const priorityName = sm.priority || "";
         if (!priorityName || hasRowFor(priorityName)) continue;
+        const { owner, owner_source } = resolveOwnerForWorkstream(priorityName, sm.priority_id);
         wlIn.push({
           workstream: priorityName,
-          owner: expectedOwnerFor(sm.priority_id, sm.expected_owner),
+          owner,
+          owner_source,
           status: "Silent",
           good_looks_like: successCriteriaFor(priorityName),
           missing: "No owned workstream — no cards, no Azure items, no releases attributed in the last 7 days.",
@@ -2317,7 +2423,7 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         watchlistAutoInjected++;
       }
 
-      // (c) Uncovered coverage domains — priorities with coverage_pct < 50 not yet covered.
+      // (c) Uncovered coverage domains.
       try {
         const sc: any[] = Array.isArray((data_coverage_audit as any)?.strategic_coverage)
           ? (data_coverage_audit as any).strategic_coverage
@@ -2327,7 +2433,6 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
           if (!Number.isFinite(pct) || pct >= 50) continue;
           const title = String(pc?.priority_title || "").trim();
           if (!title || hasRowFor(title)) continue;
-          // Find the worst (most missing) domain to name as blind spot.
           const byDomain: any[] = Array.isArray(pc?.by_domain) ? pc.by_domain : [];
           const worstDomain = byDomain
             .map((d: any) => ({
@@ -2336,9 +2441,11 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
             }))
             .sort((a, b) => b.missingCount - a.missingCount)[0];
           const blindSpotLabel = worstDomain?.label || null;
+          const { owner, owner_source } = resolveOwnerForWorkstream(title, pc?.priority_id);
           wlIn.push({
             workstream: title,
-            owner: expectedOwnerFor(pc?.priority_id),
+            owner,
+            owner_source,
             status: "Uncovered",
             good_looks_like: successCriteriaFor(title),
             missing: blindSpotLabel
@@ -2352,7 +2459,7 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         }
       } catch (_) { /* non-fatal */ }
 
-      // (d) Silent leaders owning 2026 priorities → one row per owned priority.
+      // (d) Silent leaders owning 2026 priorities.
       try {
         const lsm: any[] = Array.isArray(leader_signal_map) ? leader_signal_map : [];
         for (const ls of lsm) {
@@ -2362,9 +2469,11 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
           for (const priorityTitle of owns) {
             const title = String(priorityTitle || "").trim();
             if (!title || hasRowFor(title)) continue;
+            // For silent-leader rows the owner is by definition the silent leader.
             wlIn.push({
               workstream: title,
-              owner: ls?.name || "Unassigned",
+              owner: ls?.name || "Unassigned — CEO to allocate",
+              owner_source: ls?.name ? "card_assignee" : "unassigned",
               status: "Silent",
               good_looks_like: successCriteriaFor(title),
               missing: `${ls?.name || "Owner"} silent 7d — no meetings, workstream cards, Azure items or releases attributed.`,
@@ -2377,13 +2486,14 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         }
       } catch (_) { /* non-fatal */ }
 
-      // Final fallback: empty watchlist on a non-green briefing is itself a finding.
+      // Final fallback.
       const _outcomeProb = typeof parsed.outcome_probability === "number" ? parsed.outcome_probability : 50;
       const _coverageGapsLen = Array.isArray(parsed.payload?.coverage_gaps) ? parsed.payload.coverage_gaps.length : 0;
       if (wlIn.length === 0 && (_outcomeProb < 70 || _coverageGapsLen > 0)) {
         wlIn.push({
           workstream: "Watchlist detection found nothing",
           owner: "Duncan",
+          owner_source: "unassigned",
           status: "Red",
           good_looks_like: "At least one accountable workstream-owner-blocker triple per non-green priority surfaced here.",
           missing: "Verify Duncan has visibility into workstreams + 2026 priorities — an empty watchlist on a non-green briefing is unusual.",
@@ -2394,20 +2504,21 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         watchlistAutoInjected++;
       }
 
-      // Normalise rows + write back BEFORE the 40% concentration cap runs on the combined list.
       parsed.payload.watchlist = wlIn.map((r: any) => ({
         workstream: String(r?.workstream || "").trim() || "Unspecified workstream",
         owner: String(r?.owner || "").trim() || "Unassigned",
+        owner_source: (r?.owner_source as OwnerSource) || "unassigned",
         status: String(r?.status || "").trim() || "At Risk",
         good_looks_like: String(r?.good_looks_like || "").trim() || "—",
         missing: String(r?.missing || "").trim() || "—",
         data_blind_spot: r?.data_blind_spot ?? null,
-        auto_injected: !!r?.auto_injected,
+        auto_injected: true,
         ...(r?.auto_injected_reason ? { auto_injected_reason: r.auto_injected_reason } : {}),
       }));
       parsed.payload.watchlist_meta = {
         total: parsed.payload.watchlist.length,
         auto_injected: watchlistAutoInjected,
+        deterministic: true,
       };
     }
 
