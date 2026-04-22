@@ -3679,6 +3679,27 @@ Format as a natural, readable summary with clear sections. If a section has no d
       systemContent += "\n\nYou are in ANALYSIS mode. Focus on data patterns, trends, and insights. Use structured formats like tables and comparisons. Quantify findings when possible.";
     }
 
+    const SIMPLE_INPUT_PATTERNS = [/^hi[!.?\s]*$/i, /^hello[!.?\s]*$/i, /^how are you[?.!\s]*$/i];
+    const MAX_TOOL_ROUNDS = 2;
+    const MAX_EXECUTION_TIME_MS = 20_000;
+
+    function extractPlainText(content: unknown): string {
+      if (typeof content === "string") return content;
+      if (Array.isArray(content)) {
+        return content
+          .map((part: any) => (part?.type === "text" && typeof part.text === "string" ? part.text : ""))
+          .join(" ")
+          .trim();
+      }
+      return "";
+    }
+
+    const latestUserMessage = [...messages].reverse().find((message: any) => message?.role === "user");
+    const latestUserText = extractPlainText(latestUserMessage?.content).trim();
+    const shouldBypassTools =
+      latestUserText.length > 0 &&
+      (latestUserText.length < 20 || SIMPLE_INPUT_PATTERNS.some((pattern) => pattern.test(latestUserText)));
+
     // First call to AI with tools if calendar is connected
     const requestBody: any = {
       model: "gpt-4.1",
@@ -3723,7 +3744,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
     tools.push(...RELEASE_TOOLS);
     // Lovable contributors snapshot (admin-only, requires attached screenshot)
     tools.push(...LOVABLE_CONTRIBUTORS_TOOLS);
-    if (tools.length > 0) {
+    if (!shouldBypassTools && tools.length > 0) {
       requestBody.tools = tools;
     }
 
@@ -3968,18 +3989,28 @@ Format as a natural, readable summary with clear sections. If a section has no d
 
           let currentResponse = response;
           let round = 0;
-          const MAX_TOOL_ROUNDS = 5;
+          const executionStart = Date.now();
 
           while (true) {
             const { fullContent, toolCalls } = await consumeSSEStream(currentResponse, enqueue);
             aggregatedContent += fullContent;
+
+            const elapsedMs = Date.now() - executionStart;
 
             console.log(
               `Round ${round} streamed - content length: ${fullContent.length}, tool calls: ${toolCalls.length}`,
               toolCalls.map(tc => tc?.function?.name),
             );
 
-            if (toolCalls.length === 0 || round >= MAX_TOOL_ROUNDS) {
+            if (
+              shouldBypassTools ||
+              toolCalls.length === 0 ||
+              round >= MAX_TOOL_ROUNDS ||
+              elapsedMs >= MAX_EXECUTION_TIME_MS
+            ) {
+              if (elapsedMs >= MAX_EXECUTION_TIME_MS) {
+                console.log(`Stopping tool loop after ${elapsedMs}ms due to hard execution limit`);
+              }
               break;
             }
 
@@ -3996,6 +4027,10 @@ Format as a natural, readable summary with clear sections. If a section has no d
             conversationMessages.push(assistantMsg, ...toolResults);
 
             const isLastRound = round >= MAX_TOOL_ROUNDS;
+            if (Date.now() - executionStart >= MAX_EXECUTION_TIME_MS) {
+              console.log(`Stopping before follow-up LLM call due to hard execution limit`);
+              break;
+            }
             currentResponse = await fetchAIWithRetry({
               model: "gpt-4.1",
               messages: conversationMessages,
