@@ -33,6 +33,7 @@ export function JobRolesManager() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [adding, setAdding] = useState(false);
+  const [expandedRoleId, setExpandedRoleId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [title, setTitle] = useState("");
@@ -40,6 +41,10 @@ export function JobRolesManager() {
   const [jdFile, setJdFile] = useState<File | null>(null);
   const [generatedJd, setGeneratedJd] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const toggleExpand = (roleId: string) => {
+    setExpandedRoleId((prev) => (prev === roleId ? null : roleId));
+  };
 
   const { data: jobRoles, isLoading } = useQuery({
     queryKey: ["job-roles"],
@@ -471,6 +476,9 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
             <TableBody>
               {jobRoles.map((role: any) => {
                 const competencies = Array.isArray(role.competencies) ? role.competencies : [];
+                const isExpanded = expandedRoleId === role.id;
+                const visibleCompetencies = isExpanded ? competencies : competencies.slice(0, 3);
+                const remainingCount = Math.max(competencies.length - 3, 0);
                 const isLinked = !!role.hireflix_position_id;
                 return (
                   <TableRow key={role.id}>
@@ -478,13 +486,18 @@ ${jdText.replace(/^## (.+)$/gm, '<h2>$1</h2>')
                     <TableCell>
                       {competencies.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
-                          {competencies.slice(0, 3).map((c: any, i: number) => (
+                          {visibleCompetencies.map((c: any, i: number) => (
                             <Badge key={i} variant="outline" className="text-[10px]">
                               {typeof c === "string" ? c : c.name || c.title}
                             </Badge>
                           ))}
                           {competencies.length > 3 && (
-                            <Badge variant="secondary" className="text-[10px]">+{competencies.length - 3}</Badge>
+                            <span
+                              onClick={() => toggleExpand(role.id)}
+                              className="inline-flex items-center rounded-md border border-border bg-secondary px-2 py-0.5 text-[10px] text-primary cursor-pointer"
+                            >
+                              {isExpanded ? "Show less" : `+${remainingCount}`}
+                            </span>
                           )}
                         </div>
                       ) : (
