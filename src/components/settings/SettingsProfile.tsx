@@ -10,10 +10,29 @@ import { Loader2, Save, User, Briefcase, Building2 } from "lucide-react";
 import duncanAvatar from "@/assets/duncan-avatar.jpeg";
 import { toast } from "sonner";
 
+const ROLE_TITLES = [
+  "Developer",
+  "Designer",
+  "Project Manager",
+  "Operations Manager",
+  "HR Manager",
+  "Finance Manager",
+  "Marketing Manager",
+  "Sales Manager",
+  "Business Analyst",
+  "Data Analyst",
+  "QA Engineer",
+  "DevOps Engineer",
+  "Product Manager",
+  "Content Strategist",
+  "Executive",
+  "Other",
+];
+
 export default function SettingsProfile() {
   const { user } = useAuth();
   const { profile, isLoading, updateProfile, isSaving } = useProfile();
-  const { data: departments = [] } = useDepartments();
+  const { data: departments = [], isLoading: departmentsLoading } = useDepartments();
 
   const [form, setForm] = useState<Partial<ProfileData>>({
     display_name: "",
@@ -64,6 +83,15 @@ export default function SettingsProfile() {
     }
   };
 
+  const roleOptions = form.role_title && !ROLE_TITLES.includes(form.role_title)
+    ? [form.role_title, ...ROLE_TITLES]
+    : ROLE_TITLES;
+
+  const departmentNames = departments.map((d) => d.name);
+  const departmentOptions = form.department && !departmentNames.includes(form.department)
+    ? [form.department, ...departmentNames]
+    : departmentNames;
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -96,26 +124,36 @@ export default function SettingsProfile() {
           <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
             <Briefcase className="h-3.5 w-3.5" /> Role / Title
           </Label>
-          <Input
-            value={form.role_title ?? ""}
-            onChange={(e) => set("role_title", e.target.value)}
-            placeholder="e.g. Head of Operations"
-            className="h-9"
-          />
+          <Select value={form.role_title ?? undefined} onValueChange={(v) => set("role_title", v)}>
+            <SelectTrigger className="h-9">
+              <SelectValue placeholder="Select role / title" />
+            </SelectTrigger>
+            <SelectContent>
+              {roleOptions.map((role) => (
+                <SelectItem key={role} value={role}>{role}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
             <Building2 className="h-3.5 w-3.5" /> Department
           </Label>
-          <Select value={form.department ?? ""} onValueChange={(v) => set("department", v)}>
+          <Select value={form.department ?? undefined} onValueChange={(v) => set("department", v)} disabled={departmentsLoading || departmentOptions.length === 0}>
             <SelectTrigger className="h-9">
               <SelectValue placeholder="Select department" />
             </SelectTrigger>
             <SelectContent>
-              {departments.map((d) => (
-                <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
-              ))}
+              {departmentsLoading ? (
+                <SelectItem value="__loading" disabled>Loading departments…</SelectItem>
+              ) : departmentOptions.length > 0 ? (
+                departmentOptions.map((name) => (
+                  <SelectItem key={name} value={name}>{name}</SelectItem>
+                ))
+              ) : (
+                <SelectItem value="__empty" disabled>No departments available</SelectItem>
+              )}
             </SelectContent>
           </Select>
         </div>
