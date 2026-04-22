@@ -1,6 +1,7 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 type Message = { role: "user" | "assistant"; content: string };
 type Mode = "general" | "reason" | "automate" | "analyze" | "briefing";
@@ -16,6 +17,7 @@ export interface ChatAttachment {
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/norman-chat`;
 const EXTRACT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/extract-chat-file`;
+const CHAT_REQUEST_TIMEOUT_MS = 90_000;
 
 /** Extract text from non-image attachments via the server-side function */
 async function extractFileText(
@@ -80,6 +82,89 @@ function buildUserContent(input: string, attachments: ChatAttachment[]) {
   }
 
   return parts;
+}
+
+async function streamAssistantResponse(
+  response: Response,
+  upsertAssistant: (chunk: string) => void,
+  logLabel: string,
+) {
+  if (!response.body) throw new Error("No response body");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let streamDone = false;
+  let sawContent = false;
+
+  console.info(`[Duncan] ${logLabel}: stream opened`);
+
+  while (!streamDone) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let newlineIndex: number;
+    while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+      let line = buffer.slice(0, newlineIndex);
+      buffer = buffer.slice(newlineIndex + 1);
+
+      if (line.endsWith("\r")) line = line.slice(0, -1);
+      if (line.startsWith(":") || line.trim() === "") continue;
+      if (!line.startsWith("data: ")) continue;
+
+      const jsonStr = line.slice(6).trim();
+      if (jsonStr === "[DONE]") {
+        streamDone = true;
+        break;
+      }
+
+      try {
+        const parsed = JSON.parse(jsonStr);
+        const content = parsed.choices?.[0]?.delta?.content as string | undefined;
+        if (content) {
+          if (!sawContent) {
+            console.info(`[Duncan] ${logLabel}: first token received`);
+          }
+          sawContent = true;
+          upsertAssistant(content);
+        }
+      } catch {
+        buffer = line + "\n" + buffer;
+        break;
+      }
+    }
+  }
+
+  if (buffer.trim()) {
+    for (let raw of buffer.split("\n")) {
+      if (!raw) continue;
+      if (raw.endsWith("\r")) raw = raw.slice(0, -1);
+      if (raw.startsWith(":") || raw.trim() === "") continue;
+      if (!raw.startsWith("data: ")) continue;
+      const jsonStr = raw.slice(6).trim();
+      if (jsonStr === "[DONE]") continue;
+      try {
+        const parsed = JSON.parse(jsonStr);
+        const content = parsed.choices?.[0]?.delta?.content as string | undefined;
+        if (content) {
+          if (!sawContent) {
+            console.info(`[Duncan] ${logLabel}: first token received`);
+          }
+          sawContent = true;
+          upsertAssistant(content);
+        }
+      } catch {
+        console.warn(`[Duncan] ${logLabel}: skipped unparsable stream chunk`);
+      }
+    }
+  }
+
+  if (!sawContent) {
+    throw new Error("Duncan returned an empty response. Please try again.");
+  }
+
+  console.info(`[Duncan] ${logLabel}: stream completed`);
 }
 
 export function useNormanChat() {
