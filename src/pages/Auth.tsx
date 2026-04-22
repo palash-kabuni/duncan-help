@@ -37,6 +37,7 @@ const Auth = () => {
   const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [showSignupSuccess, setShowSignupSuccess] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
 
   useEffect(() => {
@@ -100,11 +101,13 @@ const Auth = () => {
 
       if (error) throw error;
 
-      toast.success(
-        isLogin
-          ? "Welcome back to Duncan"
-          : "Account created! An admin will review and approve your access."
-      );
+      if (isLogin) {
+        toast.success("Welcome back to Duncan");
+      } else {
+        setShowSignupSuccess(true);
+        setIsLogin(true);
+        setPassword("");
+      }
     } catch (error: unknown) {
       console.error("Auth submit failed", { error, online: navigator.onLine, origin: window.location.origin });
       toast.error(getAuthErrorMessage(error));
@@ -362,6 +365,37 @@ const Auth = () => {
                     </button>
                   </div>
                 </form>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {showSignupSuccess && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+              onClick={() => setShowSignupSuccess(false)}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="w-full max-w-sm mx-4 rounded-xl border border-border bg-card p-6 shadow-lg"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h3 className="text-lg font-bold text-foreground mb-2">Check your email</h3>
+                <p className="text-sm text-muted-foreground mb-3">
+                  We sent a verification link to <span className="font-medium text-foreground">{email}</span>.
+                </p>
+                <p className="text-sm text-muted-foreground mb-5">
+                  Verify your email first, then wait for an admin to approve your profile before you can access Duncan.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowSignupSuccess(false)}
+                  className="w-full rounded-lg bg-primary text-primary-foreground py-2.5 text-sm font-medium hover:bg-primary/90 transition-all"
+                >
+                  Got it
+                </button>
               </motion.div>
             </motion.div>
           )}
