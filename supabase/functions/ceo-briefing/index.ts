@@ -2049,6 +2049,39 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
     // 2. Ensure coverage_gaps reflects actual missing priorities (server-authoritative)
     //    + enrich with meeting_priority_signals to flag implicit (untracked) work.
     parsed.payload = parsed.payload || {};
+
+    // 2-pre. Honest empty-state for "what changed in the last 24h".
+    // If every tracked source returned zero AND email pulse is null/empty,
+    // tell the CEO *why* the section is blank instead of rendering empty.
+    if (briefing_type === "morning") {
+      const cards24h = (cards as any[])?.length || 0;
+      const azure24h = (workItems as any[])?.length || 0;
+      const meetings24h = (meetings as any[])?.length || 0;
+      const slack24h = (slackLogs as any[])?.length || 0;
+      const epSignals = (email_pulse as any)?.signals;
+      const emailSignalCount = epSignals
+        ? ((epSignals.commitments?.length || 0) +
+           (epSignals.risks?.length || 0) +
+           (epSignals.escalations?.length || 0) +
+           (epSignals.board_mentions?.length || 0) +
+           (epSignals.customer_issues?.length || 0) +
+           (epSignals.vendor_signals?.length || 0))
+        : 0;
+      const emailMailboxesScanned = (email_pulse as any)?.mailboxes_eligible || 0;
+      const wc = Array.isArray(parsed.payload.what_changed) ? parsed.payload.what_changed : [];
+      const allZero = cards24h === 0 && azure24h === 0 && meetings24h === 0 && slack24h === 0;
+      if (allZero && emailSignalCount === 0 && wc.length === 0) {
+        parsed.payload.what_changed = [{
+          function_area: "Operations & Delivery",
+          moved: "No tracked activity in the last 24 hours.",
+          did_not_move: `Workstream cards (0), Azure work items (0), meetings (0), Slack notifications (0), and email pulse (${emailMailboxesScanned} mailboxes scanned, 0 signals extracted) all returned empty.`,
+          needs_attention: "Verify Plaud meeting sync, Azure DevOps sync, and the ceo-email-pulse function are running. An empty 24h window usually means an integration is silent, not that the company is.",
+          auto_injected: true,
+          auto_injected_reason: "all_sources_empty_24h",
+        }];
+      }
+    }
+
     const missing = coverage_report.filter((c) => c.status === "missing");
     const covered = coverage_report.filter((c) => c.status === "covered");
     const modelGaps = Array.isArray(parsed.payload.coverage_gaps) ? parsed.payload.coverage_gaps : [];
