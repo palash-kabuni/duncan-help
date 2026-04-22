@@ -246,7 +246,7 @@ const Recruitment = () => {
 
     setScoringCompetencies(true);
     try {
-      const data = await withFastApi<{ scored: number; skipped?: number; failed?: number }>(
+      const data = await withFastApi<{ scored: number; skipped?: number; failed?: number; message?: string }>(
         async () => {
           const res = await supabase.functions.invoke("score-cv-competencies", {
             body: { role_id: selectedRoleId },
@@ -256,7 +256,11 @@ const Recruitment = () => {
         },
         () => fastApi("POST", "/recruitment/score-competencies", { role_id: selectedRoleId }),
       );
-      toast.success(`Scored ${data.scored} candidate(s) on competencies.${data.skipped ? ` ${data.skipped} skipped.` : ""}${data.failed ? ` ${data.failed} failed.` : ""}`);
+      if (data.scored === 0 && data.message) {
+        toast.message(data.message);
+      } else {
+        toast.success(`Scored ${data.scored} candidate(s) on competencies.${data.skipped ? ` ${data.skipped} skipped.` : ""}${data.failed ? ` ${data.failed} failed.` : ""}`);
+      }
       refetchCandidates();
     } catch (err: any) {
       toast.error("Failed to score competencies: " + err.message);
