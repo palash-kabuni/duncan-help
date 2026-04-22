@@ -3817,20 +3817,12 @@ Format as a natural, readable summary with clear sections. If a section has no d
       let lastChunkTime = startTime;
       let hasToolCallStarted = false;
 
-      const isValidToolCall = (toolCall: any) => {
+      const hasToolName = (toolCall: any) => {
         const name = toolCall?.function?.name;
-        const args = toolCall?.function?.arguments;
-        return (
-          typeof toolCall?.id === "string" &&
-          toolCall.id.trim().length > 0 &&
-          typeof name === "string" &&
-          name.trim().length > 0 &&
-          typeof args === "string" &&
-          args.trim().length > 0
-        );
+        return typeof name === "string" && name.trim().length > 0;
       };
 
-      const hasIncompleteToolCall = () => hasToolCallStarted && toolCalls.some((toolCall) => toolCall && !isValidToolCall(toolCall));
+      const hasIncompleteToolCall = () => hasToolCallStarted && toolCalls.some((toolCall) => toolCall && !hasToolName(toolCall));
 
       try {
         while (true) {
@@ -3921,15 +3913,52 @@ Format as a natural, readable summary with clear sections. If a section has no d
         }
       }
 
-      const validToolCalls = hasToolCallStarted ? toolCalls.filter(isValidToolCall) : toolCalls;
+       const capturedToolCalls = hasToolCallStarted
+         ? toolCalls
+             .filter(hasToolName)
+             .map((toolCall) => {
+               const rawArguments = typeof toolCall?.function?.arguments === "string"
+                 ? toolCall.function.arguments
+                 : "";
 
-      console.log("SSE tool stream state", {
-        hasToolCallStarted,
-        toolCallsLength: validToolCalls.length,
-        streamDurationMs: Date.now() - startTime,
-      });
+               let argumentsParseable = false;
+               if (rawArguments.trim().length > 0) {
+                 try {
+                   JSON.parse(rawArguments);
+                   argumentsParseable = true;
+                 } catch {
+                   argumentsParseable = false;
+                 }
+               }
 
-      return { fullContent, toolCalls: validToolCalls };
+               return {
+                 id: typeof toolCall?.id === "string" && toolCall.id.trim().length > 0
+                   ? toolCall.id
+                   : `streamed_tool_${Math.random().toString(36).slice(2, 10)}`,
+                 type: "function",
+                 function: {
+                   name: toolCall.function.name,
+                   arguments: rawArguments,
+                 },
+                 _debug: {
+                   rawArgumentsLength: rawArguments.length,
+                   argumentsParseable,
+                 },
+               };
+             })
+         : toolCalls;
+
+       console.log("SSE tool stream state", {
+         hasToolCallStarted,
+         toolCallsLength: capturedToolCalls.length,
+         rawArgumentsLengths: capturedToolCalls.map((toolCall: any) => toolCall?._debug?.rawArgumentsLength ?? 0),
+         streamDurationMs: Date.now() - startTime,
+       });
+
+       return {
+         fullContent,
+         toolCalls: capturedToolCalls.map(({ _debug, ...toolCall }: any) => toolCall),
+       };
     }
 
     const TOOL_EXECUTION_TIMEOUT_MS = 20_000;
