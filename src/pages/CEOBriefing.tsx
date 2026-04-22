@@ -261,23 +261,79 @@ const CEOBriefing = () => {
                       yellow: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/40",
                     };
 
+                    const scanned = meta.scanned || {};
+                    const passes = meta.passes || {};
+                    const slackErr: string | null = meta.slack_pulse_error || null;
+                    const emailErr: string | null = meta.email_pulse_error || null;
+                    const sourcesUnavailable: string[] = Array.isArray(meta.sources_unavailable) ? meta.sources_unavailable : [];
+
                     const SourceProvenance = () => (
                       <p className="text-[11px] font-mono text-muted-foreground/80 mt-2">
-                        Scanned: Workstreams · Azure DevOps · Meetings · Calendar · Xero · Releases · Documents · Email (supporting only).
-                        Not connected: Slack inbound channels · HubSpot.
+                        Scanned: Workstreams · Azure DevOps · Meetings · Calendar · Xero · Releases · Documents · Slack · Email (supporting only).
+                        {sourcesUnavailable.length > 0 && (
+                          <> Not connected: {sourcesUnavailable.map((s) => s === "slack_inbound" ? "Slack inbound" : s === "hubspot" ? "HubSpot" : s).join(" · ")}.</>
+                        )}
                       </p>
                     );
 
                     if (frictionList.length === 0) {
+                      const hasScanned = Object.keys(scanned).length > 0;
+                      const slackChannelsTxt = (scanned.slack_channels_member ?? 0) > 0
+                        ? `${scanned.slack_channels_scanned ?? 0} of ${scanned.slack_channels_member} member channels (${(scanned.slack_channels_total ?? 0) - (scanned.slack_channels_member ?? 0)} not invited)`
+                        : `${scanned.slack_channels_scanned ?? 0} channels`;
                       return (
-                        <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-                          <div className="flex items-center gap-3">
-                            <ShieldCheck className={`w-5 h-5 ${isGreen ? "text-emerald-500" : "text-muted-foreground"}`} />
-                            <p className="text-sm text-muted-foreground">
-                              {isGreen
-                                ? "No cross-system friction patterns reached the threshold. Handoffs are clean."
-                                : "No cross-system friction pattern reached the threshold. Single-system issues appear in Risks (§2); inbox-only items appear in the Email Pulse, not here."}
-                            </p>
+                        <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+                          <div className="flex items-start gap-3">
+                            <ShieldCheck className={`w-5 h-5 mt-0.5 ${isGreen ? "text-emerald-500" : "text-muted-foreground"}`} />
+                            <div className="flex-1 space-y-3">
+                              <p className="text-sm text-muted-foreground">
+                                {isGreen
+                                  ? "No cross-system friction patterns reached the threshold. Handoffs are clean."
+                                  : "No cross-system friction pattern reached the threshold. Single-system issues appear in Risks (§2); inbox-only items appear in Comms Pulse, not here."}
+                              </p>
+
+                              {(slackErr || emailErr) && (
+                                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300 space-y-1">
+                                  {slackErr && <div><span className="font-semibold">Slack scan failed:</span> {slackErr}. Friction may be under-reported.</div>}
+                                  {emailErr && <div><span className="font-semibold">Email scan failed:</span> {emailErr}. Friction may be under-reported.</div>}
+                                </div>
+                              )}
+
+                              {hasScanned && (
+                                <div className="text-xs space-y-2">
+                                  <div>
+                                    <p className="font-semibold text-foreground mb-1">Scanned</p>
+                                    <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 text-muted-foreground font-mono text-[11px]">
+                                      <li>• Workstream cards: {scanned.workstream_cards ?? 0}</li>
+                                      <li>• Azure work items: {scanned.azure_work_items ?? 0}</li>
+                                      <li>• Meetings (7d): {scanned.meetings_7d ?? 0}</li>
+                                      <li>• Slack: {slackChannelsTxt}</li>
+                                      <li>• Slack messages: {scanned.slack_messages ?? 0}</li>
+                                      <li>• Email mailboxes: {scanned.email_mailboxes_scanned ?? 0} of {scanned.email_mailboxes_total ?? 0} opted in</li>
+                                      <li>• Xero invoices: {scanned.xero_invoices ?? 0}</li>
+                                      <li>• Releases: {scanned.releases ?? 0}</li>
+                                      <li>• 2026 priorities checked: {scanned.priorities_checked ?? 0}</li>
+                                    </ul>
+                                  </div>
+
+                                  <div>
+                                    <p className="font-semibold text-foreground mb-1">Reasoning passes</p>
+                                    <ul className="text-muted-foreground font-mono text-[11px] space-y-0.5">
+                                      <li>• Pass A (Strategy alignment): {passes.A ?? 0} item{(passes.A ?? 0) === 1 ? "" : "s"}</li>
+                                      <li>• Pass B (Cards ↔ Azure consistency): {passes.B ?? 0} item{(passes.B ?? 0) === 1 ? "" : "s"}</li>
+                                      <li>• Pass C (Cross-system corroboration): {passes.C ?? 0} item{(passes.C ?? 0) === 1 ? "" : "s"}</li>
+                                      <li>• Pass D (Strategic drift): {passes.D ?? 0} item{(passes.D ?? 0) === 1 ? "" : "s"}</li>
+                                    </ul>
+                                  </div>
+
+                                  {(meta.dropped_email_only > 0 || meta.dropped_single_system > 0) && (
+                                    <p className="text-muted-foreground text-[11px] italic">
+                                      Filtered: {meta.dropped_email_only ?? 0} email-only, {meta.dropped_single_system ?? 0} single-system candidate(s).
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </div>
                           <SourceProvenance />
                         </div>
