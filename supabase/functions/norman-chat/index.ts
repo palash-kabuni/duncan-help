@@ -4068,6 +4068,9 @@ Format as a natural, readable summary with clear sections. If a section has no d
               result = { error: `Unknown tool: ${tc.function.name}` };
           }
           
+          console.log("TOOL RESULT RAW:", result);
+          console.log("TOOL RESULT TYPE:", typeof result);
+
           const toolName = tc?.function?.name ?? "unknown_tool";
           const finalContent =
             result == null || result === ""
@@ -4075,6 +4078,12 @@ Format as a natural, readable summary with clear sections. If a section has no d
               : typeof result === "string"
                 ? result
                 : JSON.stringify(result);
+
+          console.log("ADDING TOOL MESSAGE:");
+          console.log("tool_call_id:", tc?.id);
+          console.log("tool_name:", tc?.function?.name);
+          console.log("content:", finalContent);
+          console.log("content_length:", finalContent?.length);
 
           console.log("Tool result formatted", {
             tool_name: toolName,
@@ -4093,6 +4102,14 @@ Format as a natural, readable summary with clear sections. If a section has no d
           const toolName = tc?.function?.name ?? "unknown_tool";
           const errorResult = { error: toolError.message };
           const finalContent = JSON.stringify(errorResult);
+
+          console.log("TOOL RESULT RAW:", errorResult);
+          console.log("TOOL RESULT TYPE:", typeof errorResult);
+          console.log("ADDING TOOL MESSAGE:");
+          console.log("tool_call_id:", tc?.id);
+          console.log("tool_name:", tc?.function?.name);
+          console.log("content:", finalContent);
+          console.log("content_length:", finalContent?.length);
 
           console.log("Tool result formatted", {
             tool_name: toolName,
@@ -4139,6 +4156,12 @@ Format as a natural, readable summary with clear sections. If a section has no d
               toolCalls.map(tc => tc?.function?.name),
             );
 
+            if (round > 0) {
+              console.log("FINAL LLM OUTPUT:");
+              console.log("fullContent:", fullContent);
+              console.log("length:", fullContent?.length);
+            }
+
             if (
               shouldBypassTools ||
               toolCalls.length === 0 ||
@@ -4168,6 +4191,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
               console.log(`Stopping before follow-up LLM call due to hard execution limit`);
               break;
             }
+            console.log("FINAL CONVERSATION SENT TO LLM:");
+            console.log(JSON.stringify(conversationMessages, null, 2));
             currentResponse = await fetchAIWithRetry({
               model: "gpt-4.1",
               messages: conversationMessages,
