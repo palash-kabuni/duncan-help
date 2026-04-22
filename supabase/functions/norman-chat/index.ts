@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { streamLLM } from "../_shared/llm.ts";
+import { streamLLM, type Provider, WORKFLOW_ROUTING } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -3973,7 +3973,16 @@ Format as a natural, readable summary with clear sections. If a section has no d
     }
 
     // Helper to execute tool calls and return results
-    async function executeToolCalls(toolCalls: any[]): Promise<any[]> {
+    const routedProvider: Provider = WORKFLOW_ROUTING["norman-chat"]?.primary === "claude" ? "anthropic" : "openai";
+
+    function detectToolResultProvider(toolCalls: any[]): "anthropic" | "openai" {
+      const firstToolId = toolCalls.find((tc) => typeof tc?.id === "string")?.id ?? "";
+      if (firstToolId.startsWith("toolu_")) return "anthropic";
+      if (firstToolId.startsWith("call_")) return "openai";
+      return routedProvider;
+    }
+
+    async function executeToolCalls(toolCalls: any[], provider: "anthropic" | "openai"): Promise<any[]> {
       const calendarToolNames = ["list_calendar_events", "create_calendar_event", "update_calendar_event", "delete_calendar_event"];
       const documentToolNames = ["search_documents", "read_document", "list_documents"];
       const notionToolNames = ["search_notion", "query_notion_database", "get_notion_page_content"];
@@ -4072,12 +4081,12 @@ Format as a natural, readable summary with clear sections. If a section has no d
           console.log("TOOL RESULT TYPE:", typeof result);
 
           const toolName = tc?.function?.name ?? "unknown_tool";
-          const finalContent =
-            result == null || result === ""
-              ? "No data returned"
-              : typeof result === "string"
-                ? result
-                : JSON.stringify(result);
+          const finalContent = (() => {
+            if (result == null) return "{}";
+            if (typeof result === "string") return result.length > 0 ? result : "{}";
+            const stringified = JSON.stringify(result);
+            return stringified.length > 0 ? stringified : "{}";
+          })();
 
           console.log("ADDING TOOL MESSAGE:");
           console.log("tool_call_id:", tc?.id);
@@ -4085,23 +4094,35 @@ Format as a natural, readable summary with clear sections. If a section has no d
           console.log("content:", finalContent);
           console.log("content_length:", finalContent?.length);
 
-          console.log("Tool result formatted", {
-            tool_name: toolName,
-            result,
-            contentLength: finalContent.length,
+          console.log("TOOL RESULT SENT:", {
+            provider,
+            tool_id: tc?.id,
+            content_length: finalContent.length,
           });
 
-          toolResults.push({
-            role: "tool",
-            tool_name: toolName,
-            content: finalContent,
-          });
+          if (provider === "anthropic") {
+            toolResults.push({
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: tc?.id,
+                  content: finalContent,
+                },
+              ],
+            });
+          } else {
+            toolResults.push({
+              role: "tool",
+              tool_call_id: tc?.id,
+              content: finalContent,
+            });
+          }
         } catch (error) {
           const toolError = error instanceof Error ? error : new Error(String(error));
           console.error(`Tool ${tc.function.name} threw error:`, toolError.message, toolError.stack);
-          const toolName = tc?.function?.name ?? "unknown_tool";
           const errorResult = { error: toolError.message };
-          const finalContent = JSON.stringify(errorResult);
+          const finalContent = JSON.stringify(errorResult) || "{}";
 
           console.log("TOOL RESULT RAW:", errorResult);
           console.log("TOOL RESULT TYPE:", typeof errorResult);
@@ -4111,17 +4132,30 @@ Format as a natural, readable summary with clear sections. If a section has no d
           console.log("content:", finalContent);
           console.log("content_length:", finalContent?.length);
 
-          console.log("Tool result formatted", {
-            tool_name: toolName,
-            result: errorResult,
-            contentLength: finalContent.length,
+          console.log("TOOL RESULT SENT:", {
+            provider,
+            tool_id: tc?.id,
+            content_length: finalContent.length,
           });
 
-          toolResults.push({
-            role: "tool",
-            tool_name: toolName,
-            content: finalContent,
-          });
+          if (provider === "anthropic") {
+            toolResults.push({
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: tc?.id,
+                  content: finalContent,
+                },
+              ],
+            });
+          } else {
+            toolResults.push({
+              role: "tool",
+              tool_call_id: tc?.id,
+              content: finalContent,
+            });
+          }
         }
       }
 
@@ -4177,7 +4211,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
             round++;
             console.log(`Tool call round ${round}:`, toolCalls.map(tc => tc.function.name));
 
-            const toolResults = await executeToolCalls(toolCalls);
+            const provider = detectToolResultProvider(toolCalls);
+            const toolResults = await executeToolCalls(toolCalls, provider);
 
             const assistantMsg: any = { role: "assistant", tool_calls: toolCalls };
             if (fullContent) {
