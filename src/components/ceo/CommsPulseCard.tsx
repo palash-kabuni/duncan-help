@@ -7,6 +7,8 @@ import type { EmailPulseSummary, LeadershipStatusEntry } from "./EmailPulseCard"
 
 export interface SlackPulseSummary {
   window_hours?: number;
+  degraded?: boolean;
+  degraded_reason?: string | null;
   channels_total?: number;
   channels_member?: number;
   channels_eligible?: number;
