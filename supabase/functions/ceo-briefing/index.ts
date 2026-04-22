@@ -2292,6 +2292,12 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
             ? `Slack scanned with reduced scopes — public channels only (${(slack_pulse as any)?.degraded_reason || "permission limited"}). Inbound: ${spChannelsScanned} of ${spChannelsMember} member channels (out of ${spChannelsTotal} total), ${spMessagesAnalysed} messages. Outbound: slack_notification_logs.`
             : `Inbound: scanned ${spChannelsScanned} of ${spChannelsMember} member channels (out of ${spChannelsTotal} total), ${spMessagesAnalysed} messages via ceo-slack-pulse. Outbound: slack_notification_logs. Channels Duncan is not a member of are not scanned.`)
         : `Duncan's own outbound notifications only (slack_notification_logs). Slack inbound pulse did not run on this briefing${slack_pulse_error ? ` — error: ${slack_pulse_error}` : ""}.`,
+      hubspot: hubspot_signal
+        ? `HubSpot ${hubspot_signal.status === "connected" ? "connected" : hubspot_signal.status}. Accounts scanned: ${hubspot_signal.accounts_scanned ?? 0}. ${hubspot_signal.summary || hubspot_signal.degraded_reason || "No material CRM signal returned."}`
+        : `HubSpot summary unavailable${hubspot_signal_error ? ` — error: ${hubspot_signal_error}` : ""}.`,
+      github: github_signal
+        ? `GitHub ${github_signal.status === "connected" ? "connected" : github_signal.status}. Repos scanned: ${github_signal.repos_scanned ?? 0}. ${github_signal.summary || github_signal.degraded_reason || "No material engineering signal returned."}`
+        : `GitHub summary unavailable${github_signal_error ? ` — error: ${github_signal_error}` : ""}.`,
       email: "Per-mailbox 24h scan via ceo-email-pulse for opted-in users only.",
       meetings: "Plaud-ingested transcripts via fetch-plaud-meetings (last 24h for activity, last 10 transcripts for priority signals).",
       azure_devops: "azure_work_items table — last 24h changes.",
@@ -2981,6 +2987,20 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         evidence, blockers, positive_signals: positives, confidence,
       };
 
+      if (hubspot_signal?.status && hubspot_signal.status !== "connected") {
+        company_pulse_status.blockers.push(`Commercial visibility reduced — HubSpot is ${hubspot_signal.status}${hubspot_signal.degraded_reason ? ` (${hubspot_signal.degraded_reason})` : ""}.`);
+      } else if (hubspot_signal?.summary) {
+        company_pulse_status.evidence.push(`HubSpot: ${hubspot_signal.summary}`);
+      }
+      if (github_signal?.status && github_signal.status !== "connected") {
+        company_pulse_status.blockers.push(`Engineering delivery visibility reduced — GitHub is ${github_signal.status}${github_signal.degraded_reason ? ` (${github_signal.degraded_reason})` : ""}.`);
+      } else if (github_signal?.summary) {
+        company_pulse_status.evidence.push(`GitHub: ${github_signal.summary}`);
+      }
+      if (slack_pulse?.degraded && slack_pulse?.degraded_codes?.length) {
+        company_pulse_status.blockers.push(`Slack visibility is partial — ${slack_pulse.degraded_codes.join(", ")}.`);
+      }
+
       parsed.payload.company_pulse_status = company_pulse_status;
 
       // Force company_pulse prose to begin with the server status + reason.
@@ -3301,9 +3321,11 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
 
       parsed.payload.friction = friction;
 
-      // Build sources_unavailable honestly (HubSpot always; Slack only if it never returned)
-      const sourcesUnavailable: string[] = ["hubspot"];
+      // Build sources_unavailable honestly from actual fetch outcomes.
+      const sourcesUnavailable: string[] = [];
       if (!slack_pulse) sourcesUnavailable.push("slack_inbound");
+      if (!hubspot_signal || hubspot_signal?.status !== "connected" || !hubspot_signal?.summary) sourcesUnavailable.push("hubspot");
+      if (!github_signal || github_signal?.status !== "connected" || !github_signal?.summary) sourcesUnavailable.push("github");
 
       // Per-pass tally from the LLM-emitted friction items (best-effort)
       const passTally = { A: 0, B: 0, C: 0, D: 0, unspecified: 0 };
@@ -3321,6 +3343,8 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         sources_unavailable: sourcesUnavailable,
         slack_pulse_error: slack_pulse_error || null,
         email_pulse_error: email_pulse_error || null,
+        hubspot_signal_error: hubspot_signal_error || null,
+        github_signal_error: github_signal_error || null,
         scanned: {
           workstream_cards: Array.isArray(cards) ? (cards as any[]).length : 0,
           azure_work_items: Array.isArray(workItems) ? workItems.length : 0,
