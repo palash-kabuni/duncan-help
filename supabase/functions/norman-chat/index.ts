@@ -3994,7 +3994,25 @@ Format as a natural, readable summary with clear sections. If a section has no d
 
       for (const tc of toolCalls) {
         try {
-          const args = JSON.parse(tc.function.arguments);
+          const rawArguments = tc?.function?.arguments;
+          let args: any = {};
+
+          if (typeof rawArguments === "string" && rawArguments.trim().length > 0) {
+            try {
+              args = JSON.parse(rawArguments);
+            } catch {
+              args = {};
+            }
+          } else {
+            args = {};
+          }
+
+          console.log("Executing tool call", {
+            toolName: tc?.function?.name,
+            rawArguments,
+            parsedArgs: args,
+          });
+
           let result: any;
           
           if (calendarToolNames.includes(tc.function.name)) {
