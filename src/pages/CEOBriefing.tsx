@@ -11,7 +11,7 @@ import { useCEOBriefing } from "@/hooks/useCEOBriefing";
 import { Progress } from "@/components/ui/progress";
 import PulseBanner from "@/components/ceo/PulseBanner";
 import RiskRadar from "@/components/ceo/RiskRadar";
-import LeadershipGrid from "@/components/ceo/LeadershipGrid";
+
 import TldrPanel from "@/components/ceo/TldrPanel";
 import CoverageGaps from "@/components/ceo/CoverageGaps";
 import CompanyPulseCard, { type CompanyPulseStatus } from "@/components/ceo/CompanyPulseCard";
