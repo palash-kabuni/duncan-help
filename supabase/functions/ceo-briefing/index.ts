@@ -3010,15 +3010,15 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         evidence, blockers, positive_signals: positives, confidence,
       };
 
-      if (hubspot_signal?.status && hubspot_signal.status !== "connected") {
-        company_pulse_status.blockers.push(`Commercial visibility reduced — HubSpot is ${hubspot_signal.status}${hubspot_signal.degraded_reason ? ` (${hubspot_signal.degraded_reason})` : ""}.`);
-      } else if (hubspot_signal?.summary) {
-        company_pulse_status.evidence.push(`HubSpot: ${hubspot_signal.summary}`);
+      if (normalizedHubspotSignal.status !== "connected") {
+        company_pulse_status.blockers.push(`Commercial visibility reduced — HubSpot is ${normalizedHubspotSignal.status}${normalizedHubspotSignal.degraded_reason ? ` (${normalizedHubspotSignal.degraded_reason})` : ""}.`);
+      } else if (normalizedHubspotSignal.summary) {
+        company_pulse_status.evidence.push(`HubSpot: ${normalizedHubspotSignal.summary}`);
       }
-      if (github_signal?.status && github_signal.status !== "connected") {
-        company_pulse_status.blockers.push(`Engineering delivery visibility reduced — GitHub is ${github_signal.status}${github_signal.degraded_reason ? ` (${github_signal.degraded_reason})` : ""}.`);
-      } else if (github_signal?.summary) {
-        company_pulse_status.evidence.push(`GitHub: ${github_signal.summary}`);
+      if (normalizedGithubSignal.status !== "connected") {
+        company_pulse_status.blockers.push(`Engineering delivery visibility reduced — GitHub is ${normalizedGithubSignal.status}${normalizedGithubSignal.degraded_reason ? ` (${normalizedGithubSignal.degraded_reason})` : ""}.`);
+      } else if (normalizedGithubSignal.summary) {
+        company_pulse_status.evidence.push(`GitHub: ${normalizedGithubSignal.summary}`);
       }
       if (slack_pulse?.degraded && slack_pulse?.degraded_codes?.length) {
         company_pulse_status.blockers.push(`Slack visibility is partial — ${slack_pulse.degraded_codes.join(", ")}.`);
@@ -3347,8 +3347,8 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
       // Build sources_unavailable honestly from actual fetch outcomes.
       const sourcesUnavailable: string[] = [];
       if (!slack_pulse) sourcesUnavailable.push("slack_inbound");
-      if (!hubspot_signal || hubspot_signal?.status !== "connected" || !hubspot_signal?.summary) sourcesUnavailable.push("hubspot");
-      if (!github_signal || github_signal?.status !== "connected" || !github_signal?.summary) sourcesUnavailable.push("github");
+      if (normalizedHubspotSignal.status !== "connected" || !normalizedHubspotSignal.summary) sourcesUnavailable.push("hubspot");
+      if (normalizedGithubSignal.status !== "connected" || !normalizedGithubSignal.summary) sourcesUnavailable.push("github");
 
       // Per-pass tally from the LLM-emitted friction items (best-effort)
       const passTally = { A: 0, B: 0, C: 0, D: 0, unspecified: 0 };
@@ -3694,27 +3694,27 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
 
     parsed.payload = parsed.payload || {};
     parsed.payload.hubspot_signal = {
-      status: hubspot_signal?.status ?? "not_configured",
-      connected: hubspot_signal?.connected ?? false,
-      accounts_scanned: hubspot_signal?.accounts_scanned ?? 0,
-      stale_deals: hubspot_signal?.stale_deals ?? 0,
-      at_risk_accounts: hubspot_signal?.at_risk_accounts ?? 0,
-      escalations: hubspot_signal?.customer_escalations ?? 0,
-      signals: hubspot_signal?.signals ?? [],
-      summary: hubspot_signal?.summary ?? null,
-      degraded_reason: hubspot_signal?.degraded_reason ?? hubspot_signal_error ?? null,
+      status: normalizedHubspotSignal.status,
+      connected: normalizedHubspotSignal.connected,
+      accounts_scanned: normalizedHubspotSignal.accounts_scanned,
+      stale_deals: normalizedHubspotSignal.stale_deals,
+      at_risk_accounts: normalizedHubspotSignal.at_risk_accounts,
+      escalations: normalizedHubspotSignal.customer_escalations,
+      signals: normalizedHubspotSignal.signals,
+      summary: normalizedHubspotSignal.summary,
+      degraded_reason: normalizedHubspotSignal.degraded_reason,
     };
     parsed.payload.github_signal = {
-      status: github_signal?.status ?? "not_configured",
-      connected: github_signal?.connected ?? false,
-      repos_scanned: github_signal?.repos_scanned ?? 0,
-      open_prs: github_signal?.open_prs ?? 0,
-      blocked_prs: github_signal?.blocked_prs ?? 0,
-      stale_prs: github_signal?.stale_prs ?? 0,
-      release_risks: github_signal?.release_risks ?? 0,
-      signals: github_signal?.signals ?? [],
-      summary: github_signal?.summary ?? null,
-      degraded_reason: github_signal?.degraded_reason ?? github_signal_error ?? null,
+      status: normalizedGithubSignal.status,
+      connected: normalizedGithubSignal.connected,
+      repos_scanned: normalizedGithubSignal.repos_scanned,
+      open_prs: normalizedGithubSignal.open_prs,
+      blocked_prs: normalizedGithubSignal.blocked_prs,
+      stale_prs: normalizedGithubSignal.stale_prs,
+      release_risks: normalizedGithubSignal.release_risks,
+      signals: normalizedGithubSignal.signals,
+      summary: normalizedGithubSignal.summary,
+      degraded_reason: normalizedGithubSignal.degraded_reason,
     };
 
     // ─── Automation Progress: ground in server data + recommendation floor ──
