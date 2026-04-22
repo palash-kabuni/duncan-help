@@ -1,369 +1,225 @@
 
-## Team Briefing read-only audit
+## Quick sanity check: current state
 
-### Executive summary
-Team Briefing is a hybrid pipeline centered on `supabase/functions/ceo-briefing/index.ts`. It pulls deterministic evidence from database tables and integration proxies, sends a compressed context to the LLM, then aggressively post-processes the output with server-side guardrails before persisting to `ceo_briefings`. Today the system is functioning, but evidence quality is structurally capped by sparse workstream coverage, thin artifact coverage in `project_files`, and limited inbound comms coverage. The latest live row shows:
-- `coverage_summary`: **1 of 6 priorities covered** (`ratio: 0.17`)
-- `confidence_cap`: **low**
-- headline forced to **30% probability / 35 execution**
-- trajectory: **Off Track**
+### What looks healthy
+- **General chat persistence** is alive: `general_chats` has fresh rows updated today.
+- **Daily briefing endpoint** is responding: `daily-briefing` returned `200` and correctly reported `already_shown_today`.
+- **Team Briefing background jobs** are completing: latest `ceo_briefing_jobs` rows are `completed`, `progress=100`.
+- **Prompt engine backend exists and is active**: `supabase/functions/norman-chat/index.ts` is the main Duncan runtime, and recent logs show `[llm] workflow=norman-chat ... status=ok stream=open`.
+
+### What looks broken or risky right now
+1. **Dead external API fallback is still wired into the app**
+   - `src/lib/apiConfig.ts`
+   - `src/lib/apiClient.ts`
+   - `src/lib/fastApiClient.ts`
+   - `src/hooks/useAuthSync.ts`
+   - multiple `src/lib/api/*.ts` wrappers
+
+   These still default to:
+   ```ts
+   https://unsnap-reappoint-defame.ngrok-free.dev
+   ```
+   That is almost certainly stale. The browser console already shows:
+   - `[AuthSync] SIGNED_IN → failed to reach FastAPI`
+   - `TypeError: Failed to fetch`
+
+   So even if Duncan chat itself uses edge functions, a large set of other features/endpoints can silently fail or degrade because they still hit the dead ngrok URL.
+
+2. **Prompt engine path is split across two architectures**
+   - Main homepage chat uses `src/hooks/useNormanChat.ts` → direct edge function call to `/functions/v1/norman-chat`
+   - Many other features still use `apiClient` / `fastApiClient` wrappers → dead external base URL unless explicitly configured
+
+   Result: “Duncan isn’t working” can be true for some surfaces while others still work.
+
+3. **Prompt engine response path needs deeper live validation**
+   - `norman-chat` direct test did not return a clean response in the read-only check; it ended with a canceled request while daily-briefing worked.
+   - That points to a likely **streaming / long-running / client-consumption issue** rather than the endpoint being totally absent.
+
+4. **Team Briefing UI has React warnings**
+   - Console shows:
+     - `Function components cannot be given refs`
+     - pointing at `CEOBriefing`, `Section`, and `LovableContributorsCard`
+   - Not the root cause of Duncan failure, but it is a real frontend issue on `/team-briefing`.
 
 ---
 
-## 1) Current architecture
+## Likely root causes behind “Duncan not responding as well”
 
-### Entry points
-- UI route: `src/pages/CEOBriefing.tsx` mounted at `/team-briefing` (`src/App.tsx`)
-- Frontend hook: `src/hooks/useCEOBriefing.ts`
-  - loads latest two `ceo_briefings`
-  - invokes `ceo-briefing`
-  - polls `ceo-briefing-status`
-- Generator edge function: `supabase/functions/ceo-briefing/index.ts`
-- Job-status edge function: `supabase/functions/ceo-briefing-status/index.ts`
+### Root cause A — stale external backend dependency
+The biggest concrete issue is the old FastAPI/ngrok base URL still embedded as the fallback/default transport for many app features. That affects:
+- auth sync
+- integrations auth/disconnect flows
+- file/document helpers
+- recruitment API wrappers
+- chat-adjacent API wrappers
+- any page using `fastApi(...)`, `withFastApi(...)`, or `apiClient`
 
-### Pipeline
-```text
-UI button
-→ ceo-briefing
-→ create ceo_briefing_jobs row
-→ background worker (EdgeRuntime.waitUntil)
-→ gather DB + integration evidence
-→ call LLM
-→ apply deterministic guardrails / fallback logic
-→ upsert ceo_briefings
-→ ceo-briefing-status polled by UI
-→ render payload sections
-```
+### Root cause B — mixed transport architecture
+The app is half on:
+- **edge functions**
+and half on:
+- **external HTTP backend wrappers**
 
-### Services/functions used by Team Briefing
+That means reliability depends on which path each feature happens to use.
+
+### Root cause C — streaming prompt-engine behavior not fully hardened
+`useNormanChat.ts` expects clean SSE token streaming from `norman-chat`. The backend is complex:
+- builds tools
+- streams model output
+- parses tool calls
+- executes tools
+- continues reasoning
+
+That path is functional in code, but needs a focused end-to-end validation pass because it is the most likely place for intermittent “not responding” reports.
+
+---
+
+## What to implement next
+
+### 1. Stabilize transport layer
+Replace or neutralize the stale ngrok dependency so the app no longer relies on a dead external backend by default.
+
+Files to update:
+- `src/lib/apiConfig.ts`
+- `src/lib/apiClient.ts`
+- `src/lib/fastApiClient.ts`
+- `src/hooks/useAuthSync.ts`
+- `src/lib/duncanApi.ts`
+- `src/lib/api/*.ts`
+- any page/hook using `fastApi(...)` or `withFastApi(...)`
+
+Goal:
+- edge-function-backed features should call Lovable Cloud directly
+- external backend calls should only happen if explicitly configured and healthy
+- silent failures should no longer be treated as normal
+
+### 2. Do a full endpoint sanity matrix
+Validate each live endpoint path the app depends on, grouped by feature:
+
+#### Core Duncan
+- `norman-chat`
+- `extract-chat-file`
+- `daily-briefing`
+
+#### Team Briefing
 - `ceo-briefing`
 - `ceo-briefing-status`
 - `ceo-email-pulse`
 - `ceo-slack-pulse`
-- shared LLM router: `supabase/functions/_shared/llm.ts`
+
+#### Google
+- `gmail-api`
+- `gmail-auth`
+- `google-calendar-api`
+- `google-calendar-auth`
+- `google-drive-api`
+- `google-drive-auth`
+
+#### Ops / project systems
+- `azure-devops-api`
+- `azure-devops-auth`
+- `basecamp-api`
+- `basecamp-auth`
+- `xero-api`
+- `xero-auth`
+
+#### Project workspace
+- `create-project`
+- `create-project-chat`
+- `get-project-chats`
+- `upload-project-file`
+- `extract-file-text`
+- `chat-with-project-context`
+
+For each one:
+- auth behavior
+- expected response shape
+- current failure mode
+- frontend caller location
+
+### 3. Harden prompt engine E2E
+Focus on the full Duncan message flow:
+
+```text
+Index.tsx
+→ useNormanChat.ts
+→ /functions/v1/norman-chat
+→ streamLLM()
+→ tool-call loop
+→ streamed SSE back to client
+→ UI render + persistence
+```
+
+Implementation goals:
+- detect empty/aborted streams explicitly
+- surface real toast/error states instead of silently appending a generic warning into chat
+- verify tool-call continuation works after first LLM response
+- confirm auth token handling is consistent
+- ensure chat save timing does not race with stream completion
+
+### 4. Remove hidden failure paths in frontend wrappers
+Right now several wrappers can fail in ways users experience as “nothing happened”.
+Add consistent behavior across:
+- loading states
+- timeout handling
+- non-2xx surfacing
+- auth-expired handling
+- user-visible error messages
+
+Primary targets:
+- `src/hooks/useNormanChat.ts`
+- `src/lib/apiClient.ts`
+- `src/lib/fastApiClient.ts`
+- integration hooks/pages
+
+### 5. Fix Team Briefing page warnings
+Address the ref warning in:
+- `src/pages/CEOBriefing.tsx`
+- `src/components/ceo/LovableContributorsCard.tsx`
+
+Goal:
+- remove invalid ref usage
+- keep `/team-briefing` clean while debugging broader Duncan issues
+
+### 6. Add minimum observability for future incidents
+Add clearer runtime logging around:
+- chat request start/end
+- stream opened / first token / completed / aborted
+- tool call count
+- tool execution failures
+- endpoint-specific failures in frontend transport
+
+This is necessary so future “Duncan is not working” reports can be tied to:
+- dead transport
+- auth failure
+- token refresh issue
+- tool call failure
+- model timeout
+- frontend SSE parse issue
 
 ---
 
-## 2) Data flow and processing
+## Priority order
 
-### Gathered sources inside `ceo-briefing`
-Main fetch block: around lines `1136-1169` in `supabase/functions/ceo-briefing/index.ts`.
+### P0
+1. Remove stale ngrok dependency from active client flows
+2. Validate `norman-chat` end-to-end
+3. Validate all currently used feature endpoints
 
-It reads:
-- `meetings`
-- `workstream_cards`
-- `workstream_activity`
-- `azure_work_items`
-- `releases`
-- `candidates`
-- `purchase_orders`
-- `issues`
-- `sync_logs`
-- `profiles`
-- previous `ceo_briefings`
-- `slack_notification_logs`
-- `token_usage`
-- `xero_invoices`
-- `xero_contacts`
-- `integration_audit_logs`
-- full open `workstream_cards` set
-- full `azure_work_items` set
-- latest 10 transcript-bearing meetings
-- `project_files`
+### P1
+4. Standardize frontend error handling for endpoint failures
+5. Fix Team Briefing console/ref issues
 
-### Comms pulse side-calls
-`ceo-briefing` also invokes:
-- `ceo-email-pulse`
-- `ceo-slack-pulse`
-
-Those produce structured summaries later copied into:
-- `payload.email_pulse`
-- `payload.slack_pulse`
-
-### AI vs deterministic split
-Deterministic:
-- available workstreams
-- priority coverage detection
-- transcript priority signal scan
-- data coverage audit
-- confidence caps
-- company pulse R/Y/G
-- risk reconciliation
-- friction filtering
-- decisions floor
-- watchlist
-- adoption metrics
-- persistence and job orchestration
-
-AI-authored first draft:
-- `tldr`
-- `what_changed`
-- `risks`
-- `friction`
-- `leadership`
-- `decisions`
-- `automation`
-- `document_intelligence`
-- `missing_artifacts_recommendations`
-- narrative prose fields
-
-Server then rewrites/clamps many of these.
+### P2
+6. Improve observability for prompt-engine quality/debugging
 
 ---
 
-## 3) Data model and scoring
+## Expected outcome
+After this pass, Duncan should have:
+- one reliable transport path
+- predictable endpoint behavior
+- clearer failures instead of silent degradation
+- a verified prompt-engine streaming path
+- fewer false reports caused by old backend wiring
 
-### Priorities and workstreams
-Canonical priorities are hardcoded in `PRIORITY_DEFINITIONS` in `ceo-briefing/index.ts`:
-1. Lightning Strike India
-2. 1M KPL registrations
-3. Trials
-4. 10-team selection
-5. 100k pre-orders
-6. Duncan automates 25%
-
-### Workstream representation
-`available_workstreams` is the union of:
-- `workstream_cards.project_tag`
-- `azure_work_items.project_name`
-
-Current live state:
-- only **3 active workstream tags**
-- only **1 priority** matches aliases: `Lightning Strike Event`
-
-### Coverage computation
-Function: `detectCoverage(...)` around lines `1007-1034`
-- matches priority aliases only against available workstream names
-- never against card titles
-- first match wins
-- server rebuilds `payload.coverage_gaps`
-- server sets `payload.coverage_summary`
-
-### Probability / execution / confidence cap
-1. **Coverage clamp**
-   - if `coverage_ratio < 0.5`
-   - probability capped to `35`
-   - execution capped to `40`
-   - trajectory forced to `At Risk` or `Off Track`
-   - implemented around `2221-2241`
-
-2. **Data coverage cap**
-   - from `computeDataCoverage(...)`
-   - if 1+ critical red domain → cap `medium`
-   - if 3+ red domains or both `finance_planning` + `technology_direction` red → cap `low`
-   - then stronger cap wins
-   - implemented around `2243-2279`, `980-1004`
-
-3. **Current live outcome**
-   - workstream coverage clamp + data coverage cap stack down to:
-   - **30% probability / 35 execution / low confidence**
-
-### Company Pulse
-Deterministic in lines `2857-2971`
-- **Green**: full coverage, no blockers, recent execution evidence
-- **Red**: coverage < 0.5, or Lightning Strike untracked, or 2+ silent priorities, or 2+ major blockers
-- **Yellow**: everything else
-
-### Risk model
-- AI proposes risks
-- server injects silent-priority risks if missing
-- server upgrades severity if headline is red but radar lacks high/critical
-- server reconciles `sum(probability_impact_pts)` to `100 - outcome_probability`
-- output stored in `payload.risk_reconciliation`
-
-### Fallback / deterministic mode / truncation
-If model output is truncated:
-- try compact retry
-- then ultra-compact retry
-- then deterministic fallback object via `buildDeterministicFallback()`
-- implemented around `1906-2051`
-- saved generation metadata goes into `payload.generation_meta`
-
----
-
-## 4) Source coverage audit
-
-### Active sources today
-From `company_integrations` and live tables:
-- Azure DevOps: connected, last sync `2026-04-22 07:28`, 1492 items
-- Gmail: connected, 11 tokens, 8 opted-in mailboxes
-- Google Drive: connected, 1 token, last token update `2026-04-19`
-- Xero: connected, last sync `2026-04-22 06:00`, 353 invoices
-- Notion: connected, but not used in Team Briefing pipeline
-- Slack connector: linked to project via workspace connector; not represented in `company_integrations`
-
-### Entities/signals used
-- Workstreams: card updates, owners, RAG baseline
-- Azure: work item title/state/assignee/project
-- Meetings: title, summary, transcript, participants
-- Files: `project_files.file_name` and `extracted_text` only indirectly for doc review
-- Gmail pulse: commitments, risks, escalations, board mentions, customer issues, silent leaders
-- Slack pulse: commitments, escalations, confusion, customer issues, risks, channel coverage metadata
-- Xero: invoices + overdue contacts
-- Token usage: adoption/leverage metrics
-- Issues/sync logs/releases/POs: supporting evidence
-
-### Freshness logic
-- primary activity window: last 24h
-- transcript priority scan: last 10 meetings with transcripts
-- calendar enrichment: last 7 days
-- token usage: last 30 days
-- workstream coverage uses full open set, not just 24h
-
-### Live blind spots causing low-evidence briefings
-- only **1/6 priorities** mapped to workstreams
-- only **5 project files** total
-- strategic artifact coverage only **9%**
-- 8 domains effectively missing/under-covered in latest row
-- Slack inbound scan currently sees **0 member channels scanned out of 83 total**
-- Google Drive is connected, but Team Briefing does **not** query Drive directly; it only sees what has already been uploaded into `project_files`
-- no HubSpot ingestion in briefing
-- no GitHub ingestion in briefing
-- friction meta explicitly marks `hubspot` as unavailable
-
----
-
-## 5) Integration health status
-
-### Google Drive: exact current failure points
-Drive auth/proxy exists:
-- `google-drive-auth/index.ts`
-- `google-drive-callback/index.ts`
-- `google-drive-api/index.ts`
-
-What works today:
-- one shared token exists in `google_drive_tokens`
-- Drive files can be listed/read via the proxy and Norman tools
-
-Why it still does not improve Team Briefing much:
-1. Team Briefing does **not** read Drive directly
-2. `computeDataCoverage()` relies on `project_files` plus meeting titles, not live Drive contents
-3. current `project_files` inventory is only **5 files**
-4. the callback deletes all existing drive tokens and stores a singleton token, so coverage is effectively shared/sparse rather than broad per-user evidence
-5. no live logs surfaced for drive functions in analytics during this audit
-
-So the issue is less “Drive auth broken” and more “Drive evidence is not feeding the briefing unless documents are uploaded into `project_files`.”
-
-### Slack
-What exists:
-- Slack connector linked to project
-- configured scopes currently include:
-  - `channels:history`, `channels:read`, `chat:write`, `chat:write.customize`, `groups:history`, `im:read`, `im:write`, `mpim:*`
-- `ceo-slack-pulse` scans public channels through the connector gateway
-- outbound events also exist in `slack_notification_logs`
-
-What is limiting it:
-- current connector config lacks `groups:read`
-- code intentionally lists only `public_channel`
-- latest briefing provenance: scanned **0 of 0 member channels** out of **83 total**
-- bot is not in relevant channels, so no inbound evidence is available
-
-### GitHub
-- No GitHub connector, no GitHub tables, no GitHub ingestion in Team Briefing code found
-
-### HubSpot
-- No HubSpot integration path in Team Briefing
-- `ceo-briefing` explicitly includes `hubspot` in unavailable sources for friction metadata
-- no HubSpot tables/functions found in briefing path
-
----
-
-## 6) Reliability and observability audit
-
-### Error handling / retry
-- background job heartbeat every 25s
-- stale jobs >5 min marked failed
-- safe DB wrapper returns `[]` on read failures
-- email tokens refresh automatically
-- drive tokens refresh automatically
-- calendar tokens refresh inline
-- LLM has cross-provider routing/fallback in `_shared/llm.ts`
-- truncation retries: normal → compact → ultra-compact → deterministic fallback
-
-### Rate-limit / timeout handling
-- LLM router timeout override for `ceo-briefing`: 240s
-- provider failover OpenAI/Claude
-- no deep backoff queue for briefing itself
-- Slack/email extraction failures mostly degrade to empty arrays rather than fail the briefing
-
-### Logging/metrics available
-- `ceo_briefing_jobs` status/progress/phase/error
-- `ceo_briefings.payload.generation_meta`
-- `payload.source_provenance`
-- `payload.friction_meta`
-- `payload.risk_reconciliation`
-- `payload.decisions_meta`
-- `sync_logs`
-- integration table freshness markers
-
-Observed observability weakness:
-- `edge_function_logs` and analytics returned no recent logs for briefing/pulse functions during this audit, so debugging depends heavily on persisted payload metadata rather than runtime traces
-
----
-
-## 7) Top 10 highest-impact fixes (impact vs effort)
-
-1. **Expand real workstream coverage from 1/6 priorities to all 6**
-   - Impact: extreme
-   - Effort: medium
-
-2. **Feed strategic documents into `project_files` at scale**
-   - Impact: extreme
-   - Effort: medium
-
-3. **Wire Team Briefing to live Google Drive evidence instead of relying mainly on uploaded `project_files`**
-   - Impact: very high
-   - Effort: medium-high
-
-4. **Get Slack bot into relevant channels so inbound pulse scans real conversations**
-   - Impact: very high
-   - Effort: low operational / medium coordination
-
-5. **Add missing source domains now explicitly absent (`hubspot`, likely GitHub/product-engineering signals)**
-   - Impact: very high
-   - Effort: high
-
-6. **Persist richer provenance and runtime logs for each briefing run**
-   - Impact: high
-   - Effort: low-medium
-
-7. **Strengthen document-intelligence grounding beyond filename/title heuristics**
-   - Impact: high
-   - Effort: medium
-
-8. **Replace sparse singleton/shared Drive token model with explicit evidence ingestion workflow**
-   - Impact: high
-   - Effort: medium
-
-9. **Improve freshness surfacing per source directly in payload/UI**
-   - Impact: medium-high
-   - Effort: low
-
-10. **Add clearer failure counters for email/slack/calendar token refresh and extraction degradation**
-   - Impact: medium
-   - Effort: low
-
----
-
-## 8) Required 4–6 fixes for MVP readiness
-
-These are the minimum blockers before Team Briefing can be considered MVP-ready as a reliable decision surface:
-
-1. **Complete priority-to-workstream coverage**
-2. **Populate strategic artifact evidence so confidence cap can move above low**
-3. **Restore useful Slack inbound coverage (membership + scanable channels)**
-4. **Make Google Drive evidence materially feed briefing scoring, not sit adjacent to it**
-5. **Add at least one missing major commercial system now absent from the briefing evidence graph (HubSpot first)**
-6. **Improve observability for why each run became low-confidence, degraded, or fallback**
-
----
-
-## Bottom line
-Team Briefing today is architecturally solid but evidence-starved. The system is already designed to be brutally honest: deterministic clamps, confidence caps, transcript-based untracked-signal detection, server-side company pulse, and fallback handling all work as intended. The low-confidence output is not mainly a model-quality problem. It is a source-coverage problem:
-- too few mapped workstreams
-- too few strategic artifacts
-- almost no inbound Slack visibility
-- no HubSpot/GitHub evidence
-- Google Drive connected but not deeply feeding the briefing
-
-That is why the latest briefing is correctly landing as low-evidence and Off Track.
