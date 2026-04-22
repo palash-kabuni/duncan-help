@@ -3507,7 +3507,35 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
       };
     }
 
-    // ─── Automation Progress: ground in server data + recommendation floor ──
+    if (slack_pulse) {
+      const sigs = slack_pulse.signals || {};
+      const commitments = Array.isArray(sigs.commitments) ? sigs.commitments : [];
+      const risks = Array.isArray(sigs.risks) ? sigs.risks : [];
+      const unowned = commitments.filter((c: any) => !c.owner || String(c.owner).trim() === "" || /unknown|tbd|n\/?a/i.test(String(c.owner))).length;
+      const critical = risks.filter((r: any) => /critical|high/i.test(String(r.severity || ""))).length;
+
+      parsed.payload = parsed.payload || {};
+      parsed.payload.slack_pulse = {
+        window_hours: slack_pulse.window_hours ?? 24,
+        channels_total: slack_pulse.channels_total ?? 0,
+        channels_member: slack_pulse.channels_member ?? 0,
+        channels_eligible: slack_pulse.channels_eligible ?? 0,
+        channels_scanned: slack_pulse.channels_scanned ?? 0,
+        messages_analysed: slack_pulse.messages_analysed ?? 0,
+        per_channel: slack_pulse.per_channel ?? [],
+        silent_channels: slack_pulse.silent_channels ?? [],
+        not_member_channels: slack_pulse.not_member_channels ?? [],
+        counts: {
+          commitments: commitments.length,
+          unowned_commitments: unowned,
+          escalations: Array.isArray(sigs.escalations) ? sigs.escalations.length : 0,
+          confusion: Array.isArray(sigs.confusion) ? sigs.confusion.length : 0,
+          customer_issues: Array.isArray(sigs.customer_issues) ? sigs.customer_issues.length : 0,
+          risks: risks.length,
+          critical_risks: critical,
+        },
+      };
+    }
     if (briefing_type === "morning") {
       parsed.payload = parsed.payload || {};
       const ap = (parsed.payload.automation_progress && typeof parsed.payload.automation_progress === "object")
