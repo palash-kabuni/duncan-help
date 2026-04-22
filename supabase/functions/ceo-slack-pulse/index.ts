@@ -71,25 +71,52 @@ async function slackCall(
   return data;
 }
 
-async function listAllChannels(apiKey: string, lovableKey: string): Promise<SlackChannel[]> {
+async function listAllChannels(
+  apiKey: string,
+  lovableKey: string,
+): Promise<{ channels: SlackChannel[]; degraded: boolean; degraded_reason: string | null }> {
   const all: SlackChannel[] = [];
   let cursor = "";
   let pages = 0;
+  let degraded = false;
+  let degraded_reason: string | null = null;
+  // Public channels only — `private_channel` requires `groups:read` scope which the
+  // bot does not currently have. Including it causes Slack to throw `missing_scope`
+  // and the whole pulse to fail. Private channel scanning is gated on an explicit
+  // scope decision (see CEO briefing plan).
   do {
     const params: Record<string, string> = {
-      types: "public_channel,private_channel",
+      types: "public_channel",
       exclude_archived: "true",
       limit: "200",
     };
     if (cursor) params.cursor = cursor;
-    const data = await slackCall("conversations.list", params, apiKey, lovableKey);
-    if (!data.ok) throw new Error(`conversations.list error: ${data.error || "unknown"}`);
-    for (const c of (data.channels || []) as SlackChannel[]) all.push(c);
-    cursor = data.response_metadata?.next_cursor || "";
+    try {
+      const data = await slackCall("conversations.list", params, apiKey, lovableKey);
+      if (!data.ok) {
+        const err = String(data.error || "unknown");
+        if (err === "missing_scope" || err === "not_authed" || err === "invalid_auth") {
+          degraded = true;
+          degraded_reason = `conversations.list returned ${err} — connector scopes insufficient`;
+          break;
+        }
+        throw new Error(`conversations.list error: ${err}`);
+      }
+      for (const c of (data.channels || []) as SlackChannel[]) all.push(c);
+      cursor = data.response_metadata?.next_cursor || "";
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      if (/missing_scope|not_authed|invalid_auth|not_in_channel/i.test(msg)) {
+        degraded = true;
+        degraded_reason = `conversations.list permission error — ${msg.slice(0, 200)}`;
+        break;
+      }
+      throw e;
+    }
     pages++;
     if (pages > 10) break; // safety
   } while (cursor);
-  return all;
+  return { channels: all, degraded, degraded_reason };
 }
 
 async function fetchChannelHistory(
@@ -281,7 +308,33 @@ Deno.serve(async (req) => {
     const botUserId = await getBotUserId(SLACK_API_KEY, LOVABLE_API_KEY);
 
     // 1. Discover channels
-    const allChannels = await listAllChannels(SLACK_API_KEY, LOVABLE_API_KEY);
+    let allChannels: SlackChannel[] = [];
+    let degraded = false;
+    let degraded_reason: string | null = null;
+    try {
+      const listed = await listAllChannels(SLACK_API_KEY, LOVABLE_API_KEY);
+      allChannels = listed.channels;
+      degraded = listed.degraded;
+      degraded_reason = listed.degraded_reason;
+    } catch (e: any) {
+      console.error("listAllChannels failed:", e);
+      return json({
+        ok: true,
+        degraded: true,
+        degraded_reason: `channel listing failed: ${e?.message || String(e)}`,
+        window_hours: 24,
+        channels_total: 0,
+        channels_member: 0,
+        channels_eligible: 0,
+        channels_scanned: 0,
+        messages_analysed: 0,
+        not_member_channels: [],
+        per_channel: [],
+        silent_channels: [],
+        signals: emptySignals(),
+        generated_at: new Date().toISOString(),
+      });
+    }
     const memberChannels = allChannels.filter((c) => c.is_member && !c.is_archived);
 
     // Cap to top N by member count as a proxy for activity
