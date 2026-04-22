@@ -106,7 +106,7 @@ const MORNING_SCHEMA_HINT = `Return STRICT JSON with this exact shape:
       "confidence": number,
       "probability_impact_pts": number
     }],
-    "friction": [{"issue": string, "teams": string[], "consequence": string, "evidence_source": "workstream_card"|"meeting"|"email"|"coverage_gap"|"silent_leader"|"doc_conflict", "recommended_resolver": string, "auto_injected": boolean}],
+    "friction": [{"issue": string, "description": string, "teams": string[], "systems": [("workstream"|"azure"|"meeting"|"calendar"|"xero"|"release"|"document"|"email")], "why_friction": string, "evidence": string, "business_impact": string, "urgency": "red"|"yellow"|"green", "next_action": string, "suggested_owner": string, "friction_score": number, "consequence": string, "evidence_source": "workstream_card"|"meeting"|"coverage_gap"|"silent_leader"|"doc_conflict"|"azure"|"xero"|"calendar", "recommended_resolver": string, "auto_injected": boolean}],
     "leadership": [{"name": string, "role": string, "output_vs_expectation": string, "risk_level": "low"|"medium"|"high", "blocking": string, "needs_support": string, "ceo_intervention_required": boolean, "signal_status": "active"|"low_signal"|"silent", "evidence_sources": [("meetings"|"workstreams"|"azure"|"releases"|"calendar"|"email"|"transcript")]}],
     "_watchlist_note": "watchlist is computed server-side from cards + Azure + priorities — do not emit",
     "decisions": [{"decision": string, "why_it_matters": string, "consequence": string, "who_to_involve": string, "confidence": "high"|"medium"|"low", "blocked_by_missing_data": string|null, "evidence_source": "coverage_gap"|"silent_priority"|"risk"|"friction"|"email"|"silent_leader"|"data_blind_spot"|"workstream"|null, "auto_injected": boolean}],
