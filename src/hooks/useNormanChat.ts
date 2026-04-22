@@ -19,6 +19,14 @@ const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/norman-chat`
 const EXTRACT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/extract-chat-file`;
 const CHAT_REQUEST_TIMEOUT_MS = 90_000;
 
+function getChatErrorMessage(error: unknown) {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return "Duncan took too long to respond, so the request was stopped. Please try again.";
+  }
+
+  return error instanceof Error ? error.message : "Something went wrong. Please try again.";
+}
+
 /** Extract text from non-image attachments via the server-side function */
 async function extractFileText(
   att: ChatAttachment,
@@ -204,6 +212,8 @@ export function useNormanChat() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), CHAT_REQUEST_TIMEOUT_MS);
 
         // --- Extract text from non-image attachments server-side ---
         const nonImageAtts = attachments.filter((a) => !a.type.startsWith("image/"));
@@ -225,49 +235,49 @@ export function useNormanChat() {
         ];
 
         const fetchChat = async (): Promise<Response> => {
-          const controller = new AbortController();
-          const timeoutId = window.setTimeout(() => controller.abort(), CHAT_REQUEST_TIMEOUT_MS);
-
-          try {
-            console.info(`[Duncan] chat request started mode=${mode} messages=${apiMessages.length}`);
-            return await fetch(CHAT_URL, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({ messages: apiMessages, mode, userProfile: profile ?? undefined }),
-              signal: controller.signal,
-            });
-          } finally {
-            window.clearTimeout(timeoutId);
-          }
+          console.info(`[Duncan] chat request started mode=${mode} messages=${apiMessages.length}`);
+          return await fetch(CHAT_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ messages: apiMessages, mode, userProfile: profile ?? undefined }),
+            signal: controller.signal,
+          });
         };
 
-        let resp = await fetchChat();
-        if (resp.status === 429) {
-          await new Promise((r) => setTimeout(r, 1500));
-          resp = await fetchChat();
-        }
+        try {
+          let resp = await fetchChat();
+          if (resp.status === 429) {
+            await new Promise((r) => setTimeout(r, 1500));
+            if (controller.signal.aborted) {
+              throw new DOMException("Timed out", "AbortError");
+            }
+            resp = await fetchChat();
+          }
 
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({}));
-          throw new Error(
-            err.error ||
-              (resp.status === 429
-                ? "Rate limit exceeded. Please wait a few seconds and try again."
-                : `Request failed (${resp.status})`)
-          );
-        }
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(
+              err.error ||
+                (resp.status === 429
+                  ? "Rate limit exceeded. Please wait a few seconds and try again."
+                  : `Request failed (${resp.status})`)
+            );
+          }
 
-        await streamAssistantResponse(resp, upsertAssistant, `chat mode=${mode}`);
+          await streamAssistantResponse(resp, upsertAssistant, `chat mode=${mode}`);
+        } finally {
+          window.clearTimeout(timeoutId);
+        }
       } catch (e) {
         console.error("Duncan chat error:", e);
         if (mountedRef.current) {
-          toast.error(e instanceof Error ? e.message : "Something went wrong. Please try again.");
+          toast.error(getChatErrorMessage(e));
         }
         upsertAssistant(
-          `\n\n⚠️ Error: ${e instanceof Error ? e.message : "Something went wrong. Please try again."}`
+          `\n\n⚠️ Error: ${getChatErrorMessage(e)}`
         );
       } finally {
         setIsLoading(false);
@@ -298,6 +308,8 @@ export function useNormanChat() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), CHAT_REQUEST_TIMEOUT_MS);
 
         const briefingPrompt = `Generate my personalized morning briefing. Here is the latest data from across our systems:\n\n${JSON.stringify(briefingData, null, 2)}`;
 
@@ -305,24 +317,26 @@ export function useNormanChat() {
           { role: "user", content: briefingPrompt },
         ];
 
-        const controller = new AbortController();
-        const timeoutId = window.setTimeout(() => controller.abort(), CHAT_REQUEST_TIMEOUT_MS);
-        const resp = await fetch(CHAT_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ messages: apiMessages, mode: "briefing", userProfile: profile ?? undefined }),
-          signal: controller.signal,
-        }).finally(() => window.clearTimeout(timeoutId));
+        try {
+          const resp = await fetch(CHAT_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ messages: apiMessages, mode: "briefing", userProfile: profile ?? undefined }),
+            signal: controller.signal,
+          });
 
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({}));
-          throw new Error(err.error || `Request failed (${resp.status})`);
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.error || `Request failed (${resp.status})`);
+          }
+
+          await streamAssistantResponse(resp, upsertAssistant, "briefing");
+        } finally {
+          window.clearTimeout(timeoutId);
         }
-
-        await streamAssistantResponse(resp, upsertAssistant, "briefing");
       } catch (e) {
         console.error("Duncan briefing error:", e);
         if (mountedRef.current) {
