@@ -2245,7 +2245,7 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
       ...((parsed.payload.data_coverage_audit as any)?.source_provenance || {}),
       slack: slack_pulse
         ? `Inbound: scanned ${spChannelsScanned} of ${spChannelsMember} member channels (out of ${spChannelsTotal} total), ${spMessagesAnalysed} messages via ceo-slack-pulse. Outbound: slack_notification_logs. Channels Duncan is not a member of are not scanned.`
-        : "Duncan's own outbound notifications only (slack_notification_logs). Slack inbound pulse did not run on this briefing.",
+        : `Duncan's own outbound notifications only (slack_notification_logs). Slack inbound pulse did not run on this briefing${slack_pulse_error ? ` — error: ${slack_pulse_error}` : ""}.`,
       email: "Per-mailbox 24h scan via ceo-email-pulse for opted-in users only.",
       meetings: "Plaud-ingested transcripts via fetch-plaud-meetings (last 24h for activity, last 10 transcripts for priority signals).",
       azure_devops: "azure_work_items table — last 24h changes.",
