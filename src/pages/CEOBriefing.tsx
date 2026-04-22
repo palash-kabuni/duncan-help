@@ -453,10 +453,6 @@ const CEOBriefing = () => {
                   })()}
                 </Section>
 
-                <Section n={4} title="Leadership Performance">
-                  <LeadershipGrid leaders={p.leadership || []} />
-                </Section>
-
                 <Section n={5} title="Accountability Watchlist">
                   {(p.watchlist || []).length === 0 ? (
                     <div className="rounded-lg border border-border bg-card p-6 flex items-start gap-3">
