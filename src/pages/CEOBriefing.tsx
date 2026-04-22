@@ -208,14 +208,31 @@ const CEOBriefing = () => {
 
                 <Section n={1} title="What Changed Yesterday">
                   <div className="space-y-3">
-                    {(p.what_changed || []).map((g: any, i: number) => (
-                      <div key={i} className="rounded-lg border border-border bg-card p-4 space-y-2">
-                        <h4 className="text-sm font-semibold text-foreground">{g.function_area || g.function}</h4>
-                        {g.moved && <p className="text-xs text-muted-foreground"><span className="text-green-500 font-mono">MOVED:</span> {g.moved}</p>}
-                        {g.did_not_move && <p className="text-xs text-muted-foreground"><span className="text-yellow-500 font-mono">STALLED:</span> {g.did_not_move}</p>}
-                        {g.needs_attention && <p className="text-xs text-muted-foreground"><span className="text-red-500 font-mono">ATTENTION:</span> {g.needs_attention}</p>}
+                    {(p.what_changed && p.what_changed.length > 0) ? (
+                      p.what_changed.map((g: any, i: number) => (
+                        <div key={i} className="rounded-lg border border-border bg-card p-4 space-y-2">
+                          <h4 className="text-sm font-semibold text-foreground">{g.function_area || g.function}</h4>
+                          {g.moved && <p className="text-xs text-muted-foreground"><span className="text-green-500 font-mono">MOVED:</span> {g.moved}</p>}
+                          {g.did_not_move && <p className="text-xs text-muted-foreground"><span className="text-yellow-500 font-mono">STALLED:</span> {g.did_not_move}</p>}
+                          {g.needs_attention && <p className="text-xs text-muted-foreground"><span className="text-red-500 font-mono">ATTENTION:</span> {g.needs_attention}</p>}
+                          {g.auto_injected && (
+                            <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70 pt-1">
+                              Auto-generated explanation · {g.auto_injected_reason || "fallback"}
+                            </p>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-border bg-card p-4 space-y-1">
+                        <h4 className="text-sm font-semibold text-foreground">No structured movement reported</h4>
+                        <p className="text-xs text-muted-foreground">
+                          Duncan did not produce any rows for this section. This usually means the briefing was generated against a thin 24h window or an integration is silent.
+                        </p>
+                        <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70 pt-1">
+                          UI fallback · payload.what_changed empty
+                        </p>
                       </div>
-                    ))}
+                    )}
                   </div>
                 </Section>
 
