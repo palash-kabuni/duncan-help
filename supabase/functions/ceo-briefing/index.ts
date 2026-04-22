@@ -2150,6 +2150,17 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
 
     // 4b. Data Coverage Audit — inject + apply confidence cap
     parsed.payload.data_coverage_audit = data_coverage_audit;
+    // Provenance note: be honest about what "Slack coverage" actually means
+    // in this briefing. We do NOT call Slack APIs to read channels/DMs;
+    // we only read Duncan's own outbound notification logs.
+    (parsed.payload.data_coverage_audit as any).source_provenance = {
+      ...((parsed.payload.data_coverage_audit as any)?.source_provenance || {}),
+      slack: "Duncan's own outbound notifications only (slack_notification_logs). Inbound Slack channel messages, DMs, and mentions are NOT scanned.",
+      email: "Per-mailbox 24h scan via ceo-email-pulse for opted-in users only.",
+      meetings: "Plaud-ingested transcripts via fetch-plaud-meetings (last 24h for activity, last 10 transcripts for priority signals).",
+      azure_devops: "azure_work_items table — last 24h changes.",
+      workstreams: "workstream_cards table — last 24h updates + full open set for coverage.",
+    };
     if (briefing_type === "morning") {
       const cap = data_coverage_audit.confidence_cap;
       if (cap === "medium" || cap === "low") {
