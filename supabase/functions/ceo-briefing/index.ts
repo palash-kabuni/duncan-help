@@ -3641,11 +3641,19 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
       parsed.payload = parsed.payload || {};
       parsed.payload.slack_pulse = {
         window_hours: slack_pulse.window_hours ?? 24,
+        degraded: slack_pulse.degraded ?? false,
+        degraded_reason: slack_pulse.degraded_reason ?? null,
+        degraded_codes: slack_pulse.degraded_codes ?? [],
+        visibility_scope: slack_pulse.visibility_scope ?? "full_public",
         channels_total: slack_pulse.channels_total ?? 0,
         channels_member: slack_pulse.channels_member ?? 0,
         channels_eligible: slack_pulse.channels_eligible ?? 0,
         channels_scanned: slack_pulse.channels_scanned ?? 0,
         messages_analysed: slack_pulse.messages_analysed ?? 0,
+        not_member_channels_count: slack_pulse.not_member_channels_count ?? 0,
+        inaccessible_private_channels_count: slack_pulse.inaccessible_private_channels_count ?? 0,
+        history_failures_count: slack_pulse.history_failures_count ?? 0,
+        channels_with_errors: slack_pulse.channels_with_errors ?? [],
         per_channel: slack_pulse.per_channel ?? [],
         silent_channels: slack_pulse.silent_channels ?? [],
         not_member_channels: slack_pulse.not_member_channels ?? [],
@@ -3660,6 +3668,31 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         },
       };
     }
+
+    parsed.payload = parsed.payload || {};
+    parsed.payload.hubspot_signal = {
+      status: hubspot_signal?.status ?? "not_configured",
+      connected: hubspot_signal?.connected ?? false,
+      accounts_scanned: hubspot_signal?.accounts_scanned ?? 0,
+      stale_deals: hubspot_signal?.stale_deals ?? 0,
+      at_risk_accounts: hubspot_signal?.at_risk_accounts ?? 0,
+      escalations: hubspot_signal?.customer_escalations ?? 0,
+      signals: hubspot_signal?.signals ?? [],
+      summary: hubspot_signal?.summary ?? null,
+      degraded_reason: hubspot_signal?.degraded_reason ?? hubspot_signal_error ?? null,
+    };
+    parsed.payload.github_signal = {
+      status: github_signal?.status ?? "not_configured",
+      connected: github_signal?.connected ?? false,
+      repos_scanned: github_signal?.repos_scanned ?? 0,
+      open_prs: github_signal?.open_prs ?? 0,
+      blocked_prs: github_signal?.blocked_prs ?? 0,
+      stale_prs: github_signal?.stale_prs ?? 0,
+      release_risks: github_signal?.release_risks ?? 0,
+      signals: github_signal?.signals ?? [],
+      summary: github_signal?.summary ?? null,
+      degraded_reason: github_signal?.degraded_reason ?? github_signal_error ?? null,
+    };
 
     // ─── Automation Progress: ground in server data + recommendation floor ──
     if (briefing_type === "morning") {
