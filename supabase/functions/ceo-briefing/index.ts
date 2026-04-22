@@ -1984,6 +1984,11 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
 
     let aiData: any;
     let parsed: any;
+    let generationMeta: { attempts: number; final_max_tokens: number; outcome: "ok" | "compact" | "ultra_compact" | "fallback" } = {
+      attempts: 1,
+      final_max_tokens: 8192,
+      outcome: "ok",
+    };
     try {
       aiData = await callLLMWithFallback({
         workflow: "ceo-briefing",
@@ -1992,14 +1997,15 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
         ],
-        max_tokens: 4096,
+        max_tokens: 8192,
         model_override: { claude: "claude-haiku-4-5", openai: "gpt-5-mini" },
       });
       parsed = parseBriefingJson(aiData);
     } catch (err: any) {
       if (err?.code === "MODEL_TRUNCATED") {
-        await updateJob({ phase: "Retrying compact briefing", progress: 68 });
+        await updateJob({ phase: "Optimising briefing length…", progress: 68 });
         try {
+          generationMeta = { attempts: 2, final_max_tokens: 4096, outcome: "compact" };
           aiData = await callLLMWithFallback({
             workflow: "ceo-briefing",
             response_format: { type: "json_object" },
@@ -2007,14 +2013,15 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
               { role: "system", content: SYSTEM_PROMPT },
               { role: "user", content: `${userPrompt}${compactPromptSuffix}` },
             ],
-            max_tokens: 3072,
+            max_tokens: 4096,
             model_override: { claude: "claude-haiku-4-5", openai: "gpt-5-mini" },
           });
           parsed = parseBriefingJson(aiData);
         } catch (retryErr: any) {
           if (retryErr?.code === "MODEL_TRUNCATED" || String(retryErr?.message || "").includes("Model output truncated")) {
-            await updateJob({ phase: "Retrying ultra-compact briefing", progress: 72 });
+            await updateJob({ phase: "Optimising briefing length…", progress: 72 });
             try {
+              generationMeta = { attempts: 3, final_max_tokens: 2048, outcome: "ultra_compact" };
               aiData = await callLLMWithFallback({
                 workflow: "ceo-briefing",
                 response_format: { type: "json_object" },
@@ -2028,7 +2035,8 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
               parsed = parseBriefingJson(aiData);
             } catch (finalRetryErr: any) {
               console.error("LLM ultra-compact retry error:", finalRetryErr?.status, finalRetryErr?.message);
-              await updateJob({ phase: "Building deterministic fallback", progress: 76 });
+              await updateJob({ phase: "Finalising briefing", progress: 76 });
+              generationMeta = { attempts: 4, final_max_tokens: 2048, outcome: "fallback" };
               parsed = buildDeterministicFallback();
             }
           } else {
