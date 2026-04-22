@@ -1,4 +1,4 @@
-import { Mail, Hash, AlertTriangle, MessageSquareWarning, Inbox, MailMinus, Info, Slack } from "lucide-react";
+import { Mail, Hash, AlertTriangle, MessageSquareWarning, Inbox, MailMinus, Info, Slack, Database, GitBranch } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,85 @@ export interface SlackPulseSummary {
 interface Props {
   emailPulse: EmailPulseSummary | null | undefined;
   slackPulse: SlackPulseSummary | null | undefined;
+  hubspotSignal?: {
+    status?: string;
+    connected?: boolean;
+    accounts_scanned?: number;
+    stale_deals?: number;
+    at_risk_accounts?: number;
+    escalations?: number;
+    summary?: string | null;
+    degraded_reason?: string | null;
+  } | null;
+  githubSignal?: {
+    status?: string;
+    connected?: boolean;
+    repos_scanned?: number;
+    open_prs?: number;
+    blocked_prs?: number;
+    stale_prs?: number;
+    release_risks?: number;
+    summary?: string | null;
+    degraded_reason?: string | null;
+  } | null;
+}
+
+function ExternalSignalColumn({
+  title,
+  icon: Icon,
+  signal,
+  primaryMetric,
+  secondaryMetric,
+}: {
+  title: string;
+  icon: typeof Database;
+  signal: Record<string, unknown> | null | undefined;
+  primaryMetric: { label: string; value: string | number };
+  secondaryMetric: { label: string; value: string | number };
+}) {
+  const status = String(signal?.status || "not_configured");
+  const summary = typeof signal?.summary === "string" ? signal.summary : null;
+  const degradedReason = typeof signal?.degraded_reason === "string" ? signal.degraded_reason : null;
+  const tone = status === "connected"
+    ? "border-border bg-card"
+    : status === "degraded"
+    ? "border-amber-500/40 bg-amber-500/5"
+    : "border-dashed border-border bg-muted/20";
+
+  return (
+    <div className={`rounded border p-3 space-y-2.5 ${tone}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <Icon className="h-3.5 w-3.5 text-primary" />
+          <span className="text-[11px] font-mono uppercase tracking-wider text-foreground">{title}</span>
+        </div>
+        <Badge variant="outline" className="text-[10px] font-mono">
+          {status.replace(/_/g, " ")}
+        </Badge>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2.5 text-xs">
+        <div>
+          <MetricLabel label={primaryMetric.label} tooltip={`${title} primary runtime metric shown exactly as persisted in the latest briefing payload.`} />
+          <div className="text-foreground tabular-nums mt-0.5">{primaryMetric.value}</div>
+        </div>
+        <div>
+          <MetricLabel label={secondaryMetric.label} tooltip={`${title} secondary runtime metric shown exactly as persisted in the latest briefing payload.`} />
+          <div className="text-foreground tabular-nums mt-0.5">{secondaryMetric.value}</div>
+        </div>
+      </div>
+
+      <div className="text-[11px] leading-relaxed text-muted-foreground">
+        {summary || (status === "not_configured"
+          ? `${title} is not connected, so Team Briefing is explicitly operating with a blind spot here.`
+          : degradedReason || `${title} returned no narrative summary for this run.`)}
+      </div>
+
+      {degradedReason && status !== "not_configured" ? (
+        <div className="text-[10px] text-muted-foreground">{degradedReason}</div>
+      ) : null}
+    </div>
+  );
 }
 
 function MetricLabel({ label, tooltip }: { label: string; tooltip: string }) {
@@ -414,7 +493,7 @@ function SlackColumn({ pulse }: { pulse: SlackPulseSummary | null | undefined })
   );
 }
 
-export default function CommsPulseCard({ emailPulse, slackPulse }: Props) {
+export default function CommsPulseCard({ emailPulse, slackPulse, hubspotSignal, githubSignal }: Props) {
   const [expanded, setExpanded] = useState(false);
 
   // Leadership status from email pulse (slack equivalent doesn't exist yet)
@@ -434,7 +513,7 @@ export default function CommsPulseCard({ emailPulse, slackPulse }: Props) {
         }))
       : [];
 
-  const hasAnyComms = !!(emailPulse?.per_mailbox || slackPulse);
+  const hasAnyComms = !!(emailPulse?.per_mailbox || slackPulse || hubspotSignal || githubSignal);
   if (!hasAnyComms) {
     return (
       <div className="rounded-lg border border-dashed border-border bg-card p-4">
@@ -463,6 +542,20 @@ export default function CommsPulseCard({ emailPulse, slackPulse }: Props) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <EmailColumn pulse={emailPulse} />
           <SlackColumn pulse={slackPulse} />
+          <ExternalSignalColumn
+            title="HubSpot"
+            icon={Database}
+            signal={hubspotSignal}
+            primaryMetric={{ label: "Accounts", value: Number(hubspotSignal?.accounts_scanned || 0) }}
+            secondaryMetric={{ label: "Stale / Risk", value: `${Number(hubspotSignal?.stale_deals || 0)} / ${Number(hubspotSignal?.at_risk_accounts || 0)}` }}
+          />
+          <ExternalSignalColumn
+            title="GitHub"
+            icon={GitBranch}
+            signal={githubSignal}
+            primaryMetric={{ label: "Repos", value: Number(githubSignal?.repos_scanned || 0) }}
+            secondaryMetric={{ label: "Open / Blocked", value: `${Number(githubSignal?.open_prs || 0)} / ${Number(githubSignal?.blocked_prs || 0)}` }}
+          />
         </div>
 
         {(silent.length > 0 || optedOutLeaders.length > 0 || notConnected.length > 0 || errored.length > 0 || legacySilent.length > 0) && (

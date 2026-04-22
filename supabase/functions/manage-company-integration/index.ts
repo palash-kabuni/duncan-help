@@ -6,6 +6,33 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const HUBSPOT_VERIFY_URL = "https://api.hubapi.com/crm/v3/objects/companies?limit=1&properties=name";
+const GITHUB_VERIFY_URL = "https://api.github.com/user";
+
+async function verifyCredential(integrationId: string, token: string) {
+  if (integrationId === "hubspot") {
+    const res = await fetch(HUBSPOT_VERIFY_URL, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, error: res.ok ? null : `HubSpot verification failed [${res.status}]: ${JSON.stringify(data).slice(0, 200)}` };
+  }
+
+  if (integrationId === "github") {
+    const res = await fetch(GITHUB_VERIFY_URL, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "duncan-integrations",
+      },
+    });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, error: res.ok ? null : `GitHub verification failed [${res.status}]: ${JSON.stringify(data).slice(0, 200)}` };
+  }
+
+  return { ok: true, error: null };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -23,7 +50,6 @@ serve(async (req) => {
       });
     }
 
-    // Create client with user's token to verify identity
     const supabaseUser = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: authHeader } },
     });
@@ -36,9 +62,7 @@ serve(async (req) => {
       });
     }
 
-    // Use service role to check admin status
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
-
     const { data: roleData, error: roleError } = await supabaseAdmin
       .from("user_roles")
       .select("role")
@@ -63,7 +87,6 @@ serve(async (req) => {
     }
 
     if (action === "disconnect") {
-      // Delete company integration
       const { error: deleteError } = await supabaseAdmin
         .from("company_integrations")
         .delete()
@@ -76,7 +99,6 @@ serve(async (req) => {
       });
     }
 
-    // Connect or update integration
     if (!api_key) {
       return new Response(JSON.stringify({ error: "api_key is required for connecting" }), {
         status: 400,
@@ -84,8 +106,10 @@ serve(async (req) => {
       });
     }
 
-    // Simple encryption (in production, use proper encryption)
+    const verify = await verifyCredential(integration_id, api_key);
     const encryptedKey = btoa(api_key);
+    const now = new Date().toISOString();
+    const status = verify.ok ? "connected" : "degraded";
 
     const { data, error: upsertError } = await supabaseAdmin
       .from("company_integrations")
@@ -93,9 +117,9 @@ serve(async (req) => {
         {
           integration_id,
           encrypted_api_key: encryptedKey,
-          status: "connected",
+          status,
           updated_by: user.id,
-          last_sync: new Date().toISOString(),
+          last_sync: now,
         },
         { onConflict: "integration_id" }
       )
@@ -104,12 +128,20 @@ serve(async (req) => {
 
     if (upsertError) throw upsertError;
 
-    return new Response(JSON.stringify({ success: true, integration: data }), {
+    return new Response(JSON.stringify({
+      success: true,
+      integration: data,
+      verification: {
+        status,
+        degraded_reason: verify.error,
+        last_verified_at: now,
+      },
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
     console.error("Error managing company integration:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
