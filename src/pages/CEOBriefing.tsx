@@ -391,7 +391,7 @@ const CEOBriefing = () => {
                   })()}
                 </Section>
 
-                <Section n={6} title="Duncan Adoption & Automation">
+                <Section n={5} title="Duncan Adoption & Automation">
                   <p className="text-xs text-muted-foreground italic mb-3">
                     Adoption is measured from usage logs. Automation % of company workflows is a 2026 goal — not yet instrumented.
                   </p>
