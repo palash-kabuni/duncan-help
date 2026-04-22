@@ -1,70 +1,97 @@
 
-## Fix prompt duplication when starting a new dashboard chat
+## Exact issue identified: Google Drive is wired as per-user in the UI, but implemented as a shared singleton in the backend
 
-### What is happening
-The duplication is coming from the dashboard chat flow in `src/pages/Index.tsx`:
+### Root cause
+The Google Drive integration is currently inconsistent across the stack:
 
-- `handleChatSubmit()` lazily creates a DB chat on first send
-- it immediately saves the user message to `general_chat_messages`
-- it then sets `activeChatId`
-- that triggers the `useEffect` that reloads messages from the database
-- at the same time, `useNormanChat.send()` is also optimistically appending the same user prompt to local UI state
+- In `src/pages/Integrations.tsx`, Google Drive is defined as:
+  - `type: "user"`
+  - connection status check = query `google_drive_tokens` where `connected_by = current user`
+- But in the backend, Google Drive is implemented as a shared/singleton integration:
+  - `supabase/migrations/20260208165300_c4d0bbfb-c747-456e-8fd6-d1d3c5518c9e.sql` creates a singleton `google_drive_tokens` table
+  - `supabase/functions/google-drive-callback/index.ts` deletes all existing rows, then stores one fresh token
+  - `supabase/functions/google-drive-api/index.ts` explicitly falls back to the most recent token if the current user has none
 
-This creates a race between:
-- the optimistic in-memory message
-- the freshly reloaded persisted message
+### What this means in practice
+For any user who did not personally authorize Google Drive:
 
-Result: the first prompt can appear twice when initiating a new chat from the dashboard.
+- the frontend checks `google_drive_tokens.connected_by = current user`
+- that query returns empty
+- the Integrations page shows Google Drive as disconnected / not working
 
-### Implementation plan
+But the backend is actually designed to allow shared access through the latest stored token.
 
-1. Update the new-chat send flow in `src/pages/Index.tsx`
-   - Keep lazy chat creation as-is
-   - Prevent the `activeChatId` hydration effect from reloading messages in the middle of the first in-flight send for a newly created chat
+### Evidence from the current code
+1. Frontend per-user check:
+   - `src/pages/Integrations.tsx`
+   - `checkGoogleDriveConnection()`:
+   ```ts
+   supabase
+     .from("google_drive_tokens")
+     .select("id")
+     .eq("connected_by", user.id)
+   ```
 
-2. Add a small guard for first-message initialization
-   - Track when the dashboard is creating the first message for a brand-new chat
-   - While that initialization is in progress, skip or defer the `loadMessages()` effect that runs on `activeChatId` change
-   - Once the first send is complete, allow normal persisted loading behavior again
+2. Backend shared fallback:
+   - `supabase/functions/google-drive-api/index.ts`
+   - `getValidToken()`:
+   ```ts
+   .eq("connected_by", userId)
+   ```
+   then if none:
+   ```ts
+   .order("created_at", { ascending: false }).limit(1)
+   ```
 
-3. Preserve the existing persistence behavior
-   - Continue saving the user message to `general_chat_messages`
-   - Continue saving the assistant reply after streaming completes
-   - Do not change backend tables, chat schema, or general chat persistence logic
+3. Singleton storage model:
+   - `supabase/functions/google-drive-callback/index.ts`
+   ```ts
+   await supabaseAdmin.from("google_drive_tokens").delete()...
+   await supabaseAdmin.from("google_drive_tokens").insert(...)
+   ```
 
-4. Keep the fix scoped to dashboard chat only
-   - Limit changes to `src/pages/Index.tsx`
-   - Do not modify `useGeneralChats`
-   - Do not modify backend functions or database logic unless absolutely required for type safety
+### Exact issue summary
+The integration is not primarily failing because OAuth is broken.
 
-### Why this is the safest fix
-This avoids changing core chat storage behavior and fixes the actual race condition at the UI orchestration layer, where the duplication is introduced. It keeps:
-- optimistic UX
-- lazy chat creation
-- persisted chat history
-- assistant save behavior
+The exact issue is:
+- the frontend assumes Google Drive is a per-user integration
+- the backend stores and serves it as a shared singleton integration
+- so the UI connection check is wrong for most users
 
-### Expected result after implementation
-When a user starts a brand-new dashboard chat:
-- the first prompt appears once
-- the assistant streams normally
-- the chat is persisted correctly
-- reopening the thread later still shows the full conversation from storage
+### Secondary inconsistencies found
+These are not the main root cause, but they reinforce the problem:
 
-### Validation
-After implementation, verify:
+- `google-drive-api` action `"status"` also checks only `connected_by = user.id`, so it can report disconnected even though shared fallback exists
+- disconnect logic also deletes only the current user’s row, which is inconsistent with singleton/shared storage
+- `src/pages/Integrations.tsx` calls `checkGoogleDriveConnection()` twice on mount
+- there is a duplicated `else if (isGoogleDrive)` branch in the detail modal status logic
 
-1. Start a brand-new chat from the dashboard
-   - first user prompt appears only once
+### Recommended fix
+Align Google Drive to one model consistently.
 
-2. Wait for assistant response
-   - assistant appears once and completes normally
+Safest path, based on the existing backend:
+1. Treat Google Drive as a shared/company-style integration in the UI
+2. Change frontend connection status to check whether any valid shared Drive token exists, not only one owned by the current user
+3. Update the modal copy so it reflects shared access behavior
+4. Clean up the duplicate Google Drive conditionals and duplicate mount check
+5. Optionally align backend `status` / `disconnect` behavior with the chosen shared model
 
-3. Refresh or reopen the same chat
-   - history still shows one user prompt and one assistant response
+### Scope of implementation
+Files likely involved:
+- `src/pages/Integrations.tsx`
+- optionally `supabase/functions/google-drive-api/index.ts` if status/disconnect should match the shared model
 
-4. Start another brand-new chat
-   - duplication does not recur
+### Expected outcome after fix
+- Google Drive shows connected when the shared token exists
+- users no longer see a false “not connected” state
+- chat/report features that already rely on fallback behavior match what the Integrations UI displays
+- connection/disconnection semantics become consistent across UI and backend
 
-5. Open an existing chat from history
-   - existing hydration behavior still works normally
+## Technical detail
+This is an architecture mismatch, not just a rendering bug:
+
+```text
+Frontend model:      user-specific token required
+Backend model:       singleton token + fallback to latest token
+Observed result:     UI says disconnected while backend can still operate
+```
