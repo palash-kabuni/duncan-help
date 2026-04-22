@@ -1293,7 +1293,30 @@ Deno.serve(async (req) => {
       if (!hubspot_signal_error) hubspot_signal_error = `invoke failed: ${e?.message || e}`;
       if (!github_signal_error) github_signal_error = `invoke failed: ${e?.message || e}`;
     }
-    console.log(`[ceo-briefing] email_pulse: ${email_pulse ? 'ok' : 'null'} (err=${email_pulse_error}); slack_pulse: ${slack_pulse ? 'ok' : 'null'} (err=${slack_pulse_error}); hubspot: ${hubspot_signal ? 'ok' : 'null'} (err=${hubspot_signal_error}); github: ${github_signal ? 'ok' : 'null'} (err=${github_signal_error})`);
+    const normalizedHubspotSignal = {
+      status: hubspot_signal?.status ?? (hubspot_signal_error ? "degraded" : "not_configured"),
+      connected: hubspot_signal?.connected ?? false,
+      accounts_scanned: hubspot_signal?.accounts_scanned ?? 0,
+      stale_deals: hubspot_signal?.stale_deals ?? 0,
+      at_risk_accounts: hubspot_signal?.at_risk_accounts ?? 0,
+      customer_escalations: hubspot_signal?.customer_escalations ?? 0,
+      signals: hubspot_signal?.signals ?? [],
+      summary: hubspot_signal?.summary ?? null,
+      degraded_reason: hubspot_signal?.degraded_reason ?? hubspot_signal_error ?? null,
+    };
+    const normalizedGithubSignal = {
+      status: github_signal?.status ?? (github_signal_error ? "degraded" : "not_configured"),
+      connected: github_signal?.connected ?? false,
+      repos_scanned: github_signal?.repos_scanned ?? 0,
+      open_prs: github_signal?.open_prs ?? 0,
+      blocked_prs: github_signal?.blocked_prs ?? 0,
+      stale_prs: github_signal?.stale_prs ?? 0,
+      release_risks: github_signal?.release_risks ?? 0,
+      signals: github_signal?.signals ?? [],
+      summary: github_signal?.summary ?? null,
+      degraded_reason: github_signal?.degraded_reason ?? github_signal_error ?? null,
+    };
+    console.log(`[ceo-briefing] email_pulse: ${email_pulse ? 'ok' : 'null'} (err=${email_pulse_error}); slack_pulse: ${slack_pulse ? 'ok' : 'null'} (err=${slack_pulse_error}); hubspot: ${normalizedHubspotSignal.status} (err=${normalizedHubspotSignal.degraded_reason}); github: ${normalizedGithubSignal.status} (err=${normalizedGithubSignal.degraded_reason})`);
 
     // ─── Calendar events for leaders (last 7d) — best-effort, opt-in via google_calendar_tokens ─
     let leaderCalendarEvents: Array<{ summary: string | null; start: string | null; organiser_alias?: string | null; attendee_aliases?: string[] }> = [];

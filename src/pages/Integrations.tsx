@@ -628,7 +628,7 @@ const IntegrationDetail = ({
     return () => {
       active = false;
     };
-  }, [isRuntimeStatusIntegration, isHubSpot, isGitHub, integrationData?.updated_at]);
+  }, [isRuntimeStatusIntegration, isHubSpot, isGitHub, integration.id]);
 
   const resolvedStatus: IntegrationStatus = isRuntimeStatusIntegration && statusDetail
     ? statusDetail.status === "connected"
