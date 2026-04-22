@@ -271,8 +271,9 @@ function SlackColumn({ pulse }: { pulse: SlackPulseSummary | null | undefined })
   const scanned = pulse.channels_scanned ?? 0;
   const member = pulse.channels_member ?? 0;
   const total = pulse.channels_total ?? 0;
-  const notMember = Math.max(0, total - member);
+  const notMember = pulse.not_member_channels?.length ?? Math.max(0, total - member);
   const silent = pulse.silent_channels || [];
+  const degraded = !!pulse.degraded;
 
   return (
     <div className="rounded border border-border bg-card p-3 space-y-2.5">
@@ -286,23 +287,33 @@ function SlackColumn({ pulse }: { pulse: SlackPulseSummary | null | undefined })
         </Badge>
       </div>
 
+      {degraded && (
+        <div className="rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1.5 text-[10px] text-amber-700 dark:text-amber-400 leading-snug">
+          Reduced coverage — public channels only.
+          {pulse.degraded_reason ? <span className="block mt-0.5 text-muted-foreground">{pulse.degraded_reason}</span> : null}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2.5 text-xs">
         <div>
           <MetricLabel
             label="Channels"
-            tooltip="Channels scanned (Duncan is a member of) vs total channels in the workspace. Invite Duncan to a channel to make it visible."
+            tooltip="Duncan is in N of M channels. Only channels Duncan is a member of are scanned. Invite the bot to a channel to make it visible to the briefing."
           />
           <div className="text-foreground tabular-nums mt-0.5">
-            {scanned} of {member}
+            Duncan in {member} of {total}
             {notMember > 0 && (
               <button
                 type="button"
                 onClick={() => setShowNotMember((v) => !v)}
                 className="ml-1 text-muted-foreground underline-offset-2 hover:underline hover:text-foreground"
               >
-                ({notMember} not joined)
+                ({notMember} not invited)
               </button>
             )}
+          </div>
+          <div className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
+            Scanned: {scanned}
           </div>
           {showNotMember && pulse.not_member_channels && pulse.not_member_channels.length > 0 && (
             <div className="mt-1.5 space-y-0.5 max-h-32 overflow-y-auto">
@@ -317,6 +328,8 @@ function SlackColumn({ pulse }: { pulse: SlackPulseSummary | null | undefined })
                 </div>
               )}
             </div>
+          )}
+        </div>
           )}
         </div>
         <div>
