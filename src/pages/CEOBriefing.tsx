@@ -199,7 +199,12 @@ const CEOBriefing = () => {
                   <CompanyPulseCard pulse={p.company_pulse_status as CompanyPulseStatus} />
                 )}
 
-                <CommsPulseCard emailPulse={p.email_pulse} slackPulse={p.slack_pulse} />
+                <CommsPulseCard
+                  emailPulse={p.email_pulse}
+                  slackPulse={p.slack_pulse}
+                  hubspotSignal={p.hubspot_signal}
+                  githubSignal={p.github_signal}
+                />
 
                 {p.data_coverage_audit && (
                   <DataCoverageCard
