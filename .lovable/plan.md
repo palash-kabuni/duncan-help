@@ -1,225 +1,295 @@
 
-## Quick sanity check: current state
+## Projects Collaborate MVP — trimmed plan
 
-### What looks healthy
-- **General chat persistence** is alive: `general_chats` has fresh rows updated today.
-- **Daily briefing endpoint** is responding: `daily-briefing` returned `200` and correctly reported `already_shown_today`.
-- **Team Briefing background jobs** are completing: latest `ceo_briefing_jobs` rows are `completed`, `progress=100`.
-- **Prompt engine backend exists and is active**: `supabase/functions/norman-chat/index.ts` is the main Duncan runtime, and recent logs show `[llm] workflow=norman-chat ... status=ok stream=open`.
-
-### What looks broken or risky right now
-1. **Dead external API fallback is still wired into the app**
-   - `src/lib/apiConfig.ts`
-   - `src/lib/apiClient.ts`
-   - `src/lib/fastApiClient.ts`
-   - `src/hooks/useAuthSync.ts`
-   - multiple `src/lib/api/*.ts` wrappers
-
-   These still default to:
-   ```ts
-   https://unsnap-reappoint-defame.ngrok-free.dev
-   ```
-   That is almost certainly stale. The browser console already shows:
-   - `[AuthSync] SIGNED_IN → failed to reach FastAPI`
-   - `TypeError: Failed to fetch`
-
-   So even if Duncan chat itself uses edge functions, a large set of other features/endpoints can silently fail or degrade because they still hit the dead ngrok URL.
-
-2. **Prompt engine path is split across two architectures**
-   - Main homepage chat uses `src/hooks/useNormanChat.ts` → direct edge function call to `/functions/v1/norman-chat`
-   - Many other features still use `apiClient` / `fastApiClient` wrappers → dead external base URL unless explicitly configured
-
-   Result: “Duncan isn’t working” can be true for some surfaces while others still work.
-
-3. **Prompt engine response path needs deeper live validation**
-   - `norman-chat` direct test did not return a clean response in the read-only check; it ended with a canceled request while daily-briefing worked.
-   - That points to a likely **streaming / long-running / client-consumption issue** rather than the endpoint being totally absent.
-
-4. **Team Briefing UI has React warnings**
-   - Console shows:
-     - `Function components cannot be given refs`
-     - pointing at `CEOBriefing`, `Section`, and `LovableContributorsCard`
-   - Not the root cause of Duncan failure, but it is a real frontend issue on `/team-briefing`.
-
----
-
-## Likely root causes behind “Duncan not responding as well”
-
-### Root cause A — stale external backend dependency
-The biggest concrete issue is the old FastAPI/ngrok base URL still embedded as the fallback/default transport for many app features. That affects:
-- auth sync
-- integrations auth/disconnect flows
-- file/document helpers
-- recruitment API wrappers
-- chat-adjacent API wrappers
-- any page using `fastApi(...)`, `withFastApi(...)`, or `apiClient`
-
-### Root cause B — mixed transport architecture
-The app is half on:
-- **edge functions**
-and half on:
-- **external HTTP backend wrappers**
-
-That means reliability depends on which path each feature happens to use.
-
-### Root cause C — streaming prompt-engine behavior not fully hardened
-`useNormanChat.ts` expects clean SSE token streaming from `norman-chat`. The backend is complex:
-- builds tools
-- streams model output
-- parses tool calls
-- executes tools
-- continues reasoning
-
-That path is functional in code, but needs a focused end-to-end validation pass because it is the most likely place for intermittent “not responding” reports.
-
----
-
-## What to implement next
-
-### 1. Stabilize transport layer
-Replace or neutralize the stale ngrok dependency so the app no longer relies on a dead external backend by default.
-
-Files to update:
-- `src/lib/apiConfig.ts`
-- `src/lib/apiClient.ts`
-- `src/lib/fastApiClient.ts`
-- `src/hooks/useAuthSync.ts`
-- `src/lib/duncanApi.ts`
-- `src/lib/api/*.ts`
-- any page/hook using `fastApi(...)` or `withFastApi(...)`
-
-Goal:
-- edge-function-backed features should call Lovable Cloud directly
-- external backend calls should only happen if explicitly configured and healthy
-- silent failures should no longer be treated as normal
-
-### 2. Do a full endpoint sanity matrix
-Validate each live endpoint path the app depends on, grouped by feature:
-
-#### Core Duncan
-- `norman-chat`
-- `extract-chat-file`
-- `daily-briefing`
-
-#### Team Briefing
-- `ceo-briefing`
-- `ceo-briefing-status`
-- `ceo-email-pulse`
-- `ceo-slack-pulse`
-
-#### Google
-- `gmail-api`
-- `gmail-auth`
-- `google-calendar-api`
-- `google-calendar-auth`
-- `google-drive-api`
-- `google-drive-auth`
-
-#### Ops / project systems
-- `azure-devops-api`
-- `azure-devops-auth`
-- `basecamp-api`
-- `basecamp-auth`
-- `xero-api`
-- `xero-auth`
-
-#### Project workspace
-- `create-project`
-- `create-project-chat`
-- `get-project-chats`
-- `upload-project-file`
-- `extract-file-text`
-- `chat-with-project-context`
-
-For each one:
-- auth behavior
-- expected response shape
-- current failure mode
-- frontend caller location
-
-### 3. Harden prompt engine E2E
-Focus on the full Duncan message flow:
+### Fastest path to working MVP
+Ship the smallest possible version of collaboration:
 
 ```text
-Index.tsx
-→ useNormanChat.ts
-→ /functions/v1/norman-chat
-→ streamLLM()
-→ tool-call loop
-→ streamed SSE back to client
-→ UI render + persistence
+owner creates project
+→ owner adds teammate
+→ teammate sees project in /projects
+→ teammate opens shared workspace
+→ teammate can view existing chats
+→ teammate can send messages in shared project chat
 ```
 
-Implementation goals:
-- detect empty/aborted streams explicitly
-- surface real toast/error states instead of silently appending a generic warning into chat
-- verify tool-call continuation works after first LLM response
-- confirm auth token handling is consistent
-- ensure chat save timing does not race with stream completion
-
-### 4. Remove hidden failure paths in frontend wrappers
-Right now several wrappers can fail in ways users experience as “nothing happened”.
-Add consistent behavior across:
-- loading states
-- timeout handling
-- non-2xx surfacing
-- auth-expired handling
-- user-visible error messages
-
-Primary targets:
-- `src/hooks/useNormanChat.ts`
-- `src/lib/apiClient.ts`
-- `src/lib/fastApiClient.ts`
-- integration hooks/pages
-
-### 5. Fix Team Briefing page warnings
-Address the ref warning in:
-- `src/pages/CEOBriefing.tsx`
-- `src/components/ceo/LovableContributorsCard.tsx`
-
-Goal:
-- remove invalid ref usage
-- keep `/team-briefing` clean while debugging broader Duncan issues
-
-### 6. Add minimum observability for future incidents
-Add clearer runtime logging around:
-- chat request start/end
-- stream opened / first token / completed / aborted
-- tool call count
-- tool execution failures
-- endpoint-specific failures in frontend transport
-
-This is necessary so future “Duncan is not working” reports can be tied to:
-- dead transport
-- auth failure
-- token refresh issue
-- tool call failure
-- model timeout
-- frontend SSE parse issue
+This keeps scope tightly limited to:
+- `projects`
+- `project_members` (new)
+- `project_chats`
+- `chat_messages`
+- minimal UI in `ProjectWorkspace.tsx`
 
 ---
 
-## Priority order
+## What is INCLUDED in MVP
 
-### P0
-1. Remove stale ngrok dependency from active client flows
-2. Validate `norman-chat` end-to-end
-3. Validate all currently used feature endpoints
+### 1) Minimal data model
+Add one table only: `project_members`
 
-### P1
-4. Standardize frontend error handling for endpoint failures
-5. Fix Team Briefing console/ref issues
+Recommended minimal structure:
+- `id uuid primary key default gen_random_uuid()`
+- `project_id uuid not null`
+- `user_id uuid not null`
+- `added_by uuid not null`
+- `created_at timestamptz not null default now()`
+- `unique (project_id, user_id)`
 
-### P2
-6. Improve observability for prompt-engine quality/debugging
+Why this is enough:
+- `projects.user_id` already represents the owner
+- collaborators only need membership rows
+- no roles, invites, statuses, or approval flow needed
+
+Notes:
+- `user_id` should align with existing `profiles.user_id`
+- owner does not need to be inserted into `project_members`
 
 ---
 
-## Expected outcome
-After this pass, Duncan should have:
-- one reliable transport path
-- predictable endpoint behavior
-- clearer failures instead of silent degradation
-- a verified prompt-engine streaming path
-- fewer false reports caused by old backend wiring
+### 2) Simplest access control
+Do not add SQL helper functions.
 
+Update RLS directly and only where required for MVP.
+
+#### `projects`
+Keep existing owner access, plus allow `SELECT` for collaborators via `project_members`.
+
+MVP effect:
+- owners still fully control their own projects
+- collaborators can see projects they were added to
+
+#### `project_chats`
+Keep existing owner access, plus allow collaborators to:
+- `SELECT`
+- `INSERT`
+- `UPDATE`
+- `DELETE` only if needed for existing UI behavior
+
+For speed, simplest MVP is:
+- allow collaborators full chat-table access on chats whose `project_id` belongs to a project where they are in `project_members`
+
+#### `chat_messages`
+Keep existing owner access, plus allow collaborators to:
+- `SELECT`
+- `INSERT`
+- `DELETE` only if current UI needs it
+
+For MVP, the critical actions are:
+- read messages
+- insert messages
+
+That is enough for shared chat to work.
+
+#### `project_members`
+Add simple policies:
+- owner can `SELECT`, `INSERT`, `DELETE` membership rows for their own projects
+- collaborators can `SELECT` membership rows for projects they belong to
+
+No update policy needed.
+
+---
+
+### 3) Backend scope reduction
+Keep backend changes minimal.
+
+#### Add one hook only
+Add `useProjectMembers(projectId)` in `src/hooks/useProjects.ts`
+
+Responsibilities:
+- fetch current collaborators for a project
+- fetch matching profile details from `profiles`
+- insert new member row
+- remove member row
+- expose loading state
+
+Keep the shape simple:
+- `members`
+- `loading`
+- `addMember(userId)`
+- `removeMember(userId)`
+- `refetchMembers()`
+
+No extra abstraction layer.
+
+#### No new edge functions
+For MVP, do member management directly with Supabase client calls from the hook.
+
+That matches existing project hook patterns and is fastest.
+
+---
+
+### 4) Frontend changes
+Keep UI extremely small and place it where it matters most: inside the active workspace.
+
+#### Placement
+Add a `Collaborate` button in `src/pages/ProjectWorkspace.tsx` header, next to `Files` and `Settings`.
+
+#### Dialog contents
+Open a small dialog with only:
+1. Add member dropdown
+2. Current member list
+3. Remove button for collaborators
+
+#### User selection
+Reuse existing approved profile source from `useUserProfiles()` in `src/hooks/useWorkstreams.ts`.
+
+Dropdown behavior:
+- list approved users
+- exclude project owner
+- exclude already-added members
+
+Displayed fields:
+- display name
+- role title
+- avatar if easy to reuse
+- otherwise name only is fine for MVP
+
+#### Members display
+Inside the dialog:
+- owner shown first with `Owner` label
+- collaborators listed below
+- `Remove` action on collaborators only
+
+#### Empty state
+If no collaborators yet:
+- show owner only
+- text: “Only you have access to this project right now.”
+
+---
+
+## Chat + file assumptions
+
+### Chat
+Project chat will work once access is enabled to:
+- `projects`
+- `project_chats`
+- `chat_messages`
+
+Why:
+- chat is already scoped by `project_id` / `chat_id`
+- `ProjectWorkspace.tsx`, `useProjectChats`, `useProjectChat`, and `chat-with-project-context` already operate on shared project-linked records
+- current blocker is owner-only RLS, not chat architecture
+
+So for chat, no redesign is needed.
+
+### Files
+Files will **not automatically become fully shared** in this first MVP.
+
+Reason:
+- `project_files` RLS is still owner-only
+- `project_file_chunks` is still owner-only
+- `upload-project-file` currently checks project access via `projects`, but file table/storage access is still owner-scoped
+
+So the fastest path is:
+- do not include shared files in this MVP
+- keep focus on shared project visibility + shared chat
+
+That avoids breaking file behavior while shipping collaboration quickly.
+
+---
+
+## What is DEFERRED
+
+Explicitly out of scope for the first build:
+- member roles / permissions
+- invites / pending states / emails
+- shared file access
+- project file uploads by collaborators
+- project file deletion by collaborators
+- project settings editing by collaborators
+- ownership transfer
+- audit logs
+- helper SQL functions
+- extra hooks beyond `useProjectMembers`
+
+---
+
+## Shortest implementation order
+
+### Step 1
+Create `project_members` table with:
+- `project_id`
+- `user_id`
+- `added_by`
+- `created_at`
+- unique `(project_id, user_id)`
+
+### Step 2
+Add RLS for `project_members`:
+- owner can add/remove/view members
+- collaborator can view their own project membership
+
+### Step 3
+Update `projects` SELECT policy:
+- existing owner access stays
+- collaborator access added through `project_members`
+
+### Step 4
+Update `project_chats` policies:
+- allow collaborator read/create/update as needed for workspace chat list
+
+### Step 5
+Update `chat_messages` policies:
+- allow collaborator read/insert so shared chat works
+
+### Step 6
+Add `useProjectMembers(projectId)` to `src/hooks/useProjects.ts`
+
+### Step 7
+Add simple `Collaborate` dialog to `src/pages/ProjectWorkspace.tsx`
+
+### Step 8
+QA the flow:
+- owner adds member
+- member sees project
+- member opens project
+- member sees chats
+- member sends chat message
+- owner sees the shared message
+
+---
+
+## MVP validation checklist
+
+### Owner flow
+- create project
+- open workspace
+- open Collaborate dialog
+- add approved user
+- see user appear in members list
+
+### Collaborator flow
+- log in as added user
+- see project in `/projects`
+- open shared workspace
+- view existing chat threads
+- open a thread
+- send a message successfully
+- see assistant response persist in shared thread
+
+### Removal flow
+- owner removes collaborator
+- collaborator no longer sees project in `/projects`
+- collaborator loses access to project chats
+
+### Duplicate protection
+- adding same user twice is blocked by unique constraint
+- UI should surface a simple “Already a member” message
+
+---
+
+## Bottom line
+The fastest safe MVP is:
+
+- one new table: `project_members`
+- direct RLS updates only on:
+  - `projects`
+  - `project_members`
+  - `project_chats`
+  - `chat_messages`
+- one new hook: `useProjectMembers`
+- one simple Collaborate dialog in `ProjectWorkspace.tsx`
+
+This gets to a working:
+`add member → shared project visibility → shared project chat`
+with the least schema, least UI, and least risk to existing functionality.
