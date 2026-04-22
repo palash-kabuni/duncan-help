@@ -240,7 +240,7 @@ const CEOBriefing = () => {
                   <RiskRadar risks={p.risks || []} reconciliation={p.risk_reconciliation || null} />
                 </Section>
 
-                <Section n={4} title="Accountability Watchlist">
+                <Section n={3} title="Accountability Watchlist">
                   {(p.watchlist || []).length === 0 ? (
                     <div className="rounded-lg border border-border bg-card p-6 flex items-start gap-3">
                       <ShieldCheck className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0 mt-0.5" />
