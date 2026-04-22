@@ -3940,11 +3940,12 @@ Format as a natural, readable summary with clear sections. If a section has no d
             content: JSON.stringify(result),
           });
         } catch (error) {
-          console.error(`Tool ${tc.function.name} threw error:`, error.message, error.stack);
+          const toolError = error instanceof Error ? error : new Error(String(error));
+          console.error(`Tool ${tc.function.name} threw error:`, toolError.message, toolError.stack);
           toolResults.push({
             tool_call_id: tc.id,
             role: "tool",
-            content: JSON.stringify({ error: error.message }),
+            content: JSON.stringify({ error: toolError.message }),
           });
         }
       }
