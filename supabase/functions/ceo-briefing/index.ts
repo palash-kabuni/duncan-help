@@ -3746,7 +3746,7 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         outcome_probability: parsed.outcome_probability ?? null,
         execution_score: parsed.execution_score ?? null,
         workstream_scores: parsed.workstream_scores ?? [],
-        payload: parsed.payload ?? {},
+        payload: { ...(parsed.payload ?? {}), generation_meta: generationMeta },
         generated_by: userId,
       }, { onConflict: "briefing_date,briefing_type" })
       .select()
