@@ -196,7 +196,7 @@ CRITICAL RULES:
 - payload.missing_artifacts_recommendations: THINK LIKE A CHIEF OF STAFF, NOT A CEO. Recommend artifacts the CEO would NEVER think to upload, drawn from the operating_system_checklist in context. Cover ALL 7 knowledge domains (not just Red ones — even Green domains have depth gaps). For each artifact: (a) "what_it_unlocks" MUST tie to a specific briefing section (e.g. "Risk Radar accuracy on India launch", "Decisions §9 confidence cap → high", "Investor advisory grounding"); (b) "where_to_find_it" MUST be grounded in inferred_artifact_signals where a hint exists (e.g. "Heard mentioned in Patrick's 14 Apr meeting — likely in his Drive/email"), otherwise plausible owner+location ("DocuSign — Patrick"); (c) cross-reference meetings, xero_invoices, azure_work_items, recent_releases to INFER artifacts that should exist but haven't been uploaded (AWS invoices in Xero → infer infrastructure cost map; "India launch" in meetings → infer signed vendor MoU; security tags on Azure tickets → infer pen-test report). Maximum 15 artifacts TOTAL across all domains, ranked by unlock-value. Priority levels: "critical" = blocks a §9 decision or board commitment; "high" = caps a major section confidence; "medium"/"low" = depth improvements.
 - payload.leadership: You MUST return EXACTLY ONE entry per name in leadership_roster (provided in context). Never omit a leader, never invent extras. For each leader, set "signal_status" from leader_signal_map: "active" (≥2 sources), "low_signal" (1 source), "silent" (0 sources). "evidence_sources" MUST be the array from leader_signal_map.sources for that leader. For SILENT leaders: set ceo_intervention_required=true, risk_level="medium" (or "high" if they own a 2026 priority), output_vs_expectation="No operational signal in 7 days — confirm engagement, blocked status, or capacity issue.", blocking="Invisible to Duncan — unknown.", needs_support="CEO check-in to surface what they are actually working on." For LOW_SIGNAL leaders: flag if their single source is non-execution (only meetings, no cards/Azure/releases). For ACTIVE leaders: ground output_vs_expectation in the SPECIFIC source items in leader_signal_map.sources_detail. Silence from a direct report IS a finding, not a gap to hide.
 - payload.risks RECONCILIATION: The risks array MUST collectively explain why outcome_probability is what it is. The "probability gap" = 100 − outcome_probability. The SUM of probability_impact_pts across all risks MUST be within ±10 of that gap. Each risk's probability_impact_pts represents how many points of probability that single risk accounts for (must be a positive integer). At least one risk MUST be tagged severity:"critical" or "high" whenever outcome_probability < 50 OR execution_score < 60. Every silent_priority listed in headline_context.silent_priorities MUST appear as its own dedicated risk with severity:"high" minimum and probability_impact_pts ≥ 12. If you cannot honestly justify the gap with the listed risks, ADD MORE RISKS until you do — do not under-report. Sort risks DESC by probability_impact_pts (biggest contributors first).
-- payload.friction RULES: Cross-functional friction is a STRUCTURAL BLOCKER between ≥2 functions/teams that NO single owner can unblock alone. CORE RULE: Do NOT report email volume, inbox activity, or email threads as friction on their own. Email is SECONDARY EVIDENCE only — a friction item MUST be grounded in evidence from at least 2 NON-EMAIL systems (workstream cards, Azure work items, meetings, calendar, Xero, releases, documents). Email may appear in "systems" only if at least 2 non-email systems are also present. Treat busy calendars or long Slack threads as activity, not friction. Scan for friction in:
+- payload.friction RULES: Cross-functional friction is a STRUCTURAL BLOCKER between ≥2 functions/teams that NO single owner can unblock alone. CORE RULE: Do NOT report email volume, inbox activity, or email threads as friction on their own. Email is SECONDARY EVIDENCE only — a friction item MUST be grounded in evidence from at least 2 NON-EMAIL systems (workstream cards, Azure work items, meetings, calendar, Xero, releases, documents, slack). Slack channel signals (escalations, confusion, customer issues from slack_pulse_signals) DO count as a non-email system — they are channel conversations, not 1:1 inboxes. Email may appear in "systems" only if at least 2 non-email systems are also present. Treat busy calendars or noisy Slack threads with no escalation pattern as activity, not friction. Scan for friction in:
     a. workstream_cards stuck (no movement >5 days) while a related Azure work item or meeting transcript shows the dependency moving in another team.
     b. Sales/customer commitments (Xero invoices, meeting transcripts mentioning customer promises) misaligned with delivery capacity (Azure backlog, stuck cards).
     c. Handoff delays — a card marked "blocked by X" where X lives in another function's workstream or Azure board with no recent movement.
@@ -1197,29 +1197,42 @@ Deno.serve(async (req) => {
       releases: releases as any[],
     });
 
-    await updateJob({ phase: "Scanning email signals", progress: 35 });
+    await updateJob({ phase: "Scanning email and slack signals", progress: 35 });
 
     // ─── Company-wide email pulse (opt-in mailboxes, last 24h) ────
     let email_pulse: any = null;
+    let slack_pulse: any = null;
     try {
-      const epRes = await fetch(
-        `${Deno.env.get("SUPABASE_URL")}/functions/v1/ceo-email-pulse`,
-        {
+      const [epRes, spRes] = await Promise.all([
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/ceo-email-pulse`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
           },
           body: JSON.stringify({}),
-        },
-      );
-      if (epRes.ok) {
+        }).catch((e) => { console.warn("ceo-email-pulse fetch failed:", e); return null; }),
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/ceo-slack-pulse`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({}),
+        }).catch((e) => { console.warn("ceo-slack-pulse fetch failed:", e); return null; }),
+      ]);
+      if (epRes && epRes.ok) {
         email_pulse = await epRes.json();
-      } else {
+      } else if (epRes) {
         console.warn("ceo-email-pulse non-200:", epRes.status);
       }
+      if (spRes && spRes.ok) {
+        slack_pulse = await spRes.json();
+      } else if (spRes) {
+        console.warn("ceo-slack-pulse non-200:", spRes.status);
+      }
     } catch (e) {
-      console.warn("ceo-email-pulse invoke failed:", e);
+      console.warn("comms pulse invoke failed:", e);
     }
 
     // ─── Calendar events for leaders (last 7d) — best-effort, opt-in via google_calendar_tokens ─
@@ -1678,6 +1691,14 @@ Deno.serve(async (req) => {
       leader_signal_map,
       email_pulse_signals: email_pulse?.signals ?? null,
       email_pulse_silent_leaders: email_pulse?.silent_leaders ?? [],
+      slack_pulse_signals: slack_pulse?.signals ?? null,
+      slack_pulse_silent_channels: slack_pulse?.silent_channels ?? [],
+      slack_pulse_meta: slack_pulse ? {
+        channels_scanned: slack_pulse.channels_scanned ?? 0,
+        channels_member: slack_pulse.channels_member ?? 0,
+        channels_total: slack_pulse.channels_total ?? 0,
+        messages_analysed: slack_pulse.messages_analysed ?? 0,
+      } : null,
       previous_briefing: (prev as any)?.[0] ?? null,
     };
 
