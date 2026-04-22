@@ -73,7 +73,7 @@ const Auth = () => {
     );
   }
 
-  if (session) {
+  if (session && !showSignupSuccess) {
     return <Navigate to="/" replace />;
   }
 
