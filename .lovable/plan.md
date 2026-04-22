@@ -1,31 +1,64 @@
 
 
-## Goal
-Make the **Accountability Watchlist (Section 05)** fully deterministic — rows AND owners computed server-side from `workstream_cards`, `workstream_card_assignees`, `azure_work_items`, and `priority_definitions`. The LLM no longer chooses watchlist content.
+## What's actually broken
 
-## Current state
-The post-LLM injection block (lines 2240-2412 in `supabase/functions/ceo-briefing/index.ts`) already deterministically injects rows for: non-green workstreams, silent priorities, uncovered coverage domains, and silent leaders. But:
-1. **Owner attribution** still leans on `ws.owner` (LLM-written) or falls back to `expected_owner`, not real assignees from cards / Azure work items.
-2. **The LLM's own watchlist rows** are merged in first, so model-invented entries can still slip through.
+Three concrete bugs are making your Team Briefing look empty:
+
+### 1. Email pulse silently returns nothing (the big one)
+`ceo-email-pulse` ran for every opted-in mailbox, but **every single mailbox failed JSON parsing**. Logs show repeated:
+```
+extractSignals error: SyntaxError: Unexpected token '`', "```json …
+```
+Claude is wrapping its JSON in ```` ```json ... ``` ```` fences and `JSON.parse` chokes. The function then returns empty arrays for commitments / risks / escalations / board mentions — so the briefing thinks "no email activity exists" even though 7 mailboxes were scanned. Confirmed in DB: latest 3 briefings have `email_pulse_signals = null` / 0 commitments.
+
+### 2. "What's moved in the last 24h" is genuinely empty — because the data window is empty
+Hard counts from the DB right now:
+- `workstream_cards` updated in 24h → **1**
+- `azure_work_items` changed in 24h → **0**
+- `meetings` in 24h → **0**
+- `slack_notification_logs` in 24h → **0**
+
+So `payload.what_changed` = `[]` is technically correct, but the briefing presents it as "nothing happened" instead of "no signal in the tracked sources". The model also currently silently emits `[]` when sources are thin, with no honest empty-state copy.
+
+### 3. Slack is read-only and shallow
+Slack is **not actively checked** — the briefing only reads `slack_notification_logs` (Duncan's own outbound DMs about overdue cards). It does not call the Slack API to read channel messages, mentions, or DMs. So when you ask "is it checking across Slack" — no, it's only looking at what Duncan itself sent.
+
+---
 
 ## Fix
-In `supabase/functions/ceo-briefing/index.ts`:
 
-1. **Discard LLM watchlist entirely.** Replace `const wlIn = [...parsed.payload.watchlist]` with `const wlIn = []`. The model no longer contributes rows — it only provides `workstream_scores` (which are themselves grounded in cards + Azure).
-2. **Compute owner deterministically per workstream.** Add a helper `resolveOwnerForWorkstream(name)` that:
-   - Looks up the most recent non-archived `workstream_cards` row for that `project_tag` and resolves its `owner_id` via `team_directory.display_name`.
-   - If no card owner, falls back to the most-frequent `azure_work_items.assigned_to` for the matching project.
-   - If neither, falls back to `PRIORITY_DEFINITIONS.expected_owner`.
-   - If still nothing, `"Unassigned — CEO to allocate"`.
-3. **Use the resolver in all four injection branches** (a non-green workstreams, b silent priorities, c uncovered domains, d silent leaders) instead of `ws?.owner` / `expected_owner` first-pass.
-4. **Tag every row with provenance.** Add `owner_source: "card_assignee" | "azure_assignee" | "priority_definition" | "unassigned"` so the UI/debug can show where the name came from.
-5. **Update the prompt** (lines ~111, ~181-191, ~269): remove the watchlist schema entry from the model output spec and add `- Do NOT emit watchlist — the server computes it deterministically from cards + Azure + priorities.` to the existing "Do NOT emit" list at line 1786.
+### A. `supabase/functions/ceo-email-pulse/index.ts`
+Strip code-fence wrappers before `JSON.parse` in `extractSignals`. One helper:
+```ts
+const stripFences = (s: string) =>
+  s.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/,"").trim();
+const parsed = JSON.parse(stripFences(raw));
+```
+Also wrap in a second-chance regex extractor (`/\{[\s\S]*\}/`) and log the first 200 chars of `raw` on failure so we can see what came back. Add a `response_format: { type: "json_object" }` reminder in the system prompt ("Return ONLY a JSON object. No markdown, no fences, no prose.").
+
+### B. `supabase/functions/ceo-briefing/index.ts` — honest empty state
+In the deterministic post-processing (where `what_changed` is finalised), if all four 24h counters (cards, Azure, meetings, slack notifications) are zero AND `email_pulse_signals` is null, inject one row:
+```
+{ function_area: "Operations & Delivery",
+  moved: "No tracked activity in the last 24h.",
+  did_not_move: "Cards / Azure / meetings / Slack / email pulse all returned 0 signals.",
+  needs_attention: "Verify Plaud, Azure DevOps sync, and email pulse are running." }
+```
+So the section never renders blank — it tells you *why* it's blank.
+
+### C. Surface Slack scope honestly
+In Section 04 / data-coverage footer, add a one-line provenance note: "Slack: Duncan's own outbound notifications only. Inbound channel messages are not scanned." (No new integration — just stop implying we read Slack.)
+
+### D. (Optional, ask before doing) Real Slack scan
+If you want the briefing to actually read Slack channels for the last 24h (mentions of leaders, channels going silent, etc.), that's a new edge function `ceo-slack-pulse` using the existing `SLACK_API_KEY` connector — `conversations.history` over the leadership DMs + key public channels, then a second LLM extraction pass like email pulse. Out of scope for this fix unless you confirm.
+
+---
 
 ## Files touched
-- Edit: `supabase/functions/ceo-briefing/index.ts` — add `resolveOwnerForWorkstream` helper, gut the LLM watchlist input, wire the resolver into the four injection branches, add `owner_source`, strip `watchlist` from the LLM output spec.
+- Edit: `supabase/functions/ceo-email-pulse/index.ts` — fenced-JSON tolerance + better logging.
+- Edit: `supabase/functions/ceo-briefing/index.ts` — honest empty-state row in `what_changed`; Slack provenance note in coverage.
 
 ## Out of scope
-- No UI changes to `src/components/ceo/` (existing watchlist renderer already handles the same row shape; new `owner_source` field is ignored unless we surface it later).
-- No schema changes.
-- Workstream Scorecard prose (Goal/Exec/$/Deps) stays LLM-generated as today — only the Watchlist becomes deterministic.
+- New Slack reader (D above) — needs your go-ahead.
+- Backfilling missing meetings (Plaud sync gap) — separate diagnosis.
 
