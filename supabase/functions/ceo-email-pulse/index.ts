@@ -329,12 +329,33 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Build a lightweight opted-out mailbox list (email + display name) so the
+    // briefing UI can show *who* has opted out, not just the count.
+    const skippedUserIds = Array.from(
+      new Set((skipped || []).map((t: any) => t.connected_by).filter(Boolean)),
+    );
+    let optedOutMailboxes: Array<{ email: string | null; display_name: string | null }> = [];
+    if (skippedUserIds.length > 0) {
+      const { data: skippedProfiles } = await supabaseAdmin
+        .from("profiles")
+        .select("user_id, display_name")
+        .in("user_id", skippedUserIds);
+      const nameByUser = new Map(
+        (skippedProfiles || []).map((p: any) => [p.user_id, p.display_name]),
+      );
+      optedOutMailboxes = (skipped || []).map((t: any) => ({
+        email: t.email_address || null,
+        display_name: nameByUser.get(t.connected_by) || null,
+      }));
+    }
+
     return json({
       ok: true,
       window_hours: WINDOW_HOURS,
       mailboxes_eligible: eligible.length,
       mailboxes_total: (allTokens || []).length,
       mailboxes_skipped_optout: skipped.length,
+      opted_out_mailboxes: optedOutMailboxes,
       emails_analysed: totalEmails,
       per_mailbox: mailboxResults.map((r) => ({
         mailbox: r.mailbox,

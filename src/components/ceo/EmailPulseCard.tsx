@@ -28,6 +28,7 @@ export interface EmailPulseSummary {
     unowned_commitments: number;
   };
   silent_leaders?: Array<{ leader: string; reason: string }>;
+  opted_out_mailboxes?: Array<{ email: string | null; display_name: string | null }>;
 }
 
 interface Props {
@@ -36,6 +37,7 @@ interface Props {
 
 export default function EmailPulseCard({ pulse }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const [showOptedOut, setShowOptedOut] = useState(false);
 
   if (!pulse || !pulse.per_mailbox) {
     return (
@@ -85,8 +87,33 @@ export default function EmailPulseCard({ pulse }: Props) {
           <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Mailboxes</div>
           <div className="text-foreground tabular-nums mt-0.5">
             {eligible} of {total}
-            {optedOut > 0 && <span className="text-muted-foreground"> ({optedOut} opted out)</span>}
+            {optedOut > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowOptedOut((v) => !v)}
+                className="ml-1 text-muted-foreground underline-offset-2 hover:underline hover:text-foreground"
+              >
+                ({optedOut} opted out)
+              </button>
+            )}
           </div>
+          {showOptedOut && optedOut > 0 && (
+            <div className="mt-1.5 space-y-0.5">
+              {(pulse.opted_out_mailboxes && pulse.opted_out_mailboxes.length > 0) ? (
+                pulse.opted_out_mailboxes.map((m, i) => (
+                  <div key={i} className="text-[10px] text-muted-foreground leading-tight">
+                    {m.display_name && <span className="text-foreground">{m.display_name}</span>}
+                    {m.display_name && m.email && <span> · </span>}
+                    {m.email && <span className="font-mono">{m.email}</span>}
+                  </div>
+                ))
+              ) : (
+                <div className="text-[10px] text-muted-foreground italic">
+                  Names unavailable on this briefing.
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div>
           <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Commitments</div>
