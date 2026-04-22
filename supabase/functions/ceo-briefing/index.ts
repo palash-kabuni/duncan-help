@@ -196,36 +196,51 @@ CRITICAL RULES:
 - payload.missing_artifacts_recommendations: THINK LIKE A CHIEF OF STAFF, NOT A CEO. Recommend artifacts the CEO would NEVER think to upload, drawn from the operating_system_checklist in context. Cover ALL 7 knowledge domains (not just Red ones — even Green domains have depth gaps). For each artifact: (a) "what_it_unlocks" MUST tie to a specific briefing section (e.g. "Risk Radar accuracy on India launch", "Decisions §9 confidence cap → high", "Investor advisory grounding"); (b) "where_to_find_it" MUST be grounded in inferred_artifact_signals where a hint exists (e.g. "Heard mentioned in Patrick's 14 Apr meeting — likely in his Drive/email"), otherwise plausible owner+location ("DocuSign — Patrick"); (c) cross-reference meetings, xero_invoices, azure_work_items, recent_releases to INFER artifacts that should exist but haven't been uploaded (AWS invoices in Xero → infer infrastructure cost map; "India launch" in meetings → infer signed vendor MoU; security tags on Azure tickets → infer pen-test report). Maximum 15 artifacts TOTAL across all domains, ranked by unlock-value. Priority levels: "critical" = blocks a §9 decision or board commitment; "high" = caps a major section confidence; "medium"/"low" = depth improvements.
 - payload.leadership: You MUST return EXACTLY ONE entry per name in leadership_roster (provided in context). Never omit a leader, never invent extras. For each leader, set "signal_status" from leader_signal_map: "active" (≥2 sources), "low_signal" (1 source), "silent" (0 sources). "evidence_sources" MUST be the array from leader_signal_map.sources for that leader. For SILENT leaders: set ceo_intervention_required=true, risk_level="medium" (or "high" if they own a 2026 priority), output_vs_expectation="No operational signal in 7 days — confirm engagement, blocked status, or capacity issue.", blocking="Invisible to Duncan — unknown.", needs_support="CEO check-in to surface what they are actually working on." For LOW_SIGNAL leaders: flag if their single source is non-execution (only meetings, no cards/Azure/releases). For ACTIVE leaders: ground output_vs_expectation in the SPECIFIC source items in leader_signal_map.sources_detail. Silence from a direct report IS a finding, not a gap to hide.
 - payload.risks RECONCILIATION: The risks array MUST collectively explain why outcome_probability is what it is. The "probability gap" = 100 − outcome_probability. The SUM of probability_impact_pts across all risks MUST be within ±10 of that gap. Each risk's probability_impact_pts represents how many points of probability that single risk accounts for (must be a positive integer). At least one risk MUST be tagged severity:"critical" or "high" whenever outcome_probability < 50 OR execution_score < 60. Every silent_priority listed in headline_context.silent_priorities MUST appear as its own dedicated risk with severity:"high" minimum and probability_impact_pts ≥ 12. If you cannot honestly justify the gap with the listed risks, ADD MORE RISKS until you do — do not under-report. Sort risks DESC by probability_impact_pts (biggest contributors first).
-- payload.friction RULES: Cross-functional friction is a STRUCTURAL BLOCKER between ≥2 functions/teams that NO single owner can unblock alone. CORE RULE: Do NOT report email volume, inbox activity, or email threads as friction on their own. Email is SECONDARY EVIDENCE only — a friction item MUST be grounded in evidence from at least 2 NON-EMAIL systems (workstream cards, Azure work items, meetings, calendar, Xero, releases, documents, slack). Slack channel signals (escalations, confusion, customer issues from slack_pulse_signals) DO count as a non-email system — they are channel conversations, not 1:1 inboxes. Email may appear in "systems" only if at least 2 non-email systems are also present. Treat busy calendars or noisy Slack threads with no escalation pattern as activity, not friction. Scan for friction in:
+- payload.friction RULES: Cross-functional friction is a STRUCTURAL BLOCKER between ≥2 functions/teams that NO single owner can unblock alone. CORE RULE: Do NOT report email volume, inbox activity, or email threads as friction on their own. Email is SECONDARY EVIDENCE only — a friction item MUST be grounded in evidence from at least 2 NON-EMAIL systems (workstream cards, Azure work items, meetings, calendar, Xero, releases, documents, slack). Slack channel signals (escalations, confusion, customer issues from slack_pulse_signals) DO count as a non-email system. Email may appear in "systems" only if at least 2 non-email systems are also present.
+
+  STRUCTURED 4-PASS SCAN — run each pass explicitly. For every emitted friction item, set "pass" = "A" | "B" | "C" | "D" indicating which pass found it.
+
+    PASS A — Strategy alignment. For each 2026 priority in PRIORITIES, gather the workstream_cards + azure_work_items + meeting mentions tied to it (by title/tag/semantic match). Flag if: (i) the priority is named in slack_pulse_signals or email_pulse_signals commitments but has zero matching cards/Azure items, OR (ii) cards exist but none moved in the last 7 days while the priority is "in-flight". Each such item is friction (commitment-without-execution OR execution-stalled).
+
+    PASS B — Cards ↔ Azure consistency. Cross-check workstream_cards against azure_work_items: (i) a card with status "blocked" or description containing "waiting on engineering / dev / azure" while the matching Azure item shows state "Active" / "In Progress" and recent activity → mismatched view of reality (friction). (ii) An Azure item past its target date with no acknowledgement in any card or slack/meeting signal → silent slip (friction). Cite both the card_id/title AND the Azure work item id in evidence.
+
+    PASS C — Cross-system corroboration. For every slack_pulse_signals.escalation, email_pulse_signals.risk, or meeting action item from the last 48h, check whether it appears in workstream_cards or azure_work_items. If a high/critical signal has NO corresponding card or Azure item → "raised but not actioned" friction. Cite the slack/email/meeting ref AND the absence of card/Azure coverage.
+
+    PASS D — Strategic drift. Take the union of (cards moved + Azure changes + meeting mentions + slack signals + email signals) in the last 7 days. For each 2026 priority with ZERO entries across ALL systems → emit a "strategic drift" friction item even if nothing is overtly "broken" — the drift itself IS friction. Owner = the priority's expected_owner from leader_signal_map.
+
+  ALSO scan the legacy heuristics (still valid evidence):
     a. workstream_cards stuck (no movement >5 days) while a related Azure work item or meeting transcript shows the dependency moving in another team.
     b. Sales/customer commitments (Xero invoices, meeting transcripts mentioning customer promises) misaligned with delivery capacity (Azure backlog, stuck cards).
     c. Handoff delays — a card marked "blocked by X" where X lives in another function's workstream or Azure board with no recent movement.
     d. Tasks with unclear ownership: cards/work items where owner_id is null OR assignee_status remains "pending" for >3 days while related work continues elsewhere.
     e. Missed dependencies — a release or workstream advancing while an upstream card it depends on is stale or unowned.
     f. Calendar overload (≥6 hours of meetings/day for an owner) coinciding with their owned workstream going stale — decision latency.
-    g. document_intelligence.contradicted_by entries spanning ≥2 functions (e.g. CFO budget contradicts CMO spend plan).
-    h. data_coverage_audit.strategic_coverage where a 2026 priority has artifacts in one domain but is Red in another — that handoff IS friction.
-    i. leader_signal_map where a 2026 priority has active cards but the expected_owner is silent — friction between active doers and absent owner.
+    g. document_intelligence.contradicted_by entries spanning ≥2 functions.
+    h. data_coverage_audit.strategic_coverage where a 2026 priority has artifacts in one domain but is Red in another.
+    i. leader_signal_map where a 2026 priority has active cards but the expected_owner is silent.
+
   EVIDENCE FLOOR: Each friction item MUST cite specific items from ≥2 non-email systems in "evidence" (e.g. "Card 'India launch logistics' last moved 12 days ago + Azure #4321 'India shipping integration' blocked + meeting 14 Apr noted Patrick waiting on ops"). Items grounded in only 1 system → demote to a risk, not friction. Items grounded only in email → DO NOT EMIT.
-  RANK BY FRICTION SCORE: friction_score = cross_functional_impact (0-25, breadth across functions) + time_delay (0-20, days stuck × severity) + ownership_ambiguity (0-15, null owner / pending acceptance) + customer_or_revenue_risk (0-25, named customer/revenue tie) + recurrence (0-15, similar pattern in last 30d). Sort DESC; emit only the TOP 5.
+  RANK BY FRICTION SCORE: friction_score = cross_functional_impact (0-25) + time_delay (0-20) + ownership_ambiguity (0-15) + customer_or_revenue_risk (0-25) + recurrence (0-15). Sort DESC; emit only the TOP 5.
   URGENCY mapping: red = score ≥70 OR named customer/revenue impact within 7d; yellow = 40–69; green should NOT appear (filter out). If nothing scores ≥40, return [] and let the empty-state speak.
   For EACH friction:
-    - "issue": short title (≤90 chars) naming the structural blocker.
-    - "description": one-sentence operational summary of what is stuck and where.
-    - "teams": EXACTLY the function names involved (≥2), e.g. ["Marketing","Operations"].
-    - "systems": the non-email systems that corroborate this (≥2 required), drawn from workstream/azure/meeting/calendar/xero/release/document. Add "email" only if ≥2 non-email systems already present.
-    - "why_friction": the structural reason (handoff broken, ownership unclear, dependency missed, capacity vs commitment mismatch, etc.).
-    - "evidence": specific quoted items from each system cited (card title, work item id, meeting date, invoice number, doc name).
+    - "issue": short title (≤90 chars).
+    - "description": one-sentence operational summary.
+    - "teams": EXACTLY the function names involved (≥2).
+    - "systems": the non-email systems that corroborate (≥2 required).
+    - "pass": "A" | "B" | "C" | "D" — which scan pass found it.
+    - "related_priority": the 2026 priority this drags, or "none — orphan work".
+    - "why_friction": the structural reason.
+    - "evidence": specific quoted items from each cited system (card title/id, Azure work item id, meeting date, slack channel + summary).
     - "business_impact": which 2026 priority, customer, deal, or release this drags + by when.
     - "urgency": "red" | "yellow".
-    - "next_action": the single concrete unblocking move (assign owner, force a decision meeting, kill scope, escalate to CEO).
-    - "suggested_owner": a real name from team_directory / leader_signal_map (most senior shared manager; "CEO" only if cross-divisional).
-    - "friction_score": integer 0-100 from the formula above.
-    - "consequence": short restatement of business_impact (kept for backwards-compat).
-    - "evidence_source": the dominant non-email source ("workstream_card"|"meeting"|"coverage_gap"|"silent_leader"|"doc_conflict"|"azure"|"xero"|"calendar").
-    - "recommended_resolver": same as suggested_owner (kept for backwards-compat).
-    - "auto_injected": false (only the post-processor sets true).
-  CAP: maximum 5 items, sorted by friction_score DESC. An empty friction[] is a HONEST signal when no cross-system pattern reaches the threshold — do NOT pad.`;
+    - "next_action": single concrete unblocking move.
+    - "suggested_owner": real name from team_directory.
+    - "friction_score": integer 0-100.
+    - "consequence": short restatement of business_impact.
+    - "evidence_source": dominant non-email source ("workstream_card"|"meeting"|"coverage_gap"|"silent_leader"|"doc_conflict"|"azure"|"xero"|"calendar"|"slack").
+    - "recommended_resolver": same as suggested_owner.
+    - "auto_injected": false.
+  CAP: maximum 5 items, sorted by friction_score DESC. An empty friction[] is a HONEST signal — do NOT pad.`;
 
 const EVENING_SCHEMA_HINT = `Return STRICT JSON:
 {
