@@ -134,15 +134,15 @@ const integrations: Integration[] = [
   {
     id: "google-drive",
     name: "Google Drive",
-    description: "Read and search files from Google Drive. Duncan can navigate folders, read documents, and synthesize reports.",
+    description: "Shared Google Drive access for reading and searching files. Duncan can navigate folders, read documents, and synthesize reports across the connected workspace.",
     icon: HardDrive,
     category: "Productivity",
     services: ["File Browsing", "Folder Navigation", "Document Reading", "Report Synthesis"],
-    type: "user",
+    type: "company",
     setupSteps: [
-      "Click Connect Google Drive below",
-      "Sign in with your Google account and grant read-only access",
-      "You'll be redirected back to Duncan — that's it!",
+      "An admin clicks Connect Google Drive below",
+      "Sign in with Google and grant read-only access to the shared Drive workspace",
+      "You'll be redirected back to Duncan and the connection becomes available across the company",
     ],
   },
 ];
@@ -241,10 +241,12 @@ const Integrations = () => {
   const checkGoogleDriveConnection = async () => {
     try {
       const { supabase } = await import("@/integrations/supabase/client");
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setIsGoogleDriveConnected(false); return; }
-      const { data } = await supabase.from("google_drive_tokens").select("id").eq("connected_by", user.id).limit(1);
-      setIsGoogleDriveConnected(data && data.length > 0);
+      const { data } = await supabase
+        .from("google_drive_tokens")
+        .select("id")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      setIsGoogleDriveConnected(!!data?.length);
     } catch {
       setIsGoogleDriveConnected(false);
     }
@@ -316,7 +318,6 @@ const Integrations = () => {
     checkBasecampConnection();
     checkGmailConnection();
     checkAzureDevOpsConnection();
-    checkGoogleDriveConnection();
     checkGoogleDriveConnection();
   }, [checkCalendarConnection]);
 
@@ -527,7 +528,6 @@ const IntegrationDetail = ({
     status = isGmailConnected ? "connected" : "disconnected";
   } else if (isAzureDevOps) {
     status = isAzureDevOpsConnected ? "connected" : "disconnected";
-  } else if (isGoogleDrive) {
   } else if (isGoogleDrive) {
     status = isGoogleDriveConnected ? "connected" : "disconnected";
   } else {
@@ -831,7 +831,7 @@ const IntegrationDetail = ({
                         : isGmail
                         ? "Click below to sign in with Google and grant Duncan read-only access to your Gmail for CV ingestion."
                         : isGoogleDrive
-                        ? "Click below to sign in with Google and grant Duncan read-only access to your Google Drive files."
+                        ? "Click below to sign in with Google and grant Duncan read-only access to the shared Google Drive workspace."
                         : "Click below to sign in with Google and grant Duncan access to your calendar."}
                     </p>
                   </div>
