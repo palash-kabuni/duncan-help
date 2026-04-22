@@ -1,19 +1,21 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
-  ArrowLeft, Plus, MessageSquare, Send, Loader2, Settings2,
+  ArrowLeft, Plus, MessageSquare, Send, Loader2, Settings2, Users,
   Upload, FileText, Sparkles, Trash2, RefreshCw, PanelRightOpen, X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import Sidebar, { MobileMenuButton } from "@/components/Sidebar";
 import { supabase } from "@/integrations/supabase/client";
-import { useProjects, useProjectChats, useProjectChat, useProjectFiles } from "@/hooks/useProjects";
+import { useProjects, useProjectChats, useProjectChat, useProjectFiles, useProjectMembers } from "@/hooks/useProjects";
+import { useUserProfiles } from "@/hooks/useWorkstreams";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import duncanAvatar from "@/assets/duncan-avatar.jpeg";
 
 export default function ProjectWorkspace() {
@@ -25,13 +27,17 @@ export default function ProjectWorkspace() {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const { messages, loading: msgsLoading, sending, sendMessage } = useProjectChat(activeChatId);
   const { files, uploadFile, extractText, deleteFile, isUploading, isExtracting } = useProjectFiles(projectId || null);
+  const { members, loading: membersLoading, addMember, removeMember } = useProjectMembers(projectId || null);
+  const { data: userProfiles = [] } = useUserProfiles();
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [input, setInput] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [showFiles, setShowFiles] = useState(false);
+  const [showCollaborate, setShowCollaborate] = useState(false);
   const [editName, setEditName] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
+  const [selectedMemberId, setSelectedMemberId] = useState("");
   const [manualDeselect, setManualDeselect] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -134,6 +140,23 @@ export default function ProjectWorkspace() {
     setShowSettings(false);
   };
 
+  const memberIds = new Set(members.map((member) => member.user_id));
+  const availableProfiles = userProfiles.filter((profile) => !memberIds.has(profile.user_id));
+
+  const handleAddMember = async () => {
+    if (!selectedMemberId) return;
+    const ok = await addMember(selectedMemberId);
+    if (ok) setSelectedMemberId("");
+  };
+
+  const initialsFor = (name: string | null) =>
+    (name || "?")
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "?";
+
   if (!projectId) return null;
 
   // Show loading while projects are being fetched
@@ -188,6 +211,10 @@ export default function ProjectWorkspace() {
           <Button variant="ghost" size="sm" onClick={() => setShowFiles(true)} className="gap-1.5 text-xs">
             <FileText className="h-3.5 w-3.5" />
             Files{files.length > 0 && ` (${files.length})`}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setShowCollaborate(true)} className="gap-1.5 text-xs">
+            <Users className="h-3.5 w-3.5" />
+            Collaborate
           </Button>
           <Button variant="ghost" size="sm" onClick={openSettings} className="gap-1.5 text-xs">
             <Settings2 className="h-3.5 w-3.5" />
@@ -463,6 +490,72 @@ export default function ProjectWorkspace() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSettings(false)}>Cancel</Button>
             <Button onClick={saveSettings} disabled={!editName.trim()}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCollaborate} onOpenChange={setShowCollaborate}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Collaborate</DialogTitle>
+            <DialogDescription>Add teammates to this project and share the chat workspace.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="flex gap-2">
+              <select
+                value={selectedMemberId}
+                onChange={(e) => setSelectedMemberId(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground"
+              >
+                <option value="">Select a teammate</option>
+                {availableProfiles.map((profile) => (
+                  <option key={profile.user_id} value={profile.user_id}>
+                    {profile.display_name || profile.role_title || profile.user_id}
+                  </option>
+                ))}
+              </select>
+              <Button onClick={handleAddMember} disabled={!selectedMemberId}>Add</Button>
+            </div>
+
+            <div className="rounded-md border border-border">
+              {membersLoading ? (
+                <div className="flex items-center justify-center py-6 text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading members...
+                </div>
+              ) : members.length === 1 ? (
+                <div className="px-4 py-6 text-sm text-muted-foreground">
+                  Only you have access to this project right now.
+                </div>
+              ) : null}
+
+              <div className="divide-y divide-border">
+                {members.map((member) => (
+                  <div key={member.user_id} className="flex items-center gap-3 px-4 py-3">
+                    <Avatar className="h-9 w-9">
+                      <AvatarImage src={member.avatar_url || undefined} alt={member.display_name || "Project member"} />
+                      <AvatarFallback>{initialsFor(member.display_name)}</AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm font-medium text-foreground">{member.display_name || "Unnamed user"}</p>
+                        {member.isOwner && (
+                          <span className="rounded-sm bg-secondary px-2 py-0.5 text-[10px] font-medium text-secondary-foreground">Owner</span>
+                        )}
+                      </div>
+                      {member.role_title && <p className="truncate text-xs text-muted-foreground">{member.role_title}</p>}
+                    </div>
+                    {!member.isOwner && (
+                      <Button variant="ghost" size="sm" onClick={() => removeMember(member.user_id)}>
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCollaborate(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
