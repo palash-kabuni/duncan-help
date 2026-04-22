@@ -196,7 +196,7 @@ CRITICAL RULES:
 - payload.missing_artifacts_recommendations: THINK LIKE A CHIEF OF STAFF, NOT A CEO. Recommend artifacts the CEO would NEVER think to upload, drawn from the operating_system_checklist in context. Cover ALL 7 knowledge domains (not just Red ones — even Green domains have depth gaps). For each artifact: (a) "what_it_unlocks" MUST tie to a specific briefing section (e.g. "Risk Radar accuracy on India launch", "Decisions §9 confidence cap → high", "Investor advisory grounding"); (b) "where_to_find_it" MUST be grounded in inferred_artifact_signals where a hint exists (e.g. "Heard mentioned in Patrick's 14 Apr meeting — likely in his Drive/email"), otherwise plausible owner+location ("DocuSign — Patrick"); (c) cross-reference meetings, xero_invoices, azure_work_items, recent_releases to INFER artifacts that should exist but haven't been uploaded (AWS invoices in Xero → infer infrastructure cost map; "India launch" in meetings → infer signed vendor MoU; security tags on Azure tickets → infer pen-test report). Maximum 15 artifacts TOTAL across all domains, ranked by unlock-value. Priority levels: "critical" = blocks a §9 decision or board commitment; "high" = caps a major section confidence; "medium"/"low" = depth improvements.
 - payload.leadership: You MUST return EXACTLY ONE entry per name in leadership_roster (provided in context). Never omit a leader, never invent extras. For each leader, set "signal_status" from leader_signal_map: "active" (≥2 sources), "low_signal" (1 source), "silent" (0 sources). "evidence_sources" MUST be the array from leader_signal_map.sources for that leader. For SILENT leaders: set ceo_intervention_required=true, risk_level="medium" (or "high" if they own a 2026 priority), output_vs_expectation="No operational signal in 7 days — confirm engagement, blocked status, or capacity issue.", blocking="Invisible to Duncan — unknown.", needs_support="CEO check-in to surface what they are actually working on." For LOW_SIGNAL leaders: flag if their single source is non-execution (only meetings, no cards/Azure/releases). For ACTIVE leaders: ground output_vs_expectation in the SPECIFIC source items in leader_signal_map.sources_detail. Silence from a direct report IS a finding, not a gap to hide.
 - payload.risks RECONCILIATION: The risks array MUST collectively explain why outcome_probability is what it is. The "probability gap" = 100 − outcome_probability. The SUM of probability_impact_pts across all risks MUST be within ±10 of that gap. Each risk's probability_impact_pts represents how many points of probability that single risk accounts for (must be a positive integer). At least one risk MUST be tagged severity:"critical" or "high" whenever outcome_probability < 50 OR execution_score < 60. Every silent_priority listed in headline_context.silent_priorities MUST appear as its own dedicated risk with severity:"high" minimum and probability_impact_pts ≥ 12. If you cannot honestly justify the gap with the listed risks, ADD MORE RISKS until you do — do not under-report. Sort risks DESC by probability_impact_pts (biggest contributors first).
-- payload.friction RULES: Cross-functional friction is a STRUCTURAL BLOCKER between ≥2 functions/teams that NO single owner can unblock alone. CORE RULE: Do NOT report email volume, inbox activity, or email threads as friction on their own. Email is SECONDARY EVIDENCE only — a friction item MUST be grounded in evidence from at least 2 NON-EMAIL systems (workstream cards, Azure work items, meetings, calendar, Xero, releases, documents). Email may appear in "systems" only if at least 2 non-email systems are also present. Treat busy calendars or long Slack threads as activity, not friction. Scan for friction in:
+- payload.friction RULES: Cross-functional friction is a STRUCTURAL BLOCKER between ≥2 functions/teams that NO single owner can unblock alone. CORE RULE: Do NOT report email volume, inbox activity, or email threads as friction on their own. Email is SECONDARY EVIDENCE only — a friction item MUST be grounded in evidence from at least 2 NON-EMAIL systems (workstream cards, Azure work items, meetings, calendar, Xero, releases, documents, slack). Slack channel signals (escalations, confusion, customer issues from slack_pulse_signals) DO count as a non-email system — they are channel conversations, not 1:1 inboxes. Email may appear in "systems" only if at least 2 non-email systems are also present. Treat busy calendars or noisy Slack threads with no escalation pattern as activity, not friction. Scan for friction in:
     a. workstream_cards stuck (no movement >5 days) while a related Azure work item or meeting transcript shows the dependency moving in another team.
     b. Sales/customer commitments (Xero invoices, meeting transcripts mentioning customer promises) misaligned with delivery capacity (Azure backlog, stuck cards).
     c. Handoff delays — a card marked "blocked by X" where X lives in another function's workstream or Azure board with no recent movement.
@@ -1197,29 +1197,42 @@ Deno.serve(async (req) => {
       releases: releases as any[],
     });
 
-    await updateJob({ phase: "Scanning email signals", progress: 35 });
+    await updateJob({ phase: "Scanning email and slack signals", progress: 35 });
 
     // ─── Company-wide email pulse (opt-in mailboxes, last 24h) ────
     let email_pulse: any = null;
+    let slack_pulse: any = null;
     try {
-      const epRes = await fetch(
-        `${Deno.env.get("SUPABASE_URL")}/functions/v1/ceo-email-pulse`,
-        {
+      const [epRes, spRes] = await Promise.all([
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/ceo-email-pulse`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
           },
           body: JSON.stringify({}),
-        },
-      );
-      if (epRes.ok) {
+        }).catch((e) => { console.warn("ceo-email-pulse fetch failed:", e); return null; }),
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/ceo-slack-pulse`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({}),
+        }).catch((e) => { console.warn("ceo-slack-pulse fetch failed:", e); return null; }),
+      ]);
+      if (epRes && epRes.ok) {
         email_pulse = await epRes.json();
-      } else {
+      } else if (epRes) {
         console.warn("ceo-email-pulse non-200:", epRes.status);
       }
+      if (spRes && spRes.ok) {
+        slack_pulse = await spRes.json();
+      } else if (spRes) {
+        console.warn("ceo-slack-pulse non-200:", spRes.status);
+      }
     } catch (e) {
-      console.warn("ceo-email-pulse invoke failed:", e);
+      console.warn("comms pulse invoke failed:", e);
     }
 
     // ─── Calendar events for leaders (last 7d) — best-effort, opt-in via google_calendar_tokens ─
@@ -1678,6 +1691,14 @@ Deno.serve(async (req) => {
       leader_signal_map,
       email_pulse_signals: email_pulse?.signals ?? null,
       email_pulse_silent_leaders: email_pulse?.silent_leaders ?? [],
+      slack_pulse_signals: slack_pulse?.signals ?? null,
+      slack_pulse_silent_channels: slack_pulse?.silent_channels ?? [],
+      slack_pulse_meta: slack_pulse ? {
+        channels_scanned: slack_pulse.channels_scanned ?? 0,
+        channels_member: slack_pulse.channels_member ?? 0,
+        channels_total: slack_pulse.channels_total ?? 0,
+        messages_analysed: slack_pulse.messages_analysed ?? 0,
+      } : null,
       previous_briefing: (prev as any)?.[0] ?? null,
     };
 
@@ -2072,7 +2093,7 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
       const cards24h = (cards as any[])?.length || 0;
       const azure24h = (workItems as any[])?.length || 0;
       const meetings24h = (meetings as any[])?.length || 0;
-      const slack24h = (slackLogs as any[])?.length || 0;
+      const slackOutbound24h = (slackLogs as any[])?.length || 0;
       const epSignals = (email_pulse as any)?.signals;
       const emailSignalCount = epSignals
         ? ((epSignals.commitments?.length || 0) +
@@ -2082,29 +2103,38 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
            (epSignals.customer_issues?.length || 0) +
            (epSignals.vendor_signals?.length || 0))
         : 0;
+      const spSignals = (slack_pulse as any)?.signals;
+      const slackSignalCount = spSignals
+        ? ((spSignals.commitments?.length || 0) +
+           (spSignals.escalations?.length || 0) +
+           (spSignals.confusion?.length || 0) +
+           (spSignals.customer_issues?.length || 0) +
+           (spSignals.risks?.length || 0))
+        : 0;
       const emailMailboxesScanned = (email_pulse as any)?.mailboxes_eligible || 0;
+      const slackChannelsScanned = (slack_pulse as any)?.channels_scanned || 0;
+      const slackMessagesScanned = (slack_pulse as any)?.messages_analysed || 0;
       const wc = Array.isArray(parsed.payload.what_changed) ? parsed.payload.what_changed : [];
       const allZero =
         cards24h === 0 && azure24h === 0 && meetings24h === 0 &&
-        slack24h === 0 && emailSignalCount === 0;
+        slackOutbound24h === 0 && emailSignalCount === 0 && slackSignalCount === 0;
 
       if (wc.length === 0) {
         if (allZero) {
           parsed.payload.what_changed = [{
             function_area: "Operations & Delivery",
             moved: "No tracked activity in the last 24 hours.",
-            did_not_move: `Workstream cards (0), Azure work items (0), meetings (0), Slack notifications (0), and email pulse (${emailMailboxesScanned} mailboxes scanned, 0 signals extracted) all returned empty.`,
-            needs_attention: "Verify Plaud meeting sync, Azure DevOps sync, and the ceo-email-pulse function are running. An empty 24h window usually means an integration is silent, not that the company is.",
+            did_not_move: `Workstream cards (0), Azure work items (0), meetings (0), Slack outbound (0), email pulse (${emailMailboxesScanned} mailboxes scanned, 0 signals extracted), and Slack pulse (${slackChannelsScanned} channels / ${slackMessagesScanned} messages scanned, 0 signals extracted) all returned empty.`,
+            needs_attention: "Verify Plaud meeting sync, Azure DevOps sync, and the ceo-email-pulse / ceo-slack-pulse functions are running. An empty 24h window usually means an integration is silent, not that the company is.",
             auto_injected: true,
             auto_injected_reason: "all_sources_empty_24h",
           }];
         } else {
-          // Activity exists in at least one source, but the model produced no rows.
           parsed.payload.what_changed = [{
             function_area: "Operations & Delivery",
-            moved: `Signals were detected (cards: ${cards24h}, Azure: ${azure24h}, meetings: ${meetings24h}, Slack notifications: ${slack24h}, email signals: ${emailSignalCount} across ${emailMailboxesScanned} mailboxes) but Duncan could not synthesise structured movement rows from them.`,
+            moved: `Signals were detected (cards: ${cards24h}, Azure: ${azure24h}, meetings: ${meetings24h}, Slack outbound: ${slackOutbound24h}, email signals: ${emailSignalCount} across ${emailMailboxesScanned} mailboxes, slack signals: ${slackSignalCount} across ${slackChannelsScanned} channels) but Duncan could not synthesise structured movement rows from them.`,
             did_not_move: "No commitments, blockers, or material status changes were extractable from the available sources in the last 24h.",
-            needs_attention: "Likely causes: thin source content, generic email/meeting context, or model under-extraction. Re-run the briefing or check raw signals in the data coverage section.",
+            needs_attention: "Likely causes: thin source content, generic email/meeting/slack context, or model under-extraction. Re-run the briefing or check raw signals in the data coverage section.",
             auto_injected: true,
             auto_injected_reason: "what_changed_empty_despite_signals",
           }];
@@ -2180,12 +2210,18 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
 
     // 4b. Data Coverage Audit — inject + apply confidence cap
     parsed.payload.data_coverage_audit = data_coverage_audit;
-    // Provenance note: be honest about what "Slack coverage" actually means
-    // in this briefing. We do NOT call Slack APIs to read channels/DMs;
-    // we only read Duncan's own outbound notification logs.
+    // Provenance note: describe each source honestly. Slack now covers BOTH
+    // outbound notifications (slack_notification_logs) AND inbound channel
+    // messages via ceo-slack-pulse for channels Duncan is a member of.
+    const spChannelsScanned = (slack_pulse as any)?.channels_scanned || 0;
+    const spMessagesAnalysed = (slack_pulse as any)?.messages_analysed || 0;
+    const spChannelsMember = (slack_pulse as any)?.channels_member || 0;
+    const spChannelsTotal = (slack_pulse as any)?.channels_total || 0;
     (parsed.payload.data_coverage_audit as any).source_provenance = {
       ...((parsed.payload.data_coverage_audit as any)?.source_provenance || {}),
-      slack: "Duncan's own outbound notifications only (slack_notification_logs). Inbound Slack channel messages, DMs, and mentions are NOT scanned.",
+      slack: slack_pulse
+        ? `Inbound: scanned ${spChannelsScanned} of ${spChannelsMember} member channels (out of ${spChannelsTotal} total), ${spMessagesAnalysed} messages via ceo-slack-pulse. Outbound: slack_notification_logs. Channels Duncan is not a member of are not scanned.`
+        : "Duncan's own outbound notifications only (slack_notification_logs). Slack inbound pulse did not run on this briefing.",
       email: "Per-mailbox 24h scan via ceo-email-pulse for opted-in users only.",
       meetings: "Plaud-ingested transcripts via fetch-plaud-meetings (last 24h for activity, last 10 transcripts for priority signals).",
       azure_devops: "azure_work_items table — last 24h changes.",
@@ -3199,7 +3235,7 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         auto_injected: frictionAutoInjected,
         dropped_email_only: frictionDroppedEmailOnly,
         dropped_single_system: frictionDroppedSingleSystem,
-        sources_unavailable: ["slack_inbound", "hubspot"],
+        sources_unavailable: ["hubspot"],
         rule: "Cross-system corroboration required (≥2 non-email systems). Email is supporting evidence only.",
       };
     }
@@ -3467,6 +3503,36 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
           board_mentions: Array.isArray(sigs.board_mentions) ? sigs.board_mentions.length : 0,
           customer_issues: Array.isArray(sigs.customer_issues) ? sigs.customer_issues.length : 0,
           vendor_signals: Array.isArray(sigs.vendor_signals) ? sigs.vendor_signals.length : 0,
+        },
+      };
+    }
+
+    if (slack_pulse) {
+      const sigs = slack_pulse.signals || {};
+      const commitments = Array.isArray(sigs.commitments) ? sigs.commitments : [];
+      const risks = Array.isArray(sigs.risks) ? sigs.risks : [];
+      const unowned = commitments.filter((c: any) => !c.owner || String(c.owner).trim() === "" || /unknown|tbd|n\/?a/i.test(String(c.owner))).length;
+      const critical = risks.filter((r: any) => /critical|high/i.test(String(r.severity || ""))).length;
+
+      parsed.payload = parsed.payload || {};
+      parsed.payload.slack_pulse = {
+        window_hours: slack_pulse.window_hours ?? 24,
+        channels_total: slack_pulse.channels_total ?? 0,
+        channels_member: slack_pulse.channels_member ?? 0,
+        channels_eligible: slack_pulse.channels_eligible ?? 0,
+        channels_scanned: slack_pulse.channels_scanned ?? 0,
+        messages_analysed: slack_pulse.messages_analysed ?? 0,
+        per_channel: slack_pulse.per_channel ?? [],
+        silent_channels: slack_pulse.silent_channels ?? [],
+        not_member_channels: slack_pulse.not_member_channels ?? [],
+        counts: {
+          commitments: commitments.length,
+          unowned_commitments: unowned,
+          escalations: Array.isArray(sigs.escalations) ? sigs.escalations.length : 0,
+          confusion: Array.isArray(sigs.confusion) ? sigs.confusion.length : 0,
+          customer_issues: Array.isArray(sigs.customer_issues) ? sigs.customer_issues.length : 0,
+          risks: risks.length,
+          critical_risks: critical,
         },
       };
     }

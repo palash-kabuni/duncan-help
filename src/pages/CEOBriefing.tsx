@@ -16,7 +16,7 @@ import TldrPanel from "@/components/ceo/TldrPanel";
 import CoverageGaps from "@/components/ceo/CoverageGaps";
 import CompanyPulseCard, { type CompanyPulseStatus } from "@/components/ceo/CompanyPulseCard";
 import DataCoverageCard, { type DataCoverageAudit } from "@/components/ceo/DataCoverageCard";
-import EmailPulseCard from "@/components/ceo/EmailPulseCard";
+import CommsPulseCard from "@/components/ceo/CommsPulseCard";
 import CEORoutingPanel from "@/components/ceo/CEORoutingPanel";
 import LovableContributorsCard from "@/components/ceo/LovableContributorsCard";
 
@@ -195,7 +195,7 @@ const CEOBriefing = () => {
                   <CompanyPulseCard pulse={p.company_pulse_status as CompanyPulseStatus} />
                 )}
 
-                <EmailPulseCard pulse={p.email_pulse} />
+                <CommsPulseCard emailPulse={p.email_pulse} slackPulse={p.slack_pulse} />
 
                 {p.data_coverage_audit && (
                   <DataCoverageCard
