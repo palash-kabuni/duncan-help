@@ -117,6 +117,7 @@ const Index = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const savingRef = useRef(false);
+  const skipInitialHydrationChatIdRef = useRef<string | null>(null);
 
   // Load messages when active chat changes
   useEffect(() => {
@@ -124,6 +125,12 @@ const Index = () => {
       clearMessages();
       return;
     }
+
+    if (skipInitialHydrationChatIdRef.current === chatOps.activeChatId) {
+      skipInitialHydrationChatIdRef.current = null;
+      return;
+    }
+
     (async () => {
       const loaded = await chatOps.loadMessages(chatOps.activeChatId!);
       setMessages(loaded.map((m) => ({ role: m.role, content: m.content })));
@@ -236,7 +243,10 @@ const Index = () => {
     if (!chatId) {
       const title = input.slice(0, 50) || "New Chat";
       chatId = await chatOps.createChat(title);
-      if (chatId) chatOps.setActiveChatId(chatId);
+      if (chatId) {
+        skipInitialHydrationChatIdRef.current = chatId;
+        chatOps.setActiveChatId(chatId);
+      }
     }
 
     // Save user message
