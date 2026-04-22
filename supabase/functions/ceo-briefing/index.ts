@@ -257,7 +257,7 @@ DATA RULES:
 - If data is weak → LOWER confidence and say so explicitly.
 - WORKSTREAM INTEGRITY: only score workstreams that exist in available_workstreams. Never fabricate. If a 2026 priority has no workstream, surface it as a coverage_gap — that gap is itself the most important signal.
 - RESPONSE DISCIPLINE: return compact, valid JSON only. Keep every prose field to 1-2 sentences. Prefer the shortest wording that preserves meaning.
-- ARRAY BUDGETS: cap workstream_scores to the provided workstreams only; cap risks to 6, friction to 5, leadership to 8, watchlist to 8, decisions to 6, document_intelligence to 6, missing_artifacts_recommendations domains to 5 with max 2 artifacts each.
+- ARRAY BUDGETS: cap workstream_scores to the provided workstreams only; cap risks to 6, friction to 5, leadership to 8, decisions to 6, document_intelligence to 6, missing_artifacts_recommendations domains to 5 with max 2 artifacts each.
 
 ANALYTICAL FRAMEWORK (apply to every workstream):
 1. Progress vs company goals
