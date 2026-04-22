@@ -559,7 +559,7 @@ const CEOBriefing = () => {
                   })()}
                 </Section>
 
-                <Section n={7} title="One Brutal Truth">
+                <Section n={6} title="One Brutal Truth">
                   <div className="rounded-lg border-2 border-red-500/40 bg-red-500/5 p-6">
                     <p className="text-base font-medium text-foreground leading-relaxed">{p.brutal_truth || "—"}</p>
                   </div>
