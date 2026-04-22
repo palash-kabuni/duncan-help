@@ -107,6 +107,24 @@ async function fetchMailboxMessages(accessToken: string) {
   return messages.filter((m): m is NonNullable<typeof m> => !!m);
 }
 
+// Tolerate LLM responses that wrap JSON in markdown code fences or include
+// stray prose. Returns parsed object or throws.
+function parseLLMJson(raw: string): any {
+  let s = String(raw ?? "").trim();
+  // Strip ```json ... ``` or ``` ... ``` fences (multi-line, anywhere).
+  s = s.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  try {
+    return JSON.parse(s);
+  } catch {
+    // Second-chance: extract the first {...} or [...] block.
+    const objMatch = s.match(/\{[\s\S]*\}/);
+    const arrMatch = s.match(/\[[\s\S]*\]/);
+    const candidate = objMatch?.[0] || arrMatch?.[0];
+    if (candidate) return JSON.parse(candidate);
+    throw new Error("No JSON object found in LLM response");
+  }
+}
+
 async function extractSignals(
   mailboxOwner: string,
   messages: any[],
@@ -133,7 +151,9 @@ async function extractSignals(
     snippet: m.snippet,
   }));
 
-  const systemPrompt = `You are an executive intelligence extractor. Analyse a 24h slice of one mailbox (owner: ${mailboxOwner}) and surface ONLY high-signal items relevant to the CEO of Kabuni. Ignore newsletters, marketing, calendar invites, low-stakes chatter. Return STRICT JSON.`;
+  const systemPrompt = `You are an executive intelligence extractor. Analyse a 24h slice of one mailbox (owner: ${mailboxOwner}) and surface ONLY high-signal items relevant to the CEO of Kabuni. Ignore newsletters, marketing, calendar invites, low-stakes chatter.
+
+OUTPUT FORMAT: Return ONLY a single raw JSON object. No markdown, no code fences (no \`\`\`json), no prose, no explanation. Start your response with { and end with }.`;
 
   const userPrompt = `Mailbox owner: ${mailboxOwner}
 Messages (max 50, last 24h):
