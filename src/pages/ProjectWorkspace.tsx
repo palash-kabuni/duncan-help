@@ -28,7 +28,7 @@ export default function ProjectWorkspace() {
   const { messages, loading: msgsLoading, sending, sendMessage } = useProjectChat(activeChatId);
   const { files, uploadFile, extractText, deleteFile, isUploading, isExtracting } = useProjectFiles(projectId || null);
   const { members, loading: membersLoading, addMember, removeMember } = useProjectMembers(projectId || null);
-  const { data: userProfiles = [] } = useUserProfiles();
+  const { data: userProfiles = [] } = useUserProfiles({ approvedOnly: false });
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -141,7 +141,7 @@ export default function ProjectWorkspace() {
   };
 
   const memberIds = new Set(members.map((member) => member.user_id));
-  const availableProfiles = userProfiles.filter((profile) => !memberIds.has(profile.user_id));
+  const availableProfiles = userProfiles.filter((profile) => profile.user_id !== project?.user_id && !memberIds.has(profile.user_id));
 
   const handleAddMember = async () => {
     if (!selectedMemberId) return;

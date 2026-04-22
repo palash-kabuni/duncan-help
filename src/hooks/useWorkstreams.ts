@@ -74,15 +74,20 @@ export interface UserProfile {
   avatar_url: string | null;
 }
 
-export function useUserProfiles() {
+export function useUserProfiles(options?: { approvedOnly?: boolean }) {
   return useQuery({
-    queryKey: ["user-profiles-all"],
+    queryKey: ["user-profiles-all", options?.approvedOnly ?? true],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("profiles")
         .select("user_id, display_name, role_title, avatar_url")
-        .eq("approval_status", "approved")
         .order("display_name");
+
+      if (options?.approvedOnly ?? true) {
+        query = query.eq("approval_status", "approved");
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       return (data || []) as UserProfile[];
     },
