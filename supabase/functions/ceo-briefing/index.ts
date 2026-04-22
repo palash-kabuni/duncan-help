@@ -3347,6 +3347,8 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         emails_analysed: email_pulse.emails_analysed ?? 0,
         per_mailbox: email_pulse.per_mailbox ?? [],
         silent_leaders: email_pulse.silent_leaders ?? [],
+        leadership_status: email_pulse.leadership_status ?? [],
+        opted_out_mailboxes: email_pulse.opted_out_mailboxes ?? [],
         counts: {
           commitments: commitments.length,
           unowned_commitments: unowned,

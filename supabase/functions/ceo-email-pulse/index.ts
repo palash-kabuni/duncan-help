@@ -309,44 +309,126 @@ Deno.serve(async (req) => {
       allVendorSignals.push(...tag(r.signals.vendor_signals));
     }
 
-    // Silent leaders = leadership members whose mailboxes returned ZERO sent emails
-    // (or whose mailbox is not connected / not opted-in)
-    const silentLeaders: Array<{ leader: string; reason: string }> = [];
+    // Helper: derive a friendly display name from an email local-part.
+    const nameFromEmail = (email: string | null | undefined): string | null => {
+      if (!email) return null;
+      const local = email.split("@")[0] || "";
+      if (!local) return null;
+      return local
+        .split(/[._-]+/)
+        .filter(Boolean)
+        .map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+        .join(" ");
+    };
+
+    // Build a set of opted-in mailbox emails (lowercased) and a map of skipped (opted-out) emails.
+    const eligibleEmails = new Set(
+      (eligible || []).map((t: any) => (t.email_address || "").toLowerCase()).filter(Boolean),
+    );
+    const skippedEmailSet = new Set(
+      (skipped || []).map((t: any) => (t.email_address || "").toLowerCase()).filter(Boolean),
+    );
+    const allConnectedEmails = new Set([...eligibleEmails, ...skippedEmailSet]);
+
+    // Build per-leader status: silent | opted_out | not_connected | active | error
+    type LeaderState = "silent" | "opted_out" | "not_connected" | "active" | "error";
+    const leadershipStatus: Array<{ leader: string; email: string; state: LeaderState; reason: string }> = [];
     for (const leader of LEADERSHIP) {
+      const primaryEmail = leader.emails[0] || "";
+      const lowerEmails = leader.emails.map((e) => e.toLowerCase());
+
+      const isConnected = lowerEmails.some((e) => allConnectedEmails.has(e));
+      const isOptedOut = lowerEmails.some((e) => skippedEmailSet.has(e));
+      const isOptedIn = lowerEmails.some((e) => eligibleEmails.has(e));
+
+      if (!isConnected) {
+        leadershipStatus.push({
+          leader: leader.name,
+          email: primaryEmail,
+          state: "not_connected",
+          reason: "Gmail not connected to Duncan",
+        });
+        continue;
+      }
+      if (isOptedOut && !isOptedIn) {
+        leadershipStatus.push({
+          leader: leader.name,
+          email: primaryEmail,
+          state: "opted_out",
+          reason: "Connected but opted out of CEO briefing scan",
+        });
+        continue;
+      }
       const mailboxMatch = mailboxResults.find((r) =>
-        leader.emails.some((e) => (r.mailbox || "").toLowerCase() === e.toLowerCase()),
+        lowerEmails.includes((r.mailbox || "").toLowerCase()),
       );
       if (!mailboxMatch) {
-        silentLeaders.push({ leader: leader.name, reason: "mailbox not connected or not opted in" });
+        leadershipStatus.push({
+          leader: leader.name,
+          email: primaryEmail,
+          state: "error",
+          reason: "Opted in but mailbox not scanned",
+        });
         continue;
       }
       if (mailboxMatch.status !== "ok") {
-        silentLeaders.push({ leader: leader.name, reason: `mailbox ${mailboxMatch.status}` });
+        leadershipStatus.push({
+          leader: leader.name,
+          email: primaryEmail,
+          state: "error",
+          reason: `Mailbox ${mailboxMatch.status}`,
+        });
         continue;
       }
       if ((mailboxMatch.sent_count ?? 0) === 0) {
-        silentLeaders.push({ leader: leader.name, reason: "0 outbound emails in last 24h" });
+        leadershipStatus.push({
+          leader: leader.name,
+          email: primaryEmail,
+          state: "silent",
+          reason: "0 outbound emails in last 24h",
+        });
+      } else {
+        leadershipStatus.push({
+          leader: leader.name,
+          email: primaryEmail,
+          state: "active",
+          reason: `${mailboxMatch.sent_count} sent in last 24h`,
+        });
       }
     }
+
+    // Backwards-compatible silent_leaders view — only true "silent" state.
+    const silentLeaders = leadershipStatus
+      .filter((l) => l.state === "silent")
+      .map((l) => ({ leader: l.leader, reason: l.reason }));
 
     // Build a lightweight opted-out mailbox list (email + display name) so the
     // briefing UI can show *who* has opted out, not just the count.
     const skippedUserIds = Array.from(
       new Set((skipped || []).map((t: any) => t.connected_by).filter(Boolean)),
     );
-    let optedOutMailboxes: Array<{ email: string | null; display_name: string | null }> = [];
-    if (skippedUserIds.length > 0) {
-      const { data: skippedProfiles } = await supabaseAdmin
-        .from("profiles")
-        .select("user_id, display_name")
-        .in("user_id", skippedUserIds);
-      const nameByUser = new Map(
-        (skippedProfiles || []).map((p: any) => [p.user_id, p.display_name]),
-      );
-      optedOutMailboxes = (skipped || []).map((t: any) => ({
-        email: t.email_address || null,
-        display_name: nameByUser.get(t.connected_by) || null,
-      }));
+    let optedOutMailboxes: Array<{ email: string | null; display_name: string | null; state: "opted_out" }> = [];
+    if ((skipped || []).length > 0) {
+      let nameByUser = new Map<string, string | null>();
+      if (skippedUserIds.length > 0) {
+        const { data: skippedProfiles } = await supabaseAdmin
+          .from("profiles")
+          .select("user_id, display_name")
+          .in("user_id", skippedUserIds);
+        nameByUser = new Map(
+          (skippedProfiles || []).map((p: any) => [p.user_id, p.display_name]),
+        );
+      }
+      optedOutMailboxes = (skipped || []).map((t: any) => {
+        const email = t.email_address || null;
+        const profileName = t.connected_by ? nameByUser.get(t.connected_by) : null;
+        const displayName = (profileName && profileName.trim()) || nameFromEmail(email);
+        return {
+          email,
+          display_name: displayName,
+          state: "opted_out" as const,
+        };
+      });
     }
 
     return json({
@@ -374,6 +456,7 @@ Deno.serve(async (req) => {
         vendor_signals: allVendorSignals,
       },
       silent_leaders: silentLeaders,
+      leadership_status: leadershipStatus,
     });
   } catch (e: any) {
     console.error("ceo-email-pulse error:", e);
