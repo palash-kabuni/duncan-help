@@ -3834,6 +3834,17 @@ Format as a natural, readable summary with clear sections. If a section has no d
       return { fullContent, toolCalls };
     }
 
+    const TOOL_EXECUTION_TIMEOUT_MS = 20_000;
+
+    async function withToolTimeout<T>(toolName: string, work: Promise<T>): Promise<T> {
+      return await Promise.race([
+        work,
+        new Promise<T>((_, reject) => {
+          setTimeout(() => reject(new Error(`${toolName} timed out after ${TOOL_EXECUTION_TIMEOUT_MS}ms`)), TOOL_EXECUTION_TIMEOUT_MS);
+        }),
+      ]);
+    }
+
     // Helper to execute tool calls and return results
     async function executeToolCalls(toolCalls: any[]): Promise<any[]> {
       const calendarToolNames = ["list_calendar_events", "create_calendar_event", "update_calendar_event", "delete_calendar_event"];
@@ -3863,52 +3874,53 @@ Format as a natural, readable summary with clear sections. If a section has no d
             if (!calendarAccessToken) {
               result = { error: "Google Calendar is not connected. Please connect it via the Integrations page." };
             } else {
-              result = await executeCalendarTool(tc.function.name, args, calendarAccessToken);
+              result = await withToolTimeout(tc.function.name, executeCalendarTool(tc.function.name, args, calendarAccessToken));
             }
           } else if (documentToolNames.includes(tc.function.name)) {
             if (!azureStorageAvailable) {
               result = { error: "Document storage is not configured. Please contact an admin." };
             } else {
-              result = await executeDocumentTool(tc.function.name, args, supabaseUrl, authHeader || "");
+              result = await withToolTimeout(tc.function.name, executeDocumentTool(tc.function.name, args, supabaseUrl, authHeader || ""));
             }
           } else if (notionToolNames.includes(tc.function.name)) {
             if (!notionToken) {
               result = { error: "Notion is not connected. An admin needs to connect it via the Integrations page." };
             } else {
-              result = await executeNotionTool(tc.function.name, args, notionToken);
+              result = await withToolTimeout(tc.function.name, executeNotionTool(tc.function.name, args, notionToken));
             }
           } else if (googleFormsToolNames.includes(tc.function.name)) {
-            result = await executeGoogleFormsTool(tc.function.name, args, supabaseAdmin);
+            result = await withToolTimeout(tc.function.name, executeGoogleFormsTool(tc.function.name, args, supabaseAdmin));
           } else if (ndaToolNames.includes(tc.function.name)) {
-            result = await executeNdaTool(tc.function.name, args, supabaseAdmin, userId || "", userEmail, authHeader || "");
+            result = await withToolTimeout(tc.function.name, executeNdaTool(tc.function.name, args, supabaseAdmin, userId || "", userEmail, authHeader || ""));
           } else if (basecampToolNames.includes(tc.function.name)) {
             if (!basecampConnected) {
               result = { error: "Basecamp is not connected. An admin needs to connect it via the Integrations page." };
             } else {
-              result = await executeBasecampTool(tc.function.name, args, supabaseUrl, authHeader || "");
+              result = await withToolTimeout(tc.function.name, executeBasecampTool(tc.function.name, args, supabaseUrl, authHeader || ""));
               console.log(`Basecamp tool ${tc.function.name} result preview:`, JSON.stringify(result).slice(0, 500));
             }
           } else if (meetingToolNames.includes(tc.function.name)) {
-              result = await executeMeetingTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
+              result = await withToolTimeout(tc.function.name, executeMeetingTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || ""));
           } else if (azureDevOpsToolNames.includes(tc.function.name)) {
-              result = await executeAzureDevOpsTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "");
+              result = await withToolTimeout(tc.function.name, executeAzureDevOpsTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || ""));
           } else if (xeroToolNames.includes(tc.function.name)) {
-              result = await executeXeroTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "", userId || "");
+              result = await withToolTimeout(tc.function.name, executeXeroTool(tc.function.name, args, supabaseAdmin, supabaseUrl, authHeader || "", userId || ""));
            } else if (gmailToolNames.includes(tc.function.name)) {
-              result = await executeGmailTool(tc.function.name, args, supabaseUrl, authHeader || "");
+              result = await withToolTimeout(tc.function.name, executeGmailTool(tc.function.name, args, supabaseUrl, authHeader || ""));
            } else if (driveToolNames.includes(tc.function.name)) {
-              result = await executeDriveTool(tc.function.name, args, supabaseUrl, authHeader || "");
+              result = await withToolTimeout(tc.function.name, executeDriveTool(tc.function.name, args, supabaseUrl, authHeader || ""));
            } else if (analyticsToolNames.includes(tc.function.name)) {
-              result = await executeAnalyticsTool(tc.function.name, args, supabaseAdmin);
+              result = await withToolTimeout(tc.function.name, executeAnalyticsTool(tc.function.name, args, supabaseAdmin));
           } else if (workstreamMgmtToolNames.includes(tc.function.name)) {
-              result = await executeWorkstreamTool(tc.function.name, args, supabaseAdmin, userId || "");
+              result = await withToolTimeout(tc.function.name, executeWorkstreamTool(tc.function.name, args, supabaseAdmin, userId || ""));
           } else if (execSummaryToolNames.includes(tc.function.name)) {
-              result = await executeExecSummaryTool(tc.function.name, args, supabaseUrl, authHeader || "");
+              result = await withToolTimeout(tc.function.name, executeExecSummaryTool(tc.function.name, args, supabaseUrl, authHeader || ""));
           } else if (releaseToolNames.includes(tc.function.name)) {
-              result = await executeReleaseTool(tc.function.name, args, supabaseAdmin, userId || "");
+              result = await withToolTimeout(tc.function.name, executeReleaseTool(tc.function.name, args, supabaseAdmin, userId || ""));
           } else if (lovableContribToolNames.includes(tc.function.name)) {
-              result = await executeLovableContributorsTool(tc.function.name, args, supabaseAdmin, userId || "");
+              result = await withToolTimeout(tc.function.name, executeLovableContributorsTool(tc.function.name, args, supabaseAdmin, userId || ""));
           } else {
+              result = { error: `Unknown tool: ${tc.function.name}` };
           }
           
           toolResults.push({
