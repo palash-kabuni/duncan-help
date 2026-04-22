@@ -1217,10 +1217,14 @@ Deno.serve(async (req) => {
     // ─── Company-wide email + slack pulse (last 24h) ────
     let email_pulse: any = null;
     let slack_pulse: any = null;
+    let hubspot_signal: any = null;
+    let github_signal: any = null;
     let slack_pulse_error: string | null = null;
     let email_pulse_error: string | null = null;
+    let hubspot_signal_error: string | null = null;
+    let github_signal_error: string | null = null;
     try {
-      const [epRes, spRes] = await Promise.all([
+      const [epRes, spRes, hubspotRes, githubRes] = await Promise.all([
         fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/ceo-email-pulse`, {
           method: "POST",
           headers: {
@@ -1237,6 +1241,22 @@ Deno.serve(async (req) => {
           },
           body: JSON.stringify({}),
         }).catch((e) => { console.warn("ceo-slack-pulse fetch failed:", e); slack_pulse_error = `fetch failed: ${e?.message || e}`; return null; }),
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/hubspot-api`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ action: "briefing_summary" }),
+        }).catch((e) => { console.warn("hubspot-api fetch failed:", e); hubspot_signal_error = `fetch failed: ${e?.message || e}`; return null; }),
+        fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/github-api`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ action: "briefing_summary" }),
+        }).catch((e) => { console.warn("github-api fetch failed:", e); github_signal_error = `fetch failed: ${e?.message || e}`; return null; }),
       ]);
       if (epRes && epRes.ok) {
         email_pulse = await epRes.json();
@@ -1252,12 +1272,28 @@ Deno.serve(async (req) => {
         slack_pulse_error = `HTTP ${spRes.status}`;
         console.warn("ceo-slack-pulse non-200:", spRes.status);
       }
+      if (hubspotRes && hubspotRes.ok) {
+        hubspot_signal = await hubspotRes.json();
+        if (hubspot_signal?.ok === false) hubspot_signal_error = hubspot_signal?.error || "hubspot returned ok=false";
+      } else if (hubspotRes) {
+        hubspot_signal_error = `HTTP ${hubspotRes.status}`;
+        console.warn("hubspot-api non-200:", hubspotRes.status);
+      }
+      if (githubRes && githubRes.ok) {
+        github_signal = await githubRes.json();
+        if (github_signal?.ok === false) github_signal_error = github_signal?.error || "github returned ok=false";
+      } else if (githubRes) {
+        github_signal_error = `HTTP ${githubRes.status}`;
+        console.warn("github-api non-200:", githubRes.status);
+      }
     } catch (e: any) {
       console.warn("comms pulse invoke failed:", e);
       if (!slack_pulse_error) slack_pulse_error = `invoke failed: ${e?.message || e}`;
       if (!email_pulse_error) email_pulse_error = `invoke failed: ${e?.message || e}`;
+      if (!hubspot_signal_error) hubspot_signal_error = `invoke failed: ${e?.message || e}`;
+      if (!github_signal_error) github_signal_error = `invoke failed: ${e?.message || e}`;
     }
-    console.log(`[ceo-briefing] email_pulse: ${email_pulse ? 'ok' : 'null'} (err=${email_pulse_error}); slack_pulse: ${slack_pulse ? 'ok' : 'null'} (err=${slack_pulse_error})`);
+    console.log(`[ceo-briefing] email_pulse: ${email_pulse ? 'ok' : 'null'} (err=${email_pulse_error}); slack_pulse: ${slack_pulse ? 'ok' : 'null'} (err=${slack_pulse_error}); hubspot: ${hubspot_signal ? 'ok' : 'null'} (err=${hubspot_signal_error}); github: ${github_signal ? 'ok' : 'null'} (err=${github_signal_error})`);
 
     // ─── Calendar events for leaders (last 7d) — best-effort, opt-in via google_calendar_tokens ─
     let leaderCalendarEvents: Array<{ summary: string | null; start: string | null; organiser_alias?: string | null; attendee_aliases?: string[] }> = [];
