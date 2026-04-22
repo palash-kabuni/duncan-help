@@ -77,6 +77,8 @@ Deno.serve(async (req) => {
     let totalSynced = 0;
 
     for (const project of projectsData.value || []) {
+      const scopedProjectName = String(project.name || "").replace(/'/g, "''");
+
       // Query recent work items (changed in last 30 days)
       const wiqlRes = await fetch(`${orgUrl}/${project.name}/_apis/wit/wiql?api-version=7.1`, {
         method: "POST",
@@ -85,7 +87,7 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          query: `SELECT [System.Id] FROM workitems WHERE [System.ChangedDate] >= @Today - 30 ORDER BY [System.ChangedDate] DESC`,
+          query: `SELECT [System.Id] FROM workitems WHERE [System.TeamProject] = '${scopedProjectName}' AND [System.ChangedDate] >= @Today - 30 ORDER BY [System.ChangedDate] DESC`,
         }),
       });
 
@@ -109,6 +111,7 @@ Deno.serve(async (req) => {
 
       for (const item of batchData.value || []) {
         const fields = item.fields || {};
+        const canonicalProjectName = fields["System.TeamProject"] || project.name;
         const { error: upsertError } = await supabaseAdmin
           .from("azure_work_items")
           .upsert(
@@ -125,7 +128,7 @@ Deno.serve(async (req) => {
               description: (fields["System.Description"] || "").substring(0, 5000),
               created_date: fields["System.CreatedDate"],
               changed_date: fields["System.ChangedDate"],
-              project_name: project.name,
+              project_name: canonicalProjectName,
               raw_data: item,
               synced_at: new Date().toISOString(),
             },
