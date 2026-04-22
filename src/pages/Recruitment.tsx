@@ -575,6 +575,7 @@ const Recruitment = () => {
                       const comps = details?.competencies;
                       const compEntries = comps ? (Object.entries(comps) as [string, any][]) : [];
                         const competencyScore = getCandidateCompetencyScore(c);
+                        const hireflixLink = c.hireflix_playback_url ?? c.hireflix_interview_url;
                       const isEligible = isInviteEligible(c);
 
                       return (
@@ -717,24 +718,12 @@ const Recruitment = () => {
                                 <Badge variant="outline" className="text-[11px] border-primary/30 text-primary gap-1">
                                   <Video className="h-3 w-3" /> Invited
                                 </Badge>
-                                {c.hireflix_interview_url && (
-                                  <a href={c.hireflix_interview_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground hover:text-primary flex items-center gap-0.5">
-                                    <ExternalLink className="h-3 w-3" /> Link
-                                  </a>
-                                )}
                               </div>
                             ) : c.hireflix_status === "completed" ? (
                               <div className="flex flex-col items-center gap-1">
                                 <Badge variant="outline" className="text-[11px] border-primary/30 text-primary gap-1">
                                   <CheckCircle className="h-3 w-3" /> Done
                                 </Badge>
-                                {c.hireflix_playback_url ? (
-                                  <a href={c.hireflix_playback_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-muted-foreground hover:text-primary flex items-center gap-0.5">
-                                    <ExternalLink className="h-3 w-3" /> Watch
-                                  </a>
-                                ) : (
-                                  <span className="text-[10px] text-muted-foreground">No video yet</span>
-                                )}
                               </div>
                             ) : (() => {
                               const retry = candidateRetryMap.get(c.id);
@@ -763,6 +752,20 @@ const Recruitment = () => {
                               }
                               return <span className="text-muted-foreground text-xs">—</span>;
                             })()}
+                            <div className="mt-1">
+                              {hireflixLink ? (
+                                <a
+                                  href={hireflixLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary underline text-[10px] inline-flex items-center gap-1"
+                                >
+                                  <ExternalLink className="h-3 w-3" /> Open Interview
+                                </a>
+                              ) : (
+                                <span className="text-[10px] text-muted-foreground">No interview link available</span>
+                              )}
+                            </div>
                           </TableCell>
 
                           {/* Interview Score */}
@@ -821,6 +824,7 @@ const Recruitment = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {top3.map((c: any, idx: number) => {
                   const scores = c.interview_scores as any;
+                  const hireflixLink = c.hireflix_playback_url ?? c.hireflix_interview_url;
                   return (
                     <Card key={c.id} className={`border-border/50 ${idx === 0 ? "ring-2 ring-yellow-500/30" : ""}`}>
                       <CardContent className="pt-4 space-y-3">
@@ -854,9 +858,9 @@ const Recruitment = () => {
                             })}
                           </div>
                         )}
-                        {c.hireflix_playback_url && (
+                        {hireflixLink && (
                           <a
-                            href={c.hireflix_playback_url}
+                            href={hireflixLink}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
