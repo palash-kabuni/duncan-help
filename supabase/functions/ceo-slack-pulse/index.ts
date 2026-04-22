@@ -431,6 +431,8 @@ Deno.serve(async (req) => {
 
     return json({
       ok: true,
+      degraded,
+      degraded_reason,
       window_hours: 24,
       channels_total: allChannels.length,
       channels_member: memberChannels.length,
