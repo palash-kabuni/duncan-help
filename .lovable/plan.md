@@ -1,70 +1,70 @@
 
-## UI-only plan: hide Azure Blob Storage, Azure DevOps, and Basecamp cards from Integrations
+## Fix prompt duplication when starting a new dashboard chat
 
-### What will change
-Remove the three integration options from the frontend display in the Integrations page only:
+### What is happening
+The duplication is coming from the dashboard chat flow in `src/pages/Index.tsx`:
 
-- Azure Blob Storage
-- Azure DevOps
-- Basecamp
+- `handleChatSubmit()` lazily creates a DB chat on first send
+- it immediately saves the user message to `general_chat_messages`
+- it then sets `activeChatId`
+- that triggers the `useEffect` that reloads messages from the database
+- at the same time, `useNormanChat.send()` is also optimistically appending the same user prompt to local UI state
 
-No backend, database, auth, RLS, or edge-function behavior will be touched.
+This creates a race between:
+- the optimistic in-memory message
+- the freshly reloaded persisted message
 
-### Current implementation
-The Integrations page is driven by a static `integrations` array in `src/pages/Integrations.tsx`. That array currently includes all visible cards, categories, counts, and modal entry points.
+Result: the first prompt can appear twice when initiating a new chat from the dashboard.
 
-Because the page derives its UI from that array:
-- removing entries there will hide the cards
-- the category filter list will automatically update
-- connected counts shown on the page will automatically exclude those hidden cards
-- no backend changes are required
+### Implementation plan
 
-### Fastest implementation path
-1. Update `src/pages/Integrations.tsx`
-   - Remove or filter out these three entries from the `integrations` array:
-     - `azure-blob`
-     - `basecamp`
-     - `azure-devops`
+1. Update the new-chat send flow in `src/pages/Index.tsx`
+   - Keep lazy chat creation as-is
+   - Prevent the `activeChatId` hydration effect from reloading messages in the middle of the first in-flight send for a newly created chat
 
-2. Keep everything else intact
-   - Do not touch:
-     - connection-check functions
-     - company/user integration hooks
-     - backend calls
-     - database logic
-     - modal logic for other integrations
+2. Add a small guard for first-message initialization
+   - Track when the dashboard is creating the first message for a brand-new chat
+   - While that initialization is in progress, skip or defer the `loadMessages()` effect that runs on `activeChatId` change
+   - Once the first send is complete, allow normal persisted loading behavior again
 
-3. Verify frontend behavior
-   - `/integrations` no longer shows those three cards
-   - remaining cards still render normally
-   - category chips still look correct
-   - clicking remaining cards still opens the detail modal
+3. Preserve the existing persistence behavior
+   - Continue saving the user message to `general_chat_messages`
+   - Continue saving the assistant reply after streaming completes
+   - Do not change backend tables, chat schema, or general chat persistence logic
 
-### Included
-- Hide the three specified cards from the Integrations grid
-- Preserve all existing behavior for visible integrations
-- Keep the change scoped to frontend display only
+4. Keep the fix scoped to dashboard chat only
+   - Limit changes to `src/pages/Index.tsx`
+   - Do not modify `useGeneralChats`
+   - Do not modify backend functions or database logic unless absolutely required for type safety
 
-### Deferred / intentionally not changed
-- No cleanup of unused backend connection checks
-- No removal of hidden integrations from backend tables
-- No deletion of modal branches or OAuth handlers unless clearly necessary for type/build safety
-- No sidebar or other page changes unless those cards are also rendered there by this same page flow
+### Why this is the safest fix
+This avoids changing core chat storage behavior and fixes the actual race condition at the UI orchestration layer, where the duplication is introduced. It keeps:
+- optimistic UX
+- lazy chat creation
+- persisted chat history
+- assistant save behavior
 
-### Technical notes
-- `categories` is derived from the visible `integrations` array, so it should self-correct after the change.
-- `connectedCount` is also derived from that same array, so it will reflect only visible integrations.
-- The safest minimal implementation is to change only the display source list, not the backend state machinery.
+### Expected result after implementation
+When a user starts a brand-new dashboard chat:
+- the first prompt appears once
+- the assistant streams normally
+- the chat is persisted correctly
+- reopening the thread later still shows the full conversation from storage
 
-### Validation checklist
-After implementation, confirm:
-1. Integrations page loads without errors
-2. Azure Blob Storage card is gone
-3. Basecamp card is gone
-4. Azure DevOps card is gone
-5. Gmail / Google Calendar / Google Drive / Slack still display normally
-6. Clicking a remaining integration still opens its detail view
-7. No regression in page layout or filter chips
+### Validation
+After implementation, verify:
 
-### Expected outcome
-A minimal UI-only update where those three integrations still exist in the system backend, but are no longer shown as selectable options in the Integrations section.
+1. Start a brand-new chat from the dashboard
+   - first user prompt appears only once
+
+2. Wait for assistant response
+   - assistant appears once and completes normally
+
+3. Refresh or reopen the same chat
+   - history still shows one user prompt and one assistant response
+
+4. Start another brand-new chat
+   - duplication does not recur
+
+5. Open an existing chat from history
+   - existing hydration behavior still works normally
