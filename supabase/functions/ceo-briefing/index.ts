@@ -3254,13 +3254,43 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
       friction = friction.slice(0, 5);
 
       parsed.payload.friction = friction;
+
+      // Build sources_unavailable honestly (HubSpot always; Slack only if it never returned)
+      const sourcesUnavailable: string[] = ["hubspot"];
+      if (!slack_pulse) sourcesUnavailable.push("slack_inbound");
+
+      // Per-pass tally from the LLM-emitted friction items (best-effort)
+      const passTally = { A: 0, B: 0, C: 0, D: 0, unspecified: 0 };
+      for (const f of friction) {
+        const p = String((f as any)?.pass || "").toUpperCase();
+        if (p === "A" || p === "B" || p === "C" || p === "D") passTally[p]++;
+        else passTally.unspecified++;
+      }
+
       parsed.payload.friction_meta = {
         total: friction.length,
         auto_injected: frictionAutoInjected,
         dropped_email_only: frictionDroppedEmailOnly,
         dropped_single_system: frictionDroppedSingleSystem,
-        sources_unavailable: ["hubspot"],
-        rule: "Cross-system corroboration required (≥2 non-email systems). Email is supporting evidence only.",
+        sources_unavailable: sourcesUnavailable,
+        slack_pulse_error: slack_pulse_error || null,
+        email_pulse_error: email_pulse_error || null,
+        scanned: {
+          workstream_cards: Array.isArray(workstream_cards) ? workstream_cards.length : 0,
+          azure_work_items: Array.isArray(workItems) ? workItems.length : 0,
+          meetings_7d: Array.isArray(meetings) ? meetings.length : 0,
+          slack_channels_scanned: (slack_pulse as any)?.channels_scanned || 0,
+          slack_channels_member: (slack_pulse as any)?.channels_member || 0,
+          slack_channels_total: (slack_pulse as any)?.channels_total || 0,
+          slack_messages: (slack_pulse as any)?.messages_analysed || 0,
+          email_mailboxes_scanned: (email_pulse as any)?.mailboxes_eligible || 0,
+          email_mailboxes_total: (email_pulse as any)?.mailboxes_total || 0,
+          xero_invoices: Array.isArray(xeroInvoices) ? xeroInvoices.length : 0,
+          releases: Array.isArray(releases) ? releases.length : 0,
+          priorities_checked: PRIORITY_DEFINITIONS.length,
+        },
+        passes: passTally,
+        rule: "4-pass scan (A: strategy alignment · B: cards↔Azure consistency · C: cross-system corroboration · D: strategic drift). Each item must cite ≥2 non-email systems.",
       };
     }
 
