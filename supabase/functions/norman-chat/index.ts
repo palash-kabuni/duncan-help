@@ -4068,18 +4068,42 @@ Format as a natural, readable summary with clear sections. If a section has no d
               result = { error: `Unknown tool: ${tc.function.name}` };
           }
           
+          const toolName = tc?.function?.name ?? "unknown_tool";
+          const finalContent =
+            result == null || result === ""
+              ? "No data returned"
+              : typeof result === "string"
+                ? result
+                : JSON.stringify(result);
+
+          console.log("Tool result formatted", {
+            tool_name: toolName,
+            result,
+            contentLength: finalContent.length,
+          });
+
           toolResults.push({
-            tool_call_id: tc.id,
             role: "tool",
-            content: JSON.stringify(result),
+            tool_name: toolName,
+            content: finalContent,
           });
         } catch (error) {
           const toolError = error instanceof Error ? error : new Error(String(error));
           console.error(`Tool ${tc.function.name} threw error:`, toolError.message, toolError.stack);
+          const toolName = tc?.function?.name ?? "unknown_tool";
+          const errorResult = { error: toolError.message };
+          const finalContent = JSON.stringify(errorResult);
+
+          console.log("Tool result formatted", {
+            tool_name: toolName,
+            result: errorResult,
+            contentLength: finalContent.length,
+          });
+
           toolResults.push({
-            tool_call_id: tc.id,
             role: "tool",
-            content: JSON.stringify({ error: toolError.message }),
+            tool_name: toolName,
+            content: finalContent,
           });
         }
       }
