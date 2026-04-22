@@ -179,7 +179,7 @@ const integrations: Integration[] = [
 ];
 
 const hiddenIntegrationIds = new Set(["azure-blob", "basecamp", "azure-devops"]);
-const visibleIntegrations = integrations.filter((integration) => !hiddenIntegrationIds.has(integration.id));
+const baseVisibleIntegrations = integrations.filter((integration) => !hiddenIntegrationIds.has(integration.id));
 
 const statusConfig = {
   connected: { label: "Connected", color: "text-norman-success", dot: "bg-norman-success", bg: "bg-norman-success/10 border-norman-success/20" },
@@ -354,9 +354,6 @@ const Integrations = () => {
 
   const isLoading = userLoading || companyLoading;
 
-  const categories = ["all", ...Array.from(new Set(visibleIntegrations.map((i) => i.category)))];
-  const filtered = filter === "all" ? visibleIntegrations : visibleIntegrations.filter((i) => i.category === filter);
-
   const getRealtimeStatus = (integration: Integration): IntegrationStatus => {
     const oauthMap: Record<string, boolean | null> = {
       "gmail": isGmailConnected,
@@ -373,6 +370,15 @@ const Integrations = () => {
     }
     return getStatus(integration, userIntegrations, companyIntegrations);
   };
+
+  const conditionallyHiddenIntegrationIds = new Set(["hubspot", "github"]);
+  const visibleIntegrations = baseVisibleIntegrations.filter((integration) => {
+    if (!conditionallyHiddenIntegrationIds.has(integration.id)) return true;
+    return getRealtimeStatus(integration) === "connected";
+  });
+
+  const categories = ["all", ...Array.from(new Set(visibleIntegrations.map((i) => i.category)))];
+  const filtered = filter === "all" ? visibleIntegrations : visibleIntegrations.filter((i) => i.category === filter);
 
   const connectedCount = visibleIntegrations.filter((i) => getRealtimeStatus(i) === "connected").length;
   const userDocs = userIntegrations.reduce((sum, u) => sum + (u.documents_ingested ?? 0), 0);
