@@ -180,6 +180,7 @@ const integrations: Integration[] = [
 
 const hiddenIntegrationIds = new Set(["azure-blob", "basecamp", "azure-devops"]);
 const visibleIntegrations = integrations.filter((integration) => !hiddenIntegrationIds.has(integration.id));
+const conditionalExternalIntegrationIds = new Set(["hubspot", "github"]);
 
 const statusConfig = {
   connected: { label: "Connected", color: "text-norman-success", dot: "bg-norman-success", bg: "bg-norman-success/10 border-norman-success/20" },
@@ -354,9 +355,6 @@ const Integrations = () => {
 
   const isLoading = userLoading || companyLoading;
 
-  const categories = ["all", ...Array.from(new Set(visibleIntegrations.map((i) => i.category)))];
-  const filtered = filter === "all" ? visibleIntegrations : visibleIntegrations.filter((i) => i.category === filter);
-
   const getRealtimeStatus = (integration: Integration): IntegrationStatus => {
     const oauthMap: Record<string, boolean | null> = {
       "gmail": isGmailConnected,
@@ -374,7 +372,16 @@ const Integrations = () => {
     return getStatus(integration, userIntegrations, companyIntegrations);
   };
 
-  const connectedCount = visibleIntegrations.filter((i) => getRealtimeStatus(i) === "connected").length;
+  const hasActiveHubspotConnection = getRealtimeStatus(integrations.find((integration) => integration.id === "hubspot")!) === "connected";
+  const hasActiveGithubConnection = getRealtimeStatus(integrations.find((integration) => integration.id === "github")!) === "connected";
+  const showExternalIntegrationCards = hasActiveHubspotConnection && hasActiveGithubConnection;
+  const displayIntegrations = visibleIntegrations.filter(
+    (integration) => showExternalIntegrationCards || !conditionalExternalIntegrationIds.has(integration.id),
+  );
+  const categories = ["all", ...Array.from(new Set(displayIntegrations.map((i) => i.category)))];
+  const filtered = filter === "all" ? displayIntegrations : displayIntegrations.filter((i) => i.category === filter);
+
+  const connectedCount = displayIntegrations.filter((i) => getRealtimeStatus(i) === "connected").length;
   const userDocs = userIntegrations.reduce((sum, u) => sum + (u.documents_ingested ?? 0), 0);
   const companyDocs = companyIntegrations.reduce((sum, c) => sum + (c.documents_ingested ?? 0), 0);
   const totalDocs = userDocs + companyDocs;
