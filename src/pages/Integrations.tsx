@@ -11,6 +11,7 @@ import AppLayout from "@/components/AppLayout";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { invokeEdge } from "@/lib/edgeApi";
 import { fastApi, withFastApi } from "@/lib/fastApiClient";
 import { useGoogleCalendar } from "@/hooks/useGoogleCalendar";
 import { useAzureBlobStorage } from "@/hooks/useAzureBlobStorage";
@@ -60,16 +61,16 @@ const integrations: Integration[] = [
   {
     id: "slack",
     name: "Slack",
-    description: "Monitor channels, automate responses, and sync conversations into Duncan's knowledge base.",
+    description: "Surface channel activity into Team Briefing with explicit degraded visibility when Duncan cannot see private or unjoined channels.",
     icon: MessageSquare,
     category: "Communication",
     services: ["Channels", "Direct Messages", "Threads", "Reactions"],
     type: "user",
     setupSteps: [
-      "Create a Slack App at api.slack.com/apps",
-      "Add Bot Token Scopes (channels:read, chat:write, etc.)",
-      "Install the app to your workspace",
-      "Copy the Bot User OAuth Token to Duncan's settings",
+      "Connect Slack from Connectors so Duncan can read workspace activity",
+      "Public channels are visible by default through the connector",
+      "Private channels still require Duncan to be invited before Team Briefing can see them",
+      "If coverage is partial, Duncan will now show the exact visibility limitation in Team Briefing",
     ],
   },
   {
@@ -143,6 +144,36 @@ const integrations: Integration[] = [
       "An admin clicks Connect Google Drive below",
       "Sign in with Google and grant read-only access to the shared Drive workspace",
       "You'll be redirected back to Duncan and the connection becomes available across the company",
+    ],
+  },
+  {
+    id: "hubspot",
+    name: "HubSpot",
+    description: "Pull CRM risk and pipeline signals into Team Briefing without breaking generation when CRM data is unavailable.",
+    icon: Database,
+    category: "Revenue",
+    services: ["Accounts", "Deals", "Risk Signals", "Team Briefing"],
+    type: "company",
+    setupSteps: [
+      "Connect HubSpot from Connectors at the workspace level",
+      "Link the connection to this project so backend functions can read CRM data",
+      "Duncan verifies connection health before using HubSpot evidence in Team Briefing",
+      "If HubSpot is not connected, Team Briefing still runs and flags the CRM blind spot",
+    ],
+  },
+  {
+    id: "github",
+    name: "GitHub",
+    description: "Add engineering delivery and PR blockage signals to Team Briefing with graceful not-configured fallback.",
+    icon: GitBranch,
+    category: "Engineering",
+    services: ["Repositories", "Pull Requests", "Release Risks", "Team Briefing"],
+    type: "company",
+    setupSteps: [
+      "Connect GitHub from Connectors at the workspace level",
+      "Link the connection to this project when the workspace connection is ready",
+      "Duncan checks GitHub status before using repo evidence in Team Briefing",
+      "If GitHub is unavailable, the briefing still completes and marks engineering visibility as reduced",
     ],
   },
 ];
@@ -513,6 +544,9 @@ const IntegrationDetail = ({
   const isGmail = integration.id === "gmail";
   const isAzureDevOps = integration.id === "azure-devops";
   const isGoogleDrive = integration.id === "google-drive";
+  const isHubSpot = integration.id === "hubspot";
+  const isGitHub = integration.id === "github";
+  const isConnectorManaged = isHubSpot || isGitHub;
   const isGoogleOAuth = isGoogleCalendar;
   const isOAuthFlow = isGoogleOAuth || isBasecamp || isGmail || isAzureDevOps || isGoogleDrive;
   
@@ -535,8 +569,8 @@ const IntegrationDetail = ({
   }
   
   const integrationData = getIntegrationData(integration, userIntegrations, companyIntegrations);
-  const s = statusConfig[status];
   const [apiKey, setApiKey] = useState("");
+  const [statusDetail, setStatusDetail] = useState<any | null>(null);
   const isCompany = integration.type === "company";
   const isSlack = integration.id === "slack";
   const credentialLabel = isSlack
@@ -561,6 +595,43 @@ const IntegrationDetail = ({
   const [gmailLoading, setGmailLoading] = useState(false);
   const [azureDevOpsLoading, setAzureDevOpsLoading] = useState(false);
   const [googleDriveLoading, setGoogleDriveLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (!isConnectorManaged) {
+      setStatusDetail(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    const fn = isHubSpot ? "hubspot-api" : "github-api";
+    invokeEdge<any>(fn, { body: { action: "status" } })
+      .then((data) => {
+        if (active) setStatusDetail(data);
+      })
+      .catch((error) => {
+        if (active) {
+          setStatusDetail({
+            status: "degraded",
+            degraded_reason: error instanceof Error ? error.message : "Status check failed",
+          });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isConnectorManaged, isHubSpot, isGitHub]);
+
+  const resolvedStatus: IntegrationStatus = isConnectorManaged && statusDetail
+    ? statusDetail.status === "connected"
+      ? "connected"
+      : statusDetail.status === "degraded"
+      ? "pending"
+      : "disconnected"
+    : status;
+  const s = statusConfig[resolvedStatus];
 
   const handleConnect = async () => {
     if (!apiKey.trim()) {
