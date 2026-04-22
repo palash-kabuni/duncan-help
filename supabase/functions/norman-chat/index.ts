@@ -3776,20 +3776,24 @@ Format as a natural, readable summary with clear sections. If a section has no d
       );
     }
 
-    // Helper to parse an SSE stream and extract content + tool calls
-    async function parseSSEStream(streamResponse: Response): Promise<{ fullContent: string; toolCalls: any[] }> {
+    // Consume an OpenAI-shaped SSE stream while optionally forwarding each chunk to the client
+    // immediately. We suppress upstream [DONE] so norman-chat emits it only once after the final round.
+    async function consumeSSEStream(
+      streamResponse: Response,
+      onChunk?: (chunk: string) => void,
+    ): Promise<{ fullContent: string; toolCalls: any[] }> {
       const reader = streamResponse.body!.getReader();
       const decoder = new TextDecoder();
       let fullContent = "";
-      let toolCalls: any[] = [];
+      const toolCalls: any[] = [];
       let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        
+
         buffer += decoder.decode(value, { stream: true });
-        
+
         let newlineIndex: number;
         while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
           let line = buffer.slice(0, newlineIndex);
@@ -3805,16 +3809,19 @@ Format as a natural, readable summary with clear sections. If a section has no d
           try {
             const parsed = JSON.parse(jsonStr);
             const delta = parsed.choices?.[0]?.delta;
-            
+
             if (delta?.content) {
               fullContent += delta.content;
             }
-            
+
             if (delta?.tool_calls) {
               for (const tc of delta.tool_calls) {
                 const index = tc.index;
                 if (!toolCalls[index]) {
                   toolCalls[index] = { id: tc.id, type: "function", function: { name: "", arguments: "" } };
+                }
+                if (tc.id) {
+                  toolCalls[index].id = tc.id;
                 }
                 if (tc.function?.name) {
                   toolCalls[index].function.name = tc.function.name;
@@ -3823,6 +3830,10 @@ Format as a natural, readable summary with clear sections. If a section has no d
                   toolCalls[index].function.arguments += tc.function.arguments;
                 }
               }
+            }
+
+            if (onChunk) {
+              onChunk(`data: ${JSON.stringify(parsed)}\n\n`);
             }
           } catch {
             buffer = line + "\n" + buffer;
@@ -3929,11 +3940,12 @@ Format as a natural, readable summary with clear sections. If a section has no d
             content: JSON.stringify(result),
           });
         } catch (error) {
-          console.error(`Tool ${tc.function.name} threw error:`, error.message, error.stack);
+          const toolError = error instanceof Error ? error : new Error(String(error));
+          console.error(`Tool ${tc.function.name} threw error:`, toolError.message, toolError.stack);
           toolResults.push({
             tool_call_id: tc.id,
             role: "tool",
-            content: JSON.stringify({ error: error.message }),
+            content: JSON.stringify({ error: toolError.message }),
           });
         }
       }
@@ -3941,124 +3953,114 @@ Format as a natural, readable summary with clear sections. If a section has no d
       return toolResults;
     }
 
-    // Parse the initial response
-    let { fullContent, toolCalls } = await parseSSEStream(response);
-    console.log("Stream parsed - content length:", fullContent.length, "tool calls:", toolCalls.length, toolCalls.map(tc => tc?.function?.name));
-
-    // Conversation history for multi-round tool calls
-    const conversationMessages = [
-      { role: "system", content: systemContent },
-      ...messages,
-    ];
-
-    // Loop: execute tool calls up to 5 rounds
-    const MAX_TOOL_ROUNDS = 5;
-    let round = 0;
-
-    while (toolCalls.length > 0 && round < MAX_TOOL_ROUNDS) {
-      round++;
-      console.log(`Tool call round ${round}:`, toolCalls.map(tc => tc.function.name));
-
-      // Execute tool calls
-      const toolResults = await executeToolCalls(toolCalls);
-
-      // Build assistant message for this round
-      const assistantMsg: any = { role: "assistant", tool_calls: toolCalls };
-      if (fullContent) {
-        assistantMsg.content = fullContent;
-      }
-
-      // Add to conversation
-      conversationMessages.push(assistantMsg, ...toolResults);
-
-      // Check if this is the last allowed round - if so, stream the response
-      const isLastRound = round >= MAX_TOOL_ROUNDS;
-
-      // Make follow-up request with retry
-      const followUpResponse = await fetchAIWithRetry({
-        model: "gpt-4.1",
-        messages: conversationMessages,
-        stream: true,
-        ...(isLastRound ? {} : { tools }),
-      });
-
-      if (!followUpResponse.ok) {
-        const text = await followUpResponse.text();
-        console.error(`Follow-up AI error (round ${round}):`, text);
-        return new Response(
-          JSON.stringify({ error: "Failed to process tool results" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-
-      // Parse the follow-up to check for more tool calls
-      const followUp = await parseSSEStream(followUpResponse);
-      fullContent = followUp.fullContent;
-      toolCalls = followUp.toolCalls;
-
-      console.log(`Round ${round} result - content length: ${fullContent.length}, tool calls: ${toolCalls.length}`);
-
-      // If no more tool calls, we have the final content - break
-      if (toolCalls.length === 0) {
-        break;
-      }
-    }
-
-    // Log estimated token usage (approx 1 token per 4 chars)
-    if (userId) {
-      try {
-        const estimatedPromptTokens = Math.ceil(JSON.stringify(messages).length / 4);
-        const estimatedCompletionTokens = Math.ceil(fullContent.length / 4);
-        const estimatedTotal = estimatedPromptTokens + estimatedCompletionTokens;
-        const today = new Date().toISOString().split("T")[0];
-
-        // Upsert: increment daily totals
-        const { data: existing } = await supabaseAdmin
-          .from("token_usage")
-          .select("id, prompt_tokens, completion_tokens, total_tokens, request_count")
-          .eq("user_id", userId)
-          .eq("usage_date", today)
-          .maybeSingle();
-
-        if (existing) {
-          await supabaseAdmin
-            .from("token_usage")
-            .update({
-              prompt_tokens: existing.prompt_tokens + estimatedPromptTokens,
-              completion_tokens: existing.completion_tokens + estimatedCompletionTokens,
-              total_tokens: existing.total_tokens + estimatedTotal,
-              request_count: existing.request_count + 1,
-            })
-            .eq("id", existing.id);
-        } else {
-          await supabaseAdmin
-            .from("token_usage")
-            .insert({
-              user_id: userId,
-              usage_date: today,
-              prompt_tokens: estimatedPromptTokens,
-              completion_tokens: estimatedCompletionTokens,
-              total_tokens: estimatedTotal,
-              request_count: 1,
-            });
-        }
-      } catch (tokenErr) {
-        console.error("Token usage logging error:", tokenErr);
-      }
-    }
-
-    // Stream the final content as SSE to the client
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
-      start(controller) {
-        if (fullContent) {
-          const chunk = {
-            choices: [{ delta: { content: fullContent } }],
-          };
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+      async start(controller) {
+        const enqueue = (chunk: string) => controller.enqueue(encoder.encode(chunk));
+        let aggregatedContent = "";
+
+        try {
+          // Conversation history for multi-round tool calls
+          const conversationMessages = [
+            { role: "system", content: systemContent },
+            ...messages,
+          ];
+
+          let currentResponse = response;
+          let round = 0;
+          const MAX_TOOL_ROUNDS = 5;
+
+          while (true) {
+            const { fullContent, toolCalls } = await consumeSSEStream(currentResponse, enqueue);
+            aggregatedContent += fullContent;
+
+            console.log(
+              `Round ${round} streamed - content length: ${fullContent.length}, tool calls: ${toolCalls.length}`,
+              toolCalls.map(tc => tc?.function?.name),
+            );
+
+            if (toolCalls.length === 0 || round >= MAX_TOOL_ROUNDS) {
+              break;
+            }
+
+            round++;
+            console.log(`Tool call round ${round}:`, toolCalls.map(tc => tc.function.name));
+
+            const toolResults = await executeToolCalls(toolCalls);
+
+            const assistantMsg: any = { role: "assistant", tool_calls: toolCalls };
+            if (fullContent) {
+              assistantMsg.content = fullContent;
+            }
+
+            conversationMessages.push(assistantMsg, ...toolResults);
+
+            const isLastRound = round >= MAX_TOOL_ROUNDS;
+            currentResponse = await fetchAIWithRetry({
+              model: "gpt-4.1",
+              messages: conversationMessages,
+              stream: true,
+              ...(isLastRound ? {} : { tools }),
+            });
+
+            if (!currentResponse.ok) {
+              const text = await currentResponse.text();
+              console.error(`Follow-up AI error (round ${round}):`, text);
+              throw new Error("Failed to process tool results");
+            }
+          }
+
+          // Log estimated token usage (approx 1 token per 4 chars)
+          if (userId) {
+            try {
+              const estimatedPromptTokens = Math.ceil(JSON.stringify(messages).length / 4);
+              const estimatedCompletionTokens = Math.ceil(aggregatedContent.length / 4);
+              const estimatedTotal = estimatedPromptTokens + estimatedCompletionTokens;
+              const today = new Date().toISOString().split("T")[0];
+
+              const { data: existing } = await supabaseAdmin
+                .from("token_usage")
+                .select("id, prompt_tokens, completion_tokens, total_tokens, request_count")
+                .eq("user_id", userId)
+                .eq("usage_date", today)
+                .maybeSingle();
+
+              if (existing) {
+                await supabaseAdmin
+                  .from("token_usage")
+                  .update({
+                    prompt_tokens: existing.prompt_tokens + estimatedPromptTokens,
+                    completion_tokens: existing.completion_tokens + estimatedCompletionTokens,
+                    total_tokens: existing.total_tokens + estimatedTotal,
+                    request_count: existing.request_count + 1,
+                  })
+                  .eq("id", existing.id);
+              } else {
+                await supabaseAdmin
+                  .from("token_usage")
+                  .insert({
+                    user_id: userId,
+                    usage_date: today,
+                    prompt_tokens: estimatedPromptTokens,
+                    completion_tokens: estimatedCompletionTokens,
+                    total_tokens: estimatedTotal,
+                    request_count: 1,
+                  });
+              }
+            } catch (tokenErr) {
+              console.error("Token usage logging error:", tokenErr);
+            }
+          }
+
+          enqueue("data: [DONE]\n\n");
+          controller.close();
+        } catch (streamErr) {
+          console.error("norman-chat streaming error:", streamErr);
+          const message = streamErr instanceof Error ? streamErr.message : "Unknown streaming error";
+          enqueue(`data: ${JSON.stringify({ choices: [{ delta: { content: `\n\n⚠️ Error: ${message}` } }] })}\n\n`);
+          enqueue("data: [DONE]\n\n");
+          controller.close();
         }
-        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-        controller.close();
       },
     });
 
