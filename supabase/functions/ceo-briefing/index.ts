@@ -1199,9 +1199,11 @@ Deno.serve(async (req) => {
 
     await updateJob({ phase: "Scanning email and slack signals", progress: 35 });
 
-    // ─── Company-wide email pulse (opt-in mailboxes, last 24h) ────
+    // ─── Company-wide email + slack pulse (last 24h) ────
     let email_pulse: any = null;
     let slack_pulse: any = null;
+    let slack_pulse_error: string | null = null;
+    let email_pulse_error: string | null = null;
     try {
       const [epRes, spRes] = await Promise.all([
         fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/ceo-email-pulse`, {
@@ -1211,7 +1213,7 @@ Deno.serve(async (req) => {
             Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
           },
           body: JSON.stringify({}),
-        }).catch((e) => { console.warn("ceo-email-pulse fetch failed:", e); return null; }),
+        }).catch((e) => { console.warn("ceo-email-pulse fetch failed:", e); email_pulse_error = `fetch failed: ${e?.message || e}`; return null; }),
         fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/ceo-slack-pulse`, {
           method: "POST",
           headers: {
@@ -1219,21 +1221,28 @@ Deno.serve(async (req) => {
             Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
           },
           body: JSON.stringify({}),
-        }).catch((e) => { console.warn("ceo-slack-pulse fetch failed:", e); return null; }),
+        }).catch((e) => { console.warn("ceo-slack-pulse fetch failed:", e); slack_pulse_error = `fetch failed: ${e?.message || e}`; return null; }),
       ]);
       if (epRes && epRes.ok) {
         email_pulse = await epRes.json();
+        if (email_pulse?.ok === false) email_pulse_error = email_pulse?.error || "email pulse returned ok=false";
       } else if (epRes) {
+        email_pulse_error = `HTTP ${epRes.status}`;
         console.warn("ceo-email-pulse non-200:", epRes.status);
       }
       if (spRes && spRes.ok) {
         slack_pulse = await spRes.json();
+        if (slack_pulse?.ok === false) slack_pulse_error = slack_pulse?.error || "slack pulse returned ok=false";
       } else if (spRes) {
+        slack_pulse_error = `HTTP ${spRes.status}`;
         console.warn("ceo-slack-pulse non-200:", spRes.status);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.warn("comms pulse invoke failed:", e);
+      if (!slack_pulse_error) slack_pulse_error = `invoke failed: ${e?.message || e}`;
+      if (!email_pulse_error) email_pulse_error = `invoke failed: ${e?.message || e}`;
     }
+    console.log(`[ceo-briefing] email_pulse: ${email_pulse ? 'ok' : 'null'} (err=${email_pulse_error}); slack_pulse: ${slack_pulse ? 'ok' : 'null'} (err=${slack_pulse_error})`);
 
     // ─── Calendar events for leaders (last 7d) — best-effort, opt-in via google_calendar_tokens ─
     let leaderCalendarEvents: Array<{ summary: string | null; start: string | null; organiser_alias?: string | null; attendee_aliases?: string[] }> = [];
