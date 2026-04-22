@@ -149,9 +149,22 @@ serve(async (req) => {
 
     const { data: candidates, error: fetchError } = await query;
 
-    if (fetchError || !candidates || candidates.length === 0) {
-      return new Response(JSON.stringify({ error: "No eligible candidates to score" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    if (fetchError) {
+      return new Response(JSON.stringify({ error: fetchError.message || "Failed to load candidates" }), {
+        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!candidates || candidates.length === 0) {
+      return new Response(JSON.stringify({
+        scored: 0,
+        skipped: 0,
+        failed: 0,
+        message: roleId
+          ? "No eligible candidates remain for the selected role."
+          : "No eligible candidates remain to score.",
+      }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
