@@ -36,6 +36,14 @@ export interface ProjectFile {
   created_at: string;
 }
 
+export interface ProjectMember {
+  user_id: string;
+  display_name: string | null;
+  role_title: string | null;
+  avatar_url: string | null;
+  isOwner: boolean;
+}
+
 export function useProjects() {
   const { session } = useAuth();
   const { toast } = useToast();
@@ -384,4 +392,131 @@ export function useProjectFiles(projectId: string | null) {
     isUploading: uploadingFiles.size > 0,
     isExtracting: (fileId: string) => extractingFiles.has(fileId),
   };
+}
+
+export function useProjectMembers(projectId: string | null) {
+  const { session } = useAuth();
+  const { toast } = useToast();
+  const [members, setMembers] = useState<ProjectMember[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchMembers = useCallback(async () => {
+    if (!projectId || !session) {
+      setMembers([]);
+      return;
+    }
+
+    setLoading(true);
+
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select("user_id")
+      .eq("id", projectId)
+      .single();
+
+    if (projectError || !project) {
+      setLoading(false);
+      toast({ title: "Error", description: "Failed to load project members", variant: "destructive" });
+      return;
+    }
+
+    const { data: memberRows, error: memberError } = await supabase
+      .from("project_members")
+      .select("user_id")
+      .eq("project_id", projectId);
+
+    if (memberError) {
+      setLoading(false);
+      toast({ title: "Error", description: "Failed to load project members", variant: "destructive" });
+      return;
+    }
+
+    const userIds = Array.from(new Set([project.user_id, ...(memberRows || []).map((row: any) => row.user_id)]));
+
+    const { data: profiles, error: profilesError } = await supabase
+      .from("profiles")
+      .select("user_id, display_name, role_title, avatar_url")
+      .in("user_id", userIds);
+
+    if (profilesError) {
+      setLoading(false);
+      toast({ title: "Error", description: "Failed to load member details", variant: "destructive" });
+      return;
+    }
+
+    const profileMap = new Map((profiles || []).map((profile: any) => [profile.user_id, profile]));
+
+    const ownerProfile = profileMap.get(project.user_id);
+    const collaboratorMembers = (memberRows || []).map((row: any) => {
+      const profile = profileMap.get(row.user_id);
+      return {
+        user_id: row.user_id,
+        display_name: profile?.display_name ?? null,
+        role_title: profile?.role_title ?? null,
+        avatar_url: profile?.avatar_url ?? null,
+        isOwner: false,
+      } satisfies ProjectMember;
+    });
+
+    setMembers([
+      {
+        user_id: project.user_id,
+        display_name: ownerProfile?.display_name ?? null,
+        role_title: ownerProfile?.role_title ?? null,
+        avatar_url: ownerProfile?.avatar_url ?? null,
+        isOwner: true,
+      },
+      ...collaboratorMembers,
+    ]);
+    setLoading(false);
+  }, [projectId, session, toast]);
+
+  useEffect(() => {
+    fetchMembers();
+  }, [fetchMembers]);
+
+  const addMember = useCallback(async (userId: string) => {
+    if (!projectId || !session || !userId) return false;
+
+    const { error } = await supabase.from("project_members").insert({
+      project_id: projectId,
+      user_id: userId,
+      added_by: session.user.id,
+    } as any);
+
+    if (error) {
+      const isDuplicate = error.code === "23505";
+      toast({
+        title: isDuplicate ? "Already a member" : "Error",
+        description: isDuplicate ? "This user already has access to the project." : "Failed to add member",
+        variant: isDuplicate ? "default" : "destructive",
+      });
+      return false;
+    }
+
+    await fetchMembers();
+    toast({ title: "Member added", description: "Project access has been shared." });
+    return true;
+  }, [fetchMembers, projectId, session, toast]);
+
+  const removeMember = useCallback(async (userId: string) => {
+    if (!projectId || !userId) return false;
+
+    const { error } = await supabase
+      .from("project_members")
+      .delete()
+      .eq("project_id", projectId)
+      .eq("user_id", userId);
+
+    if (error) {
+      toast({ title: "Error", description: "Failed to remove member", variant: "destructive" });
+      return false;
+    }
+
+    await fetchMembers();
+    toast({ title: "Member removed", description: "Project access has been removed." });
+    return true;
+  }, [fetchMembers, projectId, toast]);
+
+  return { members, loading, addMember, removeMember, refetchMembers: fetchMembers };
 }
