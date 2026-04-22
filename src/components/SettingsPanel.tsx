@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Settings, User, Bug, Palette, Mail } from "lucide-react";
 import SettingsGeneral from "./settings/SettingsGeneral";
@@ -24,7 +24,13 @@ interface SettingsPanelProps {
 }
 
 export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
-  const [active, setActive] = useState<SectionId>("general");
+  const [active, setActive] = useState<SectionId>("profile");
+
+  useEffect(() => {
+    if (open) {
+      setActive("profile");
+    }
+  }, [open]);
 
   if (!open) return null;
 
