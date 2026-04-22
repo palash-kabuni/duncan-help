@@ -1,10 +1,9 @@
 import { supabase } from "@/integrations/supabase/client";
+import { API_BASE_URL, hasExternalApiBase } from "@/lib/apiConfig";
 
-const BASE =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
-  "https://unsnap-reappoint-defame.ngrok-free.dev";
+const BASE = API_BASE_URL;
 
-const USE_FASTAPI = import.meta.env.VITE_USE_FASTAPI === "true";
+const USE_FASTAPI = import.meta.env.VITE_USE_FASTAPI === "true" && hasExternalApiBase;
 
 async function getAuthHeader(): Promise<string> {
   const { data } = await supabase.auth.getSession();
@@ -24,6 +23,9 @@ export async function fastApi<T = unknown>(
   path: string,
   body?: unknown,
 ): Promise<T> {
+  if (!hasExternalApiBase) {
+    throw new Error(`External API is not configured for ${method} ${path}`);
+  }
   const auth = await getAuthHeader();
   const res = await fetch(`${BASE}${path}`, {
     method,
@@ -54,6 +56,9 @@ export async function withFastApi<T>(
   supabaseCall: () => Promise<T>,
   fastApiCall: () => Promise<T>,
 ): Promise<T> {
+  if (!hasExternalApiBase) {
+    return supabaseCall();
+  }
   if (USE_FASTAPI) {
     try {
       return await fastApiCall();

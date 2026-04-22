@@ -1,6 +1,7 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 type Message = { role: "user" | "assistant"; content: string };
 type Mode = "general" | "reason" | "automate" | "analyze" | "briefing";
@@ -16,6 +17,7 @@ export interface ChatAttachment {
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/norman-chat`;
 const EXTRACT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/extract-chat-file`;
+const CHAT_REQUEST_TIMEOUT_MS = 90_000;
 
 /** Extract text from non-image attachments via the server-side function */
 async function extractFileText(
@@ -82,11 +84,101 @@ function buildUserContent(input: string, attachments: ChatAttachment[]) {
   return parts;
 }
 
+async function streamAssistantResponse(
+  response: Response,
+  upsertAssistant: (chunk: string) => void,
+  logLabel: string,
+) {
+  if (!response.body) throw new Error("No response body");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let streamDone = false;
+  let sawContent = false;
+
+  console.info(`[Duncan] ${logLabel}: stream opened`);
+
+  while (!streamDone) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let newlineIndex: number;
+    while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+      let line = buffer.slice(0, newlineIndex);
+      buffer = buffer.slice(newlineIndex + 1);
+
+      if (line.endsWith("\r")) line = line.slice(0, -1);
+      if (line.startsWith(":") || line.trim() === "") continue;
+      if (!line.startsWith("data: ")) continue;
+
+      const jsonStr = line.slice(6).trim();
+      if (jsonStr === "[DONE]") {
+        streamDone = true;
+        break;
+      }
+
+      try {
+        const parsed = JSON.parse(jsonStr);
+        const content = parsed.choices?.[0]?.delta?.content as string | undefined;
+        if (content) {
+          if (!sawContent) {
+            console.info(`[Duncan] ${logLabel}: first token received`);
+          }
+          sawContent = true;
+          upsertAssistant(content);
+        }
+      } catch {
+        buffer = line + "\n" + buffer;
+        break;
+      }
+    }
+  }
+
+  if (buffer.trim()) {
+    for (let raw of buffer.split("\n")) {
+      if (!raw) continue;
+      if (raw.endsWith("\r")) raw = raw.slice(0, -1);
+      if (raw.startsWith(":") || raw.trim() === "") continue;
+      if (!raw.startsWith("data: ")) continue;
+      const jsonStr = raw.slice(6).trim();
+      if (jsonStr === "[DONE]") continue;
+      try {
+        const parsed = JSON.parse(jsonStr);
+        const content = parsed.choices?.[0]?.delta?.content as string | undefined;
+        if (content) {
+          if (!sawContent) {
+            console.info(`[Duncan] ${logLabel}: first token received`);
+          }
+          sawContent = true;
+          upsertAssistant(content);
+        }
+      } catch {
+        console.warn(`[Duncan] ${logLabel}: skipped unparsable stream chunk`);
+      }
+    }
+  }
+
+  if (!sawContent) {
+    throw new Error("Duncan returned an empty response. Please try again.");
+  }
+
+  console.info(`[Duncan] ${logLabel}: stream completed`);
+}
+
 export function useNormanChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [extractionProgress, setExtractionProgress] = useState<string | null>(null);
   const { profile } = useProfile();
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const send = useCallback(
     async (input: string, mode: Mode = "general", attachments: ChatAttachment[] = []) => {
@@ -132,15 +224,25 @@ export function useNormanChat() {
           { role: "user", content: userContent },
         ];
 
-        const fetchChat = async (): Promise<Response> =>
-          fetch(CHAT_URL, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ messages: apiMessages, mode, userProfile: profile ?? undefined }),
-          });
+        const fetchChat = async (): Promise<Response> => {
+          const controller = new AbortController();
+          const timeoutId = window.setTimeout(() => controller.abort(), CHAT_REQUEST_TIMEOUT_MS);
+
+          try {
+            console.info(`[Duncan] chat request started mode=${mode} messages=${apiMessages.length}`);
+            return await fetch(CHAT_URL, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ messages: apiMessages, mode, userProfile: profile ?? undefined }),
+              signal: controller.signal,
+            });
+          } finally {
+            window.clearTimeout(timeoutId);
+          }
+        };
 
         let resp = await fetchChat();
         if (resp.status === 429) {
@@ -158,64 +260,12 @@ export function useNormanChat() {
           );
         }
 
-        if (!resp.body) throw new Error("No response body");
-
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let streamDone = false;
-
-        while (!streamDone) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-
-          let newlineIndex: number;
-          while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
-            let line = buffer.slice(0, newlineIndex);
-            buffer = buffer.slice(newlineIndex + 1);
-
-            if (line.endsWith("\r")) line = line.slice(0, -1);
-            if (line.startsWith(":") || line.trim() === "") continue;
-            if (!line.startsWith("data: ")) continue;
-
-            const jsonStr = line.slice(6).trim();
-            if (jsonStr === "[DONE]") {
-              streamDone = true;
-              break;
-            }
-
-            try {
-              const parsed = JSON.parse(jsonStr);
-              const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-              if (content) upsertAssistant(content);
-            } catch {
-              buffer = line + "\n" + buffer;
-              break;
-            }
-          }
-        }
-
-        // Final flush
-        if (buffer.trim()) {
-          for (let raw of buffer.split("\n")) {
-            if (!raw) continue;
-            if (raw.endsWith("\r")) raw = raw.slice(0, -1);
-            if (raw.startsWith(":") || raw.trim() === "") continue;
-            if (!raw.startsWith("data: ")) continue;
-            const jsonStr = raw.slice(6).trim();
-            if (jsonStr === "[DONE]") continue;
-            try {
-              const parsed = JSON.parse(jsonStr);
-              const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-              if (content) upsertAssistant(content);
-            } catch {
-              /* ignore */
-            }
-          }
-        }
+        await streamAssistantResponse(resp, upsertAssistant, `chat mode=${mode}`);
       } catch (e) {
         console.error("Duncan chat error:", e);
+        if (mountedRef.current) {
+          toast.error(e instanceof Error ? e.message : "Something went wrong. Please try again.");
+        }
         upsertAssistant(
           `\n\n⚠️ Error: ${e instanceof Error ? e.message : "Something went wrong. Please try again."}`
         );
@@ -255,6 +305,8 @@ export function useNormanChat() {
           { role: "user", content: briefingPrompt },
         ];
 
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), CHAT_REQUEST_TIMEOUT_MS);
         const resp = await fetch(CHAT_URL, {
           method: "POST",
           headers: {
@@ -262,46 +314,20 @@ export function useNormanChat() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ messages: apiMessages, mode: "briefing", userProfile: profile ?? undefined }),
-        });
+          signal: controller.signal,
+        }).finally(() => window.clearTimeout(timeoutId));
 
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
           throw new Error(err.error || `Request failed (${resp.status})`);
         }
 
-        if (!resp.body) throw new Error("No response body");
-
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let streamDone = false;
-
-        while (!streamDone) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-
-          let newlineIndex: number;
-          while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
-            let line = buffer.slice(0, newlineIndex);
-            buffer = buffer.slice(newlineIndex + 1);
-            if (line.endsWith("\r")) line = line.slice(0, -1);
-            if (line.startsWith(":") || line.trim() === "") continue;
-            if (!line.startsWith("data: ")) continue;
-            const jsonStr = line.slice(6).trim();
-            if (jsonStr === "[DONE]") { streamDone = true; break; }
-            try {
-              const parsed = JSON.parse(jsonStr);
-              const content = parsed.choices?.[0]?.delta?.content as string | undefined;
-              if (content) upsertAssistant(content);
-            } catch {
-              buffer = line + "\n" + buffer;
-              break;
-            }
-          }
-        }
+        await streamAssistantResponse(resp, upsertAssistant, "briefing");
       } catch (e) {
         console.error("Duncan briefing error:", e);
+        if (mountedRef.current) {
+          toast.error("Daily briefing could not be completed right now.");
+        }
         upsertAssistant(
           `Good morning! I wasn't able to fetch your full briefing right now, but I'm here and ready to help. Ask me anything! 🐾`
         );

@@ -1,39 +1,22 @@
-import { supabase } from "@/integrations/supabase/client";
-import { API_BASE_URL, apiHeaders } from "@/lib/apiConfig";
+import { invokeEdge } from "@/lib/edgeApi";
 
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return apiHeaders(token);
-}
-
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers = await getAuthHeaders();
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers,
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText);
-    throw new Error(`Duncan API ${method} ${path} failed (${res.status}): ${text}`);
-  }
-  return res.json() as Promise<T>;
+async function request<T>(functionName: string, body?: unknown): Promise<T> {
+  return invokeEdge<T>(functionName, body !== undefined ? { body } : undefined);
 }
 
 /** Personalised daily briefing */
-export const getBriefing = () => request<unknown>("POST", "/api/briefing");
+export const getBriefing = () => request<unknown>("daily-briefing");
 
 /** Trigger meeting fetch from connected sources */
-export const fetchMeetings = () => request<unknown>("POST", "/api/meetings/fetch");
+export const fetchMeetings = () => request<unknown>("fetch-plaud-meetings");
 
 /** Analyse a specific meeting (or all pending) */
 export const analyzeMeetings = (meetingId?: string) =>
-  request<unknown>("POST", "/api/meetings/analyze", meetingId ? { meeting_id: meetingId } : {});
+  request<unknown>("analyze-meeting", meetingId ? { meeting_id: meetingId } : {});
 
 /** Generate an NDA document */
 export const generateNDA = (data: object) =>
-  request<unknown>("POST", "/api/nda/generate", data);
+  request<unknown>("nda-generate", data);
 
 /** List connected integrations */
-export const getIntegrations = () => request<unknown>("GET", "/api/integrations");
+export const getIntegrations = () => request<unknown>("manage-company-integration", { action: "status" });

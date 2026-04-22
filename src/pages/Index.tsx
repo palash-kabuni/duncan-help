@@ -250,19 +250,22 @@ const Index = () => {
   }, [chatOps.activeChatId, chatOps, send]);
 
   // Save assistant responses when they finish streaming
-  const prevMessagesLen = useRef(0);
+  const prevAssistantContentRef = useRef<string | null>(null);
   useEffect(() => {
     if (isLoading || !chatOps.activeChatId) {
-      prevMessagesLen.current = messages.length;
       return;
     }
-    // If new assistant message appeared after loading finished
+
     const lastMsg = messages[messages.length - 1];
-    if (lastMsg?.role === "assistant" && messages.length > prevMessagesLen.current) {
+    if (
+      lastMsg?.role === "assistant" &&
+      lastMsg.content.trim() &&
+      lastMsg.content !== prevAssistantContentRef.current
+    ) {
+      prevAssistantContentRef.current = lastMsg.content;
       chatOps.saveMessage(chatOps.activeChatId, "assistant", lastMsg.content);
     }
-    prevMessagesLen.current = messages.length;
-  }, [isLoading, messages.length]);
+  }, [isLoading, messages, chatOps]);
 
   const handleQuickAction = (prompt: string) => {
     handleChatSubmit(prompt, []);

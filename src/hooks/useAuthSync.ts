@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { API_BASE_URL, apiHeaders } from "@/lib/apiConfig";
+import { API_BASE_URL, apiHeaders, hasExternalApiBase } from "@/lib/apiConfig";
 
 /**
  * Listens to every Supabase auth state change and forwards the
@@ -9,6 +9,8 @@ import { API_BASE_URL, apiHeaders } from "@/lib/apiConfig";
  */
 export function useAuthSync() {
   useEffect(() => {
+    if (!hasExternalApiBase) return;
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         try {

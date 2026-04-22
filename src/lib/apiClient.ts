@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { API_BASE_URL, apiHeaders } from "@/lib/apiConfig";
+import { API_BASE_URL, apiHeaders, hasExternalApiBase } from "@/lib/apiConfig";
 
 async function getToken(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();
@@ -18,12 +18,20 @@ class ApiClient {
     this.base = base.replace(/\/+$/, "");
   }
 
+  private ensureConfigured(path: string) {
+    if (!hasExternalApiBase) {
+      throw new Error(`External API is not configured for ${path}`);
+    }
+  }
+
   private async headers(): Promise<Record<string, string>> {
     const token = await getToken();
     return apiHeaders(token);
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<ApiResponse<T>> {
+    this.ensureConfigured(path);
+
     const res = await fetch(`${this.base}${path}`, {
       method,
       headers: await this.headers(),
@@ -55,8 +63,9 @@ class ApiClient {
     return this.request<T>("DELETE", path);
   }
 
-  /** For SSE streaming endpoints — returns the raw Response for ReadableStream consumption */
   async stream(path: string, body?: unknown): Promise<Response> {
+    this.ensureConfigured(path);
+
     const res = await fetch(`${this.base}${path}`, {
       method: "POST",
       headers: await this.headers(),
