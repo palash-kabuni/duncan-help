@@ -2228,14 +2228,132 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
       };
     }
 
-    // 4c-bis. Watchlist deterministic population floor.
-    //         The model often returns []. We inject required rows from
-    //         non-green workstream_scores, silent priorities, uncovered
-    //         coverage domains, and silent leaders owning priorities.
+    // 4c-bis. Watchlist — fully deterministic, server-computed.
+    //         Sources: workstream_cards (.owner_id), workstream_card_assignees,
+    //         azure_work_items (.assigned_to), PRIORITY_DEFINITIONS.expected_owner.
+    //         The LLM no longer contributes rows.
     if (briefing_type === "morning") {
       parsed.payload = parsed.payload || {};
-      const wlIn: any[] = Array.isArray(parsed.payload.watchlist) ? [...parsed.payload.watchlist] : [];
+
       const norm = (s: any) => String(s || "").toLowerCase().trim();
+
+      // ---- Build owner-resolution lookups ----
+      // profiles: user_id -> display_name
+      const profileById = new Map<string, string>();
+      for (const p of ((profiles as any[]) || [])) {
+        if (p?.user_id) profileById.set(String(p.user_id), String(p.display_name || "").trim());
+      }
+
+      // Most recent non-archived card owner per project_tag (uses allCards).
+      // allCards is sorted by updated_at desc-ish; we'll sort defensively.
+      const cardsForOwner: any[] = Array.isArray(allCards) ? [...allCards] : [];
+      cardsForOwner.sort((a, b) => String(b?.updated_at || "").localeCompare(String(a?.updated_at || "")));
+      const cardOwnerByTag = new Map<string, string>();
+      for (const c of cardsForOwner) {
+        const tag = norm(c?.project_tag);
+        if (!tag || cardOwnerByTag.has(tag)) continue;
+        const ownerName = c?.owner_id ? (profileById.get(String(c.owner_id)) || "") : "";
+        if (ownerName) cardOwnerByTag.set(tag, ownerName);
+      }
+
+      // Fetch additional card assignees (workstream_card_assignees) and
+      // index by project_tag for fallback when owner_id is null.
+      try {
+        const cardIdsByTag = new Map<string, string[]>();
+        const recentCardsWithIds = await safe(
+          admin.from("workstream_cards")
+            .select("id,project_tag,updated_at")
+            .is("archived_at", null)
+            .order("updated_at", { ascending: false })
+            .limit(500)
+        );
+        for (const c of (recentCardsWithIds as any[] | null) || []) {
+          const tag = norm(c?.project_tag);
+          if (!tag || !c?.id) continue;
+          if (!cardIdsByTag.has(tag)) cardIdsByTag.set(tag, []);
+          cardIdsByTag.get(tag)!.push(String(c.id));
+        }
+        const allCardIds = Array.from(cardIdsByTag.values()).flat().slice(0, 500);
+        if (allCardIds.length > 0) {
+          const assignees = await safe(
+            admin.from("workstream_card_assignees")
+              .select("card_id,user_id,assignment_status")
+              .in("card_id", allCardIds)
+              .eq("assignment_status", "accepted")
+          );
+          const userByCard = new Map<string, string>();
+          for (const a of (assignees as any[] | null) || []) {
+            if (a?.card_id && a?.user_id) userByCard.set(String(a.card_id), String(a.user_id));
+          }
+          for (const [tag, ids] of cardIdsByTag.entries()) {
+            if (cardOwnerByTag.has(tag)) continue;
+            for (const id of ids) {
+              const uid = userByCard.get(id);
+              const name = uid ? profileById.get(uid) : "";
+              if (name) { cardOwnerByTag.set(tag, name); break; }
+            }
+          }
+        }
+      } catch (_) { /* non-fatal */ }
+
+      // Most-frequent Azure assignee per project_name.
+      const azureAssigneeFreqByProject = new Map<string, Map<string, number>>();
+      for (const w of (Array.isArray(allWorkItems) ? allWorkItems : [])) {
+        const proj = norm((w as any)?.project_name);
+        const who = String((w as any)?.assigned_to || "").trim();
+        if (!proj || !who) continue;
+        if (!azureAssigneeFreqByProject.has(proj)) azureAssigneeFreqByProject.set(proj, new Map());
+        const m = azureAssigneeFreqByProject.get(proj)!;
+        m.set(who, (m.get(who) || 0) + 1);
+      }
+      const azureOwnerByProject = new Map<string, string>();
+      for (const [proj, freq] of azureAssigneeFreqByProject.entries()) {
+        let best: { name: string; n: number } | null = null;
+        for (const [name, n] of freq.entries()) {
+          if (!best || n > best.n) best = { name, n };
+        }
+        if (best) azureOwnerByProject.set(proj, best.name);
+      }
+
+      // Resolver
+      type OwnerSource = "card_assignee" | "azure_assignee" | "priority_definition" | "unassigned";
+      const resolveOwnerForWorkstream = (
+        name: string,
+        priorityIdHint?: string,
+      ): { owner: string; owner_source: OwnerSource } => {
+        const k = norm(name);
+        if (k && cardOwnerByTag.has(k)) {
+          return { owner: cardOwnerByTag.get(k)!, owner_source: "card_assignee" };
+        }
+        // Try first token (e.g. "kabuni-app" -> match "kabuni-app")
+        if (k && azureOwnerByProject.has(k)) {
+          return { owner: azureOwnerByProject.get(k)!, owner_source: "azure_assignee" };
+        }
+        // Try matching by first word
+        const firstWord = k.split(/[\s—-]+/)[0] || "";
+        if (firstWord) {
+          for (const [proj, who] of azureOwnerByProject.entries()) {
+            if (proj.startsWith(firstWord) || firstWord.startsWith(proj)) {
+              return { owner: who, owner_source: "azure_assignee" };
+            }
+          }
+          for (const [tag, who] of cardOwnerByTag.entries()) {
+            if (tag.startsWith(firstWord) || firstWord.startsWith(tag)) {
+              return { owner: who, owner_source: "card_assignee" };
+            }
+          }
+        }
+        if (priorityIdHint) {
+          const def = PRIORITY_DEFINITIONS.find((p) => p.id === priorityIdHint);
+          if (def?.expected_owner) {
+            return { owner: def.expected_owner, owner_source: "priority_definition" };
+          }
+        }
+        return { owner: "Unassigned — CEO to allocate", owner_source: "unassigned" };
+      };
+
+      // ---- Build the watchlist deterministically (LLM input discarded). ----
+      const wlIn: any[] = [];
       const hasRowFor = (workstream: string) => {
         const k = norm(workstream);
         if (!k) return false;
@@ -2259,11 +2377,6 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         return "Workstream owner has stated, evidenced, observable definition of done with a date.";
       };
 
-      const expectedOwnerFor = (priorityId: string, fallback?: string): string => {
-        const def = PRIORITY_DEFINITIONS.find((p) => p.id === priorityId);
-        return def?.expected_owner || fallback || "Cross-functional — escalate to CEO";
-      };
-
       // (a) Non-green workstream_scores → ensure a row exists.
       const wsScores: any[] = Array.isArray(parsed.workstream_scores) ? parsed.workstream_scores : [];
       for (const ws of wsScores) {
@@ -2272,9 +2385,11 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         const name = String(ws?.name || "").trim();
         if (!name || hasRowFor(name)) continue;
         const statusLabel = rag === "red" ? "Red" : (rag === "yellow" || rag === "amber") ? "Yellow" : "At Risk";
+        const { owner, owner_source } = resolveOwnerForWorkstream(name);
         wlIn.push({
           workstream: name,
-          owner: ws?.owner || "Unassigned — CEO to allocate",
+          owner,
+          owner_source,
           status: statusLabel,
           good_looks_like: ws?.good_looks_like || successCriteriaFor(name),
           missing: ws?.missing || `Workstream is ${statusLabel} but no specific blocker has been articulated by the owner.`,
@@ -2285,9 +2400,7 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         watchlistAutoInjected++;
       }
 
-      // (b) Silent priorities → ensure a row exists (one per silent priority).
-      // Derive locally from `missing` + `signalsByPriority` (silentMissing is
-      // computed later in section 6; we replicate it here to stay in scope).
+      // (b) Silent priorities → one row per silent priority.
       const silentMissingLocal = (Array.isArray(missing) ? missing : []).filter((mm: any) => {
         const sig = signalsByPriority?.get?.(mm.priority_id);
         return !sig || (Array.isArray(sig.mentions) && sig.mentions.length === 0);
@@ -2295,9 +2408,11 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
       for (const sm of silentMissingLocal) {
         const priorityName = sm.priority || "";
         if (!priorityName || hasRowFor(priorityName)) continue;
+        const { owner, owner_source } = resolveOwnerForWorkstream(priorityName, sm.priority_id);
         wlIn.push({
           workstream: priorityName,
-          owner: expectedOwnerFor(sm.priority_id, sm.expected_owner),
+          owner,
+          owner_source,
           status: "Silent",
           good_looks_like: successCriteriaFor(priorityName),
           missing: "No owned workstream — no cards, no Azure items, no releases attributed in the last 7 days.",
@@ -2308,7 +2423,7 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         watchlistAutoInjected++;
       }
 
-      // (c) Uncovered coverage domains — priorities with coverage_pct < 50 not yet covered.
+      // (c) Uncovered coverage domains.
       try {
         const sc: any[] = Array.isArray((data_coverage_audit as any)?.strategic_coverage)
           ? (data_coverage_audit as any).strategic_coverage
@@ -2318,7 +2433,6 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
           if (!Number.isFinite(pct) || pct >= 50) continue;
           const title = String(pc?.priority_title || "").trim();
           if (!title || hasRowFor(title)) continue;
-          // Find the worst (most missing) domain to name as blind spot.
           const byDomain: any[] = Array.isArray(pc?.by_domain) ? pc.by_domain : [];
           const worstDomain = byDomain
             .map((d: any) => ({
@@ -2327,9 +2441,11 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
             }))
             .sort((a, b) => b.missingCount - a.missingCount)[0];
           const blindSpotLabel = worstDomain?.label || null;
+          const { owner, owner_source } = resolveOwnerForWorkstream(title, pc?.priority_id);
           wlIn.push({
             workstream: title,
-            owner: expectedOwnerFor(pc?.priority_id),
+            owner,
+            owner_source,
             status: "Uncovered",
             good_looks_like: successCriteriaFor(title),
             missing: blindSpotLabel
@@ -2343,7 +2459,7 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         }
       } catch (_) { /* non-fatal */ }
 
-      // (d) Silent leaders owning 2026 priorities → one row per owned priority.
+      // (d) Silent leaders owning 2026 priorities.
       try {
         const lsm: any[] = Array.isArray(leader_signal_map) ? leader_signal_map : [];
         for (const ls of lsm) {
@@ -2353,9 +2469,11 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
           for (const priorityTitle of owns) {
             const title = String(priorityTitle || "").trim();
             if (!title || hasRowFor(title)) continue;
+            // For silent-leader rows the owner is by definition the silent leader.
             wlIn.push({
               workstream: title,
-              owner: ls?.name || "Unassigned",
+              owner: ls?.name || "Unassigned — CEO to allocate",
+              owner_source: ls?.name ? "card_assignee" : "unassigned",
               status: "Silent",
               good_looks_like: successCriteriaFor(title),
               missing: `${ls?.name || "Owner"} silent 7d — no meetings, workstream cards, Azure items or releases attributed.`,
@@ -2368,13 +2486,14 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         }
       } catch (_) { /* non-fatal */ }
 
-      // Final fallback: empty watchlist on a non-green briefing is itself a finding.
+      // Final fallback.
       const _outcomeProb = typeof parsed.outcome_probability === "number" ? parsed.outcome_probability : 50;
       const _coverageGapsLen = Array.isArray(parsed.payload?.coverage_gaps) ? parsed.payload.coverage_gaps.length : 0;
       if (wlIn.length === 0 && (_outcomeProb < 70 || _coverageGapsLen > 0)) {
         wlIn.push({
           workstream: "Watchlist detection found nothing",
           owner: "Duncan",
+          owner_source: "unassigned",
           status: "Red",
           good_looks_like: "At least one accountable workstream-owner-blocker triple per non-green priority surfaced here.",
           missing: "Verify Duncan has visibility into workstreams + 2026 priorities — an empty watchlist on a non-green briefing is unusual.",
@@ -2385,20 +2504,21 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
         watchlistAutoInjected++;
       }
 
-      // Normalise rows + write back BEFORE the 40% concentration cap runs on the combined list.
       parsed.payload.watchlist = wlIn.map((r: any) => ({
         workstream: String(r?.workstream || "").trim() || "Unspecified workstream",
         owner: String(r?.owner || "").trim() || "Unassigned",
+        owner_source: (r?.owner_source as OwnerSource) || "unassigned",
         status: String(r?.status || "").trim() || "At Risk",
         good_looks_like: String(r?.good_looks_like || "").trim() || "—",
         missing: String(r?.missing || "").trim() || "—",
         data_blind_spot: r?.data_blind_spot ?? null,
-        auto_injected: !!r?.auto_injected,
+        auto_injected: true,
         ...(r?.auto_injected_reason ? { auto_injected_reason: r.auto_injected_reason } : {}),
       }));
       parsed.payload.watchlist_meta = {
         total: parsed.payload.watchlist.length,
         auto_injected: watchlistAutoInjected,
+        deterministic: true,
       };
     }
 
