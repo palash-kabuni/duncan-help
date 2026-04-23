@@ -1,86 +1,47 @@
 
-Diagnosed cause: the current CV ingestion flow is not actually scoped to “recent CVs for Operations Manager”.
+Root cause: Team Briefing is rendering the persisted `payload.slack_pulse` from the latest `ceo_briefings` row, not a live Slack fetch. The latest stored briefing rows still contain the old values (`channels_member = 0`, `channels_scanned = 0`, `degraded_codes = ["bot_not_invited"]`, `visibility_scope = "partial"`), so the UI is accurately showing stale briefing data rather than the newer Slack logic.
 
-## What is happening now
-1. The `fetch-gmail-cvs` function searches Gmail with a very broad query:
-   - `has:attachment (filename:pdf OR filename:docx OR filename:doc)`
-   - capped at `maxResults = 50`
-2. After that, it only links an email to the selected role if the email subject matches the role title (`Operations Manager`) using subject-based matching.
-3. In the live data, recent messages are mostly operational/legal documents, agreements, tournament forms, and similar attachments — not CV emails with a subject matching `Operations Manager`.
-4. That is why the system is currently creating many `parse_failed` records from unrelated documents instead of surfacing recent Operations Manager candidates.
+What I’ll do
 
-## Evidence from the app/backend
-- Active role exists:
-  - `Operations Manager` is present and active.
-- Existing Operations Manager candidates do exist, but they are older:
-  - latest linked candidates are from `2026-04-17`
-- Over the last 3 days the ingestion produced:
-  - `650 parse_failed`
-  - `233 parsed`
-  - only `2 unmatched`
-- Recent subjects being ingested are things like:
-  - `Tournament Update – School Confirmations...`
-  - `Legal & Ops Tracker`
-  - `Agreement UPDATES`
-  - `Kabuni Supplier Agreement`
-- These are being caught because the Gmail search is too broad, and many attachments are not CVs at all.
+1. Verify the deployed Slack pulse directly
+- Call the deployed `ceo-slack-pulse` function directly.
+- Confirm whether it now returns the newer diagnostics:
+  - `missing_scope: channels:join`, or
+  - `join_failed: <error_code>`, or
+  - real joined/scanned channel counts.
+- Check recent logs for:
+  - `auth.test`
+  - join attempts
+  - join failures
+  - retry outcomes
 
-## Root cause
-The bottleneck is the ingestion logic in `supabase/functions/fetch-gmail-cvs/index.ts`, not the Operations Manager role itself.
+2. Verify the briefing pipeline is using the current Slack pulse output
+- Confirm the deployed `ceo-briefing` function is invoking `ceo-slack-pulse` and persisting its latest response into `ceo_briefings.payload.slack_pulse`.
+- If the direct Slack pulse response is correct but the persisted briefing row is still old, identify whether:
+  - `ceo-briefing` is using an outdated deployment, or
+  - a fresh briefing has simply not been generated since the Slack fix.
 
-Specifically:
-- search is too broad
-- results are limited to the first 50 matching Gmail messages
-- role assignment depends on subject text matching the role title
-- “Operations” / “Ops” business documents are being mistaken for candidate attachments because they are PDFs/DOCs
+3. Regenerate Team Briefing data
+- Trigger a fresh morning Team Briefing generation so a new `ceo_briefings` row is written with current Slack diagnostics.
+- Re-check the newest `ceo_briefings` row to confirm:
+  - updated `degraded_reason`
+  - updated `degraded_codes`
+  - updated `channels_member`
+  - updated `channels_scanned`
+  - updated `messages_analysed`
 
-## What to change
-1. Tighten the Gmail search when a role is selected
-- Build a role-aware Gmail query instead of the global attachment query.
-- For Operations Manager, search should require both:
-  - attachment presence
-  - role-related subject/body terms
-- Example direction:
-  - role title terms
-  - recruiting terms like `cv`, `resume`, `application`, `candidate`
+4. Only patch code if the new run still stores stale semantics
+- If the direct Slack pulse is correct but the saved briefing still collapses to old wording, update the persistence/normalization path so the stored briefing preserves the exact Slack pulse payload.
+- If the direct Slack pulse itself still returns the old payload, redeploy/fix only the affected backend function(s), keeping frontend unchanged unless the stored semantics require a small display adjustment.
 
-2. Add stronger CV filtering before ingest
-- Reject obvious non-CV attachments and business documents earlier.
-- Use filename + subject heuristics before upload/parse.
+Expected outcome
+- Team Briefing will stop showing the old `0 of 83 / bot_not_invited / Scanned: 0` state once a fresh briefing is generated from the corrected Slack pulse.
+- If the connector is missing scope, the panel will show that exact reason.
+- If joins are failing for another reason, the panel will show that exact reason.
+- If joins succeed, the panel will show real joined/scanned counts.
 
-3. Improve matching beyond exact subject-title overlap
-- Support common variants:
-  - `Ops Manager`
-  - `Operations`
-  - `Application for Operations Manager`
-  - `CV - Operations Manager`
-
-4. Reduce false positives from legal/ops documents
-- Add exclusion heuristics for terms like:
-  - agreement
-  - supplier
-  - tracker
-  - tournament
-  - consent form
-  - invoice
-  - framework
-
-5. Preserve current manual role flow
-- Keep the selected-role fetch UX as it is.
-- Only improve the backend query and pre-ingest filtering.
-
-## Expected outcome after fix
-When you click `Fetch CVs` for Operations Manager, Duncan should:
-- scan fewer irrelevant attachment emails
-- stop ingesting legal/ops docs as fake candidates
-- correctly pick up recent candidate CVs tied to the Operations Manager role
-- show materially fewer `parse_failed` records caused by non-CV documents
-
-## Files to update
-- `supabase/functions/fetch-gmail-cvs/index.ts`
-
-## Implementation details
-- Replace the broad Gmail query with a role-aware query when `role_id` is provided.
-- Add a helper to generate alias terms from the role title.
-- Add pre-ingest exclusion rules for obvious non-recruitment documents.
-- Keep existing duplicate handling, orphan relinking, storage upload, and parse trigger behavior unchanged.
+Technical details
+- `src/hooks/useCEOBriefing.ts` loads the latest `ceo_briefings` row.
+- `src/pages/CEOBriefing.tsx` passes `payload.slack_pulse` into `CommsPulseCard`.
+- `src/components/ceo/CommsPulseCard.tsx` is only rendering what is already stored.
+- The latest database rows currently still store the old Slack pulse payload, so the immediate issue is stale persisted briefing data, not just the card UI.
