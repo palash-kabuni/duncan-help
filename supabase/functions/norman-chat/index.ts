@@ -4236,6 +4236,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
             const { fullContent, toolCalls } = await consumeSSEStream(currentResponse, round, enqueue);
             aggregatedContent += fullContent;
 
+            console.log("PARSED TOOL CALLS:", JSON.stringify(toolCalls, null, 2));
+
             const elapsedMs = Date.now() - executionStart;
 
             console.log(
