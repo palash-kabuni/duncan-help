@@ -1,75 +1,63 @@
 
-## Plan
+Update only `supabase/functions/ceo-slack-pulse/index.ts` to add a public-channel join-and-retry path before history is marked inaccessible.
 
-Add a project collaborator notification email that sends from Duncan immediately after a collaborator is successfully added to a project.
+What will change
 
-### What I’ll build
-1. Add a backend-powered app email flow for “project collaborator added”.
-2. Trigger that flow only after the existing `project_members` insert succeeds.
-3. Send the email to the added collaborator with project-specific context:
-   - project name
-   - who added them
-   - a link back to the project
-4. Keep the current project-sharing UI and success/error behavior unchanged.
+1. Join-then-retry for public channels
+- Keep channel discovery as public channels only.
+- Stop treating `is_member === false` as an automatic blind spot.
+- For each eligible public channel, call `conversations.history` first.
+- If Slack returns `bot_not_invited` or `not_in_channel`, immediately call `conversations.join` for that same public channel.
+- If `conversations.join` succeeds, retry `conversations.history` once and use the returned messages normally.
+- If `conversations.join` fails, or history still fails after a successful join, mark that channel as inaccessible and keep scanning the rest.
+- Do not add any private-channel join logic.
 
-### What I found in the current code
-- Collaborators are added in `src/hooks/useProjects.ts` inside `addMember(...)`.
-- The member is inserted directly into `project_members`, then the UI refreshes members and shows:
-  - “Member added”
-  - “Project access has been shared.”
-- The project workspace calls that hook from `src/pages/ProjectWorkspace.tsx`.
-- The `profiles` shape currently includes display/profile fields, but no email field is exposed in app types.
-- I did not find existing app email sending code or existing email template files in this repo, so this will likely require setting up the app email infrastructure first.
+2. Keep current scope boundaries
+- No auth changes.
+- No connector gateway changes.
+- No request/response contract redesign.
+- No changes to any other edge function.
+- Private channels remain gated exactly as they are today and continue to contribute only to the private-visibility warning/count.
 
-### Implementation approach
-1. **Set up app email capability**
-   - If the project does not already have branded app email configured, set that up first so Duncan can send emails from the project’s sender identity.
+3. Update channel selection so newly joined channels can actually be scanned
+- Build the eligible scan set from public, non-archived channels rather than only current `is_member` channels.
+- Keep the existing cap/sorting strategy so the function still scans a bounded set.
+- This ensures channels Duncan joins during the run can contribute real `messages_analysed` and signal output.
 
-2. **Create a collaborator-invite notification template**
-   - Add a branded Duncan email template for project access notifications.
-   - Keep the copy short and practical:
-     - subject: project access granted
-     - body: who shared it, which project, direct link
+4. Return counts that match the new behavior
+- `messages_analysed` should include messages from channels that were successfully joined during this run.
+- `channels_scanned` should reflect channels whose history was actually fetched after the final retry path.
+- `channels_member` should reflect effective accessible public channels after successful join attempts for the scanned set.
+- `not_member_channels_count` should represent only channels still inaccessible after join was attempted.
+- `history_failures_count` should count real unresolved failures, not pre-join non-membership.
+- `channels_with_errors` / `per_channel.status_reason` should distinguish:
+  - joined_then_scanned
+  - join_failed
+  - history_failed_after_join
+  - no_recent_messages
+  - private_inaccessible (unchanged behavior for private blind spots if already surfaced)
 
-3. **Add a backend send path**
-   - Use a backend function to send the notification so recipient resolution and sending stay secure.
-   - The backend will:
-     - validate the requester
-     - verify the requester actually has rights to share that project
-     - fetch the added collaborator’s email address
-     - fetch project name and inviter display name
-     - send the email using the template
+5. Fix degraded and warning logic
+- Only emit `bot_not_invited` when a public channel remained inaccessible after `conversations.join` was attempted and failed.
+- Do not add `bot_not_invited` merely because the bot started outside the channel.
+- Keep `private_channels_inaccessible` behavior unchanged.
+- Keep `history_partial_failure` only for genuine unresolved history failures.
+- Recompute `degraded` / `visibility_scope` from final post-retry outcomes:
+  - fully healthy if public channels in scope were joined/scanned successfully
+  - partial only when unresolved public failures or private blind spots remain
+- Update `degraded_reason` so the UI can clearly communicate:
+  - how many public channels were successfully joined
+  - how many channels were scanned
+  - how many channels are still inaccessible
+  - whether remaining blind spots are public join failures and/or private channels
 
-4. **Trigger after successful collaborator add**
-   - Update the existing add-member flow so that after `project_members` insert succeeds, it also calls the backend notification sender.
-   - Keep this after the successful insert so no email is attempted for failed or duplicate adds.
+Expected UI outcome without changing other files
+- The Slack badge will show real message totals because joined public channels now contribute to `messages_analysed`.
+- The existing “Duncan in X of Y” / “not invited” display will reflect post-join reality rather than pre-join membership.
+- The warning will only mention `bot_not_invited` for channels where `conversations.join` also failed.
+- Private-channel visibility remains unchanged and still clearly separated from the public join flow.
 
-5. **Failure behavior**
-   - The project-sharing action should remain the primary action.
-   - If the email send fails, the collaborator should still remain added.
-   - The UI can either:
-     - stay silent on email failure, or
-     - show a lightweight non-blocking notice that access was granted but email failed
-
-### Important technical detail
-- The current frontend-accessible `profiles` data does not include collaborator email addresses.
-- To send the notification reliably, the backend must resolve the recipient email from the authentication user record or another trusted backend-side source.
-- That means this should be implemented as a backend email trigger, not a frontend-only email send.
-
-## Files likely involved
-- `src/hooks/useProjects.ts` — trigger notification after successful member insert
-- one backend email sender function
-- app email template files for the notification
-- possibly one small shared helper if the project’s email setup follows that pattern
-
-## Technical details
-- **Trigger point:** after successful `project_members` insert in `addMember(...)`
-- **Recipient:** newly added collaborator
-- **From:** Duncan / project sender identity
-- **Security:** backend validates caller and project access before sending
-- **Data used in email:** project name, inviter name, project link
-- **Non-blocking behavior:** email failure must not roll back collaborator access
-- **No change to core UX:** existing member add flow and toasts remain intact except for optional email-status feedback
-
-## Expected outcome
-When someone adds a collaborator to a project, the collaborator is granted access as they are today, and they also receive a Duncan email telling them they’ve been added and linking them into the project.
+Implementation notes
+- Add a small helper inside `ceo-slack-pulse` for “history with join fallback” rather than refactoring the whole function.
+- Preserve existing message filtering, signal extraction, and aggregation logic once messages are successfully fetched.
+- Keep the response shape compatible with the current Team Briefing consumer, only improving the semantics of the existing fields and per-channel statuses.
