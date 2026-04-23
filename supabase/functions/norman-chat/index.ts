@@ -3941,7 +3941,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
     async function consumeSSEStream(
       streamResponse: Response,
       onChunk?: (chunk: string) => void,
-    ): Promise<{ fullContent: string; toolCalls: any[]; finishReason: string | null; sawAnyDelta: boolean; sawContentDelta: boolean; sawToolDelta: boolean }> {
+    ): Promise<{ fullContent: string; toolCalls: any[]; finishReason: string | null; sawAnyDelta: boolean; sawContentDelta: boolean; sawToolDelta: boolean; hadIncompleteToolCall: boolean }> {
       const reader = streamResponse.body!.getReader();
       const decoder = new TextDecoder();
       const TEXT_INACTIVITY_TIMEOUT_MS = Number.POSITIVE_INFINITY;
@@ -4063,19 +4063,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
          ? toolCalls
              .filter(hasToolName)
              .map((toolCall) => {
-               const rawArguments = typeof toolCall?.function?.arguments === "string"
-                 ? toolCall.function.arguments
-                 : "";
-
-               let argumentsParseable = false;
-               if (rawArguments.trim().length > 0) {
-                 try {
-                   JSON.parse(rawArguments);
-                   argumentsParseable = true;
-                 } catch {
-                   argumentsParseable = false;
-                 }
-               }
+                const parsedArguments = parseToolArguments(toolCall);
 
                return {
                  id: typeof toolCall?.id === "string" && toolCall.id.trim().length > 0
@@ -4084,15 +4072,21 @@ Format as a natural, readable summary with clear sections. If a section has no d
                  type: "function",
                  function: {
                    name: toolCall.function.name,
-                   arguments: rawArguments,
+                    arguments: parsedArguments.valid ? parsedArguments.normalizedArguments : parsedArguments.rawArguments,
                  },
                  _debug: {
-                   rawArgumentsLength: rawArguments.length,
-                   argumentsParseable,
+                    rawArgumentsLength: parsedArguments.rawArguments.length,
+                    argumentsParseable: parsedArguments.valid,
+                    repaired: parsedArguments.repaired,
+                    missingRequired: parsedArguments.missingRequired,
+                    parseError: parsedArguments.parseError,
                  },
                };
              })
          : toolCalls;
+
+       const hadIncompleteToolCall = hasIncompleteToolCall()
+         || (finishReason === "tool_calls" && capturedToolCalls.length === 0);
 
        console.log("STREAM RESULT:");
        console.log({
@@ -4112,6 +4106,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
           sawAnyDelta,
           sawContentDelta,
           sawToolDelta,
+           hadIncompleteToolCall,
        };
     }
 
