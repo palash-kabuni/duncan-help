@@ -104,7 +104,7 @@ async function slackCall(
   lovableKey: string,
 ): Promise<any> {
   const { status, data } = await slackCallDetailed(endpoint, params, apiKey, lovableKey);
-  if (!res.ok) {
+  if (status < 200 || status >= 300) {
     throw new Error(`Slack ${endpoint} HTTP ${status}: ${JSON.stringify(data).slice(0, 200)}`);
   }
   return data;
@@ -594,7 +594,9 @@ Deno.serve(async (req) => {
     }
 
     const oldest = Math.floor(Date.now() / 1000) - WINDOW_SECONDS;
-    const botUserId = await getBotUserId(SLACK_API_KEY, LOVABLE_API_KEY);
+    const authStatus = await getSlackAuthStatus(SLACK_API_KEY, LOVABLE_API_KEY);
+    const missingJoinScopeReason = authStatus.missingJoinScope ? "missing_scope: channels:join" : null;
+    const botUserId = authStatus.user_id || await getBotUserId(SLACK_API_KEY, LOVABLE_API_KEY);
 
     // 1. Discover channels
     let allChannels: SlackChannel[] = [];
@@ -652,6 +654,7 @@ Deno.serve(async (req) => {
             SLACK_API_KEY,
             LOVABLE_API_KEY,
             botUserId,
+            missingJoinScopeReason,
           );
           return { channel: ch, ...history };
         } catch (e: any) {
