@@ -9,28 +9,183 @@ const corsHeaders = {
 const HUBSPOT_VERIFY_URL = "https://api.hubapi.com/crm/v3/objects/companies?limit=1&properties=name";
 const GITHUB_VERIFY_URL = "https://api.github.com/user";
 
-async function verifyCredential(integrationId: string, token: string) {
-  if (integrationId === "hubspot") {
-    const res = await fetch(HUBSPOT_VERIFY_URL, {
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    });
-    const data = await res.json().catch(() => ({}));
-    return { ok: res.ok, error: res.ok ? null : `HubSpot verification failed [${res.status}]: ${JSON.stringify(data).slice(0, 200)}` };
+type VerificationStatus = "connected" | "degraded" | "not_configured";
+
+type VerificationResult = {
+  connected: boolean;
+  status: VerificationStatus;
+  error_code: string | null;
+  error_message: string | null;
+  last_verified_at: string;
+  provider_status: number | null;
+};
+
+function safeSnippet(value: unknown) {
+  const raw = typeof value === "string" ? value : JSON.stringify(value ?? {});
+  return raw.slice(0, 240);
+}
+
+function classifyVerificationFailure(
+  integrationId: string,
+  httpStatus: number | null,
+  body: unknown,
+  stage: "verify",
+): Omit<VerificationResult, "connected" | "last_verified_at"> {
+  const prefix = integrationId === "hubspot" ? "hubspot" : integrationId === "github" ? "github" : integrationId;
+  const snippet = safeSnippet(body);
+  const normalized = snippet.toLowerCase();
+
+  if (/missing|empty/.test(normalized)) {
+    return {
+      status: "not_configured",
+      error_code: `${prefix}_missing_token`,
+      error_message: `${integrationId === "hubspot" ? "HubSpot" : "GitHub"} token is missing`,
+      provider_status: httpStatus,
+    };
   }
 
-  if (integrationId === "github") {
-    const res = await fetch(GITHUB_VERIFY_URL, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json",
-        "User-Agent": "duncan-integrations",
-      },
-    });
-    const data = await res.json().catch(() => ({}));
-    return { ok: res.ok, error: res.ok ? null : `GitHub verification failed [${res.status}]: ${JSON.stringify(data).slice(0, 200)}` };
+  if (httpStatus === 429 || /rate limit|too many requests/.test(normalized)) {
+    return {
+      status: "degraded",
+      error_code: `${prefix}_rate_limited`,
+      error_message: `${integrationId === "hubspot" ? "HubSpot" : "GitHub"} verification was rate limited`,
+      provider_status: httpStatus,
+    };
   }
 
-  return { ok: true, error: null };
+  if (httpStatus !== null && httpStatus >= 500) {
+    return {
+      status: "degraded",
+      error_code: `${prefix}_provider_unavailable`,
+      error_message: `${integrationId === "hubspot" ? "HubSpot" : "GitHub"} verification is temporarily unavailable`,
+      provider_status: httpStatus,
+    };
+  }
+
+  if (httpStatus === 401 || httpStatus === 403 || /unauthorized|forbidden|bad credentials|authentication/.test(normalized)) {
+    if (/scope|permission|resource not accessible by integration|insufficient/.test(normalized)) {
+      return {
+        status: "degraded",
+        error_code: `${prefix}_insufficient_scope`,
+        error_message: `${integrationId === "hubspot" ? "HubSpot" : "GitHub"} credentials are missing required permissions`,
+        provider_status: httpStatus,
+      };
+    }
+
+    if (/expired|revoked/.test(normalized)) {
+      return {
+        status: "degraded",
+        error_code: `${prefix}_token_expired`,
+        error_message: `${integrationId === "hubspot" ? "HubSpot" : "GitHub"} token is expired or revoked`,
+        provider_status: httpStatus,
+      };
+    }
+
+    if (/integration installation|unsupported token|token type|private app/.test(normalized)) {
+      return {
+        status: "degraded",
+        error_code: `${prefix}_verification_mismatch`,
+        error_message: `${integrationId === "hubspot" ? "HubSpot" : "GitHub"} token type does not match the verification flow`,
+        provider_status: httpStatus,
+      };
+    }
+
+    return {
+      status: "degraded",
+      error_code: `${prefix}_invalid_token`,
+      error_message: `${integrationId === "hubspot" ? "HubSpot" : "GitHub"} token is invalid`,
+      provider_status: httpStatus,
+    };
+  }
+
+  return {
+    status: "degraded",
+    error_code: `${prefix}_${stage}_failed`,
+    error_message: `${integrationId === "hubspot" ? "HubSpot" : "GitHub"} verification failed`,
+    provider_status: httpStatus,
+  };
+}
+
+async function verifyCredential(integrationId: string, token: string): Promise<VerificationResult> {
+  const last_verified_at = new Date().toISOString();
+  const trimmedToken = token.trim();
+
+  if (!trimmedToken) {
+    return {
+      connected: false,
+      status: "not_configured",
+      error_code: `${integrationId}_missing_token`,
+      error_message: `${integrationId === "hubspot" ? "HubSpot" : "GitHub"} token is missing`,
+      last_verified_at,
+      provider_status: null,
+    };
+  }
+
+  const request = integrationId === "hubspot"
+    ? {
+        url: HUBSPOT_VERIFY_URL,
+        headers: { Authorization: `Bearer ${trimmedToken}`, "Content-Type": "application/json" },
+      }
+    : integrationId === "github"
+      ? {
+          url: GITHUB_VERIFY_URL,
+          headers: {
+            Authorization: `Bearer ${trimmedToken}`,
+            Accept: "application/vnd.github+json",
+            "User-Agent": "duncan-integrations",
+          },
+        }
+      : null;
+
+  if (!request) {
+    return {
+      connected: true,
+      status: "connected",
+      error_code: null,
+      error_message: null,
+      last_verified_at,
+      provider_status: null,
+    };
+  }
+
+  console.log("[manage-company-integration] verifying credential", {
+    integrationId,
+    url: request.url,
+    token_length: trimmedToken.length,
+  });
+
+  const res = await fetch(request.url, { headers: request.headers });
+  const data = await res.json().catch(() => ({}));
+
+  if (res.ok) {
+    console.log("[manage-company-integration] verification passed", {
+      integrationId,
+      provider_status: res.status,
+    });
+    return {
+      connected: true,
+      status: "connected",
+      error_code: null,
+      error_message: null,
+      last_verified_at,
+      provider_status: res.status,
+    };
+  }
+
+  const classified = classifyVerificationFailure(integrationId, res.status, data, "verify");
+  console.log("[manage-company-integration] verification failed", {
+    integrationId,
+    provider_status: res.status,
+    error_code: classified.error_code,
+    error_message: classified.error_message,
+    provider_snippet: safeSnippet(data),
+  });
+
+  return {
+    connected: false,
+    last_verified_at,
+    ...classified,
+  };
 }
 
 serve(async (req) => {
@@ -109,7 +264,7 @@ serve(async (req) => {
     const verify = await verifyCredential(integration_id, api_key);
     const encryptedKey = btoa(api_key);
     const now = new Date().toISOString();
-    const status = verify.ok ? "connected" : "degraded";
+    const status = verify.status;
 
     const { data, error: upsertError } = await supabaseAdmin
       .from("company_integrations")
@@ -132,9 +287,13 @@ serve(async (req) => {
       success: true,
       integration: data,
       verification: {
+        connected: verify.connected,
         status,
-        degraded_reason: verify.error,
-        last_verified_at: now,
+        error_code: verify.error_code,
+        error_message: verify.error_message,
+        degraded_reason: verify.error_message,
+        last_verified_at: verify.last_verified_at,
+        provider_status: verify.provider_status,
       },
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
