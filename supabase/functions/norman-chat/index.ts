@@ -4185,6 +4185,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
           let round = 0;
           const executionStart = Date.now();
           const toolHistory = new Set();
+          let lastRoundHadToolCalls = false;
 
           while (true) {
             const { fullContent, toolCalls } = await consumeSSEStream(currentResponse, enqueue);
@@ -4198,6 +4199,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
             });
 
             const elapsedMs = Date.now() - executionStart;
+            lastRoundHadToolCalls = !!toolCalls?.length;
             const signature = JSON.stringify(
               toolCalls.map(tc => ({
                 name: tc?.function?.name,
@@ -4331,6 +4333,26 @@ Format as a natural, readable summary with clear sections. If a section has no d
             } catch (tokenErr) {
               console.error("Token usage logging error:", tokenErr);
             }
+          }
+
+          const needsFinalAnswer = !lastFullContent || lastFullContent.trim().length < 20;
+
+          if (lastRoundHadToolCalls || !lastFullContent || !aggregatedContent || aggregatedContent.trim().length < 20 || needsFinalAnswer) {
+            console.log("FORCING FINAL SYNTHESIS CALL");
+
+            const finalMessages = [
+              { role: "system", content: systemContent },
+              ...messages,
+              ...conversationMessages.slice(messages.length + 1),
+            ];
+
+            const finalResponse = await fetchAIWithRetry({
+              messages: finalMessages,
+              stream: true,
+            });
+
+            const { fullContent: finalContent } = await consumeSSEStream(finalResponse, enqueue);
+            lastFullContent = finalContent;
           }
 
           console.log("FINAL RESPONSE SENT TO UI:");
