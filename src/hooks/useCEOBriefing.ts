@@ -50,7 +50,7 @@ export const useCEOBriefing = (type: BriefingType) => {
       .select("*")
       .eq("briefing_type", type)
       .order("briefing_date", { ascending: false })
-      .limit(5);
+      .limit(2);
     if (error) {
       console.error("Load briefings error:", error);
     } else {
