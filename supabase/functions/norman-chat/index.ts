@@ -3971,18 +3971,22 @@ Format as a natural, readable summary with clear sections. If a section has no d
        toolCalls.forEach((tc) => {
          const args = tc?.function?.arguments || "";
          const trimmed = args.trim();
-         if (!(trimmed.startsWith("{") && trimmed.endsWith("}"))) {
-           console.warn("DROPPING INCOMPLETE TOOL CALL:", trimmed);
+         try {
+           JSON.parse(trimmed);
+         } catch {
+           console.warn("DROPPING INVALID JSON TOOL CALL:", trimmed);
          }
        });
 
        const finalizedToolCalls = capturedToolCalls.filter((tc) => {
          const args = tc?.function?.arguments || "";
          const trimmed = args.trim();
-         return (
-           trimmed.startsWith("{") &&
-           trimmed.endsWith("}")
-         );
+         try {
+           JSON.parse(trimmed);
+           return true;
+         } catch {
+           return false;
+         }
        });
 
        console.log("ROUND HAS CONTENT:", {
@@ -4276,6 +4280,11 @@ Format as a natural, readable summary with clear sections. If a section has no d
 
             console.log("PARSED TOOL CALLS:", JSON.stringify(toolCalls, null, 2));
 
+            if (!toolCalls || toolCalls.length === 0) {
+              console.warn("NO VALID TOOL CALLS — SKIPPING TOOL EXECUTION");
+              break;
+            }
+
             const elapsedMs = Date.now() - executionStart;
 
             console.log(
@@ -4309,7 +4318,10 @@ Format as a natural, readable summary with clear sections. If a section has no d
               tool_id: toolCalls[0]?.id,
               detected: provider,
             });
-            const toolResults = await executeToolCalls(toolCalls, provider);
+            let toolResults = [];
+            if (toolCalls.length > 0) {
+              toolResults = await executeToolCalls(toolCalls, provider);
+            }
 
             const assistantMsg: any = { role: "assistant", tool_calls: toolCalls };
             if (fullContent) {
