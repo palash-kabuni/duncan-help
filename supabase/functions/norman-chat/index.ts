@@ -3773,6 +3773,10 @@ Format as a natural, readable summary with clear sections. If a section has no d
       }
     }
 
+    console.log("LLM CONFIG:", {
+      round: 0,
+      max_tokens: requestBody.max_tokens,
+    });
     const response = await fetchAIWithRetry(requestBody);
 
     if (!response.ok) {
@@ -3801,6 +3805,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
     // immediately. We suppress upstream [DONE] so norman-chat emits it only once after the final round.
     async function consumeSSEStream(
       streamResponse: Response,
+      round: number,
       onChunk?: (chunk: string) => void,
     ): Promise<{ fullContent: string; toolCalls: any[] }> {
       const reader = streamResponse.body!.getReader();
@@ -3813,6 +3818,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
       let fullContent = "";
       const toolCalls: any[] = [];
       let buffer = "";
+      let chunkCount = 0;
+      let firstChunkLogged = false;
       const startTime = Date.now();
       let lastChunkTime = startTime;
       let hasToolCallStarted = false;
@@ -3875,6 +3882,13 @@ Format as a natural, readable summary with clear sections. If a section has no d
 
               if (delta?.content) {
                 fullContent += delta.content;
+                if (!firstChunkLogged) {
+                  console.log("ROUND FIRST CHUNK:", {
+                    round,
+                    preview: delta.content.slice(0, 100),
+                  });
+                  firstChunkLogged = true;
+                }
               }
 
               if (delta?.tool_calls) {
@@ -3897,6 +3911,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
               }
 
               if (onChunk) {
+                chunkCount++;
                 onChunk(`data: ${JSON.stringify(parsed)}\n\n`);
               }
             } catch {
@@ -3948,6 +3963,21 @@ Format as a natural, readable summary with clear sections. If a section has no d
              })
          : toolCalls;
 
+       console.log("ROUND HAS CONTENT:", {
+         round,
+         hasContent: !!fullContent && fullContent.length > 0,
+         contentLength: fullContent?.length || 0,
+       });
+       console.log("STREAM DEBUG:", {
+         round,
+         chunkCount,
+       });
+       console.log("FINAL OUTPUT DEBUG:", {
+         round,
+         fullContentLength: fullContent?.length || 0,
+         preview: fullContent?.slice(0, 200),
+         endsWithSentence: /[.!?]\s*$/.test(fullContent || ""),
+       });
        console.log("SSE tool stream state", {
          hasToolCallStarted,
          toolCallsLength: capturedToolCalls.length,
@@ -4088,6 +4118,9 @@ Format as a natural, readable summary with clear sections. If a section has no d
           
           console.log("TOOL RESULT RAW:", result);
           console.log("TOOL RESULT TYPE:", typeof result);
+          console.log("TOOL INPUT SIZE:", {
+            length: JSON.stringify(result)?.length || 0,
+          });
 
           const toolName = tc?.function?.name ?? "unknown_tool";
           const finalContent = (() => {
@@ -4189,7 +4222,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
           const executionStart = Date.now();
 
           while (true) {
-            const { fullContent, toolCalls } = await consumeSSEStream(currentResponse, enqueue);
+            const { fullContent, toolCalls } = await consumeSSEStream(currentResponse, round, enqueue);
             aggregatedContent += fullContent;
 
             const elapsedMs = Date.now() - executionStart;
@@ -4241,12 +4274,17 @@ Format as a natural, readable summary with clear sections. If a section has no d
             }
             console.log("FINAL CONVERSATION SENT TO LLM:");
             console.log(JSON.stringify(conversationMessages, null, 2));
-            currentResponse = await fetchAIWithRetry({
+            const followupRequestBody = {
               model: "gpt-4.1",
               messages: conversationMessages,
               stream: true,
               ...(isLastRound ? {} : { tools }),
+            };
+            console.log("LLM CONFIG:", {
+              round,
+              max_tokens: followupRequestBody.max_tokens,
             });
+            currentResponse = await fetchAIWithRetry(followupRequestBody);
 
             if (!currentResponse.ok) {
               const text = await currentResponse.text();
