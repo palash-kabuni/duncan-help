@@ -4424,7 +4424,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
           let forcedRecoveryContent = "";
 
           while (true) {
-            const { fullContent, toolCalls, finishReason, sawAnyDelta, sawContentDelta, sawToolDelta } = await consumeSSEStream(currentResponse, enqueue);
+            const { fullContent, toolCalls, finishReason, sawAnyDelta, sawContentDelta, sawToolDelta, hadIncompleteToolCall } = await consumeSSEStream(currentResponse, enqueue);
             lastFullContent = fullContent;
             aggregatedContent += fullContent;
             console.log("ROUND RESULT", {
@@ -4436,15 +4436,17 @@ Format as a natural, readable summary with clear sections. If a section has no d
               sawAnyDelta,
               sawContentDelta,
               sawToolDelta,
+              hadIncompleteToolCall,
             });
 
-            if (!fullContent.trim() && toolCalls.length === 0) {
+            if ((!fullContent.trim() && toolCalls.length === 0) || hadIncompleteToolCall) {
               console.warn("EMPTY MODEL ROUND DETECTED", {
                 round,
                 finishReason,
                 sawAnyDelta,
                 sawContentDelta,
                 sawToolDelta,
+                hadIncompleteToolCall,
               });
               forcedRecoveryContent = await recoverEmptyCompletion(conversationMessages);
               lastFullContent = forcedRecoveryContent;
@@ -4606,12 +4608,13 @@ Format as a natural, readable summary with clear sections. If a section has no d
             const finalResult = await consumeSSEStream(finalResponse, enqueue);
             lastFullContent = finalResult.fullContent;
 
-            if (!lastFullContent.trim() && finalResult.toolCalls.length === 0) {
+            if ((!lastFullContent.trim() && finalResult.toolCalls.length === 0) || finalResult.hadIncompleteToolCall) {
               console.warn("FINAL SYNTHESIS RETURNED EMPTY CONTENT", {
                 finishReason: finalResult.finishReason,
                 sawAnyDelta: finalResult.sawAnyDelta,
                 sawContentDelta: finalResult.sawContentDelta,
                 sawToolDelta: finalResult.sawToolDelta,
+                hadIncompleteToolCall: finalResult.hadIncompleteToolCall,
               });
               const fallbackContent = await recoverEmptyCompletion(finalMessages);
               lastFullContent = fallbackContent;
