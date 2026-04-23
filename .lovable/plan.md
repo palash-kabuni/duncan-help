@@ -1,92 +1,94 @@
 
-Goal: make HubSpot and GitHub always visible in Team Briefing Comms Pulse, harden their persisted signal contract, and add diagnosable health reporting without changing the broader Team Briefing architecture.
+Goal: diagnose HubSpot/GitHub 401s precisely, make valid credentials resolve to `connected`, preserve `degraded` / `not_configured` for invalid credentials, and add clear non-sensitive diagnostics.
 
-1. Update Comms Pulse UI to always render HubSpot and GitHub tiles
-- Remove the `showHubSpot` / `showGitHub` gating in `src/components/ceo/CommsPulseCard.tsx`.
-- Keep Email and Slack behavior unchanged.
-- Render HubSpot and GitHub tiles for all three states:
+1. Harden credential diagnosis in the integration verification entrypoint
+- Update `supabase/functions/manage-company-integration/index.ts` so HubSpot and GitHub verification returns structured diagnostics instead of a single generic error string.
+- Add provider-specific parsing for common auth failures:
+  - missing token / empty token
+  - invalid token / bad credentials
+  - expired or revoked token
+  - insufficient scope / permission
+  - verification endpoint mismatch / unsupported token type
+  - rate-limited or provider unavailable
+- Return a normalized verification payload with:
+  - `status`
   - `connected`
-  - `degraded`
-  - `not_configured`
-- Expand the external signal tile contract so each tile can display:
-  - state badge
-  - last sync / last verified time when available
-  - short failure reason when available
-  - compact metrics summary even in degraded or not_configured states
-- Keep the empty-state fallback only for cases where absolutely no comms data exists and no external signal objects are present at all.
+  - `error_code`
+  - `error_message`
+  - `last_verified_at`
+- Keep token storage behavior unchanged except for setting status from the richer verification result.
 
-2. Harden the backend signal contract in Team Briefing payloads
-- In `supabase/functions/ceo-briefing/index.ts`, replace the current lightweight normalization for `hubspot_signal` and `github_signal` with a stable schema that is always written into `payload`:
+2. Make runtime status functions use the same diagnosis rules
+- Refactor `supabase/functions/hubspot-api/index.ts` and `supabase/functions/github-api/index.ts` so 401/403 paths are classified consistently in both:
+  - initial verification
+  - summary fetch
+  - partial downstream fetch failures
+- Preserve current stable response contract:
   - `status`
   - `connected`
   - `last_sync_at`
   - `error_code`
   - `error_message`
   - `metrics_summary`
-- Preserve existing fields already used by the UI and briefing provenance so older payload readers continue working:
-  - HubSpot: `accounts_scanned`, `stale_deals`, `at_risk_accounts`, `customer_escalations`, `signals`, `summary`, `degraded_reason`
-  - GitHub: `repos_scanned`, `open_prs`, `blocked_prs`, `stale_prs`, `release_risks`, `signals`, `summary`, `degraded_reason`
-- Backfill compatibility during normalization:
-  - map legacy `last_verified_at` / `last_sync` into `last_sync_at`
-  - map legacy `degraded_reason` into `error_message`
-  - derive `metrics_summary` from the existing numeric metrics when missing
-- Keep `source_provenance` text generation compatible with both legacy and hardened shapes.
+- Ensure valid credentials always produce `connected` on the `status` action.
+- Ensure invalid credentials never silently look connected.
 
-3. Make HubSpot API status reporting explicit and diagnosable
-- In `supabase/functions/hubspot-api/index.ts`, standardize all return paths so every response includes the stable health fields:
-  - `status`, `connected`, `last_sync_at` (or equivalent mapped server-side), `error_code`, `error_message`, `metrics_summary`
-- Distinguish failure classes explicitly:
-  - connector not configured
-  - stored token missing
-  - stored token decode failed
-  - connector verification failed
-  - upstream API auth failure
-  - upstream API request failure
-  - summary generation failure
-- Keep existing metrics and summary fields intact for compatibility.
-- Add targeted logs at decision points so the degraded / not_configured reason is traceable:
-  - credential source used (connector gateway vs stored token)
-  - verification outcome
-  - missing-token / decode-failure branch
-  - upstream request failure branch
-  - final returned status and error code
+3. Fix provider-specific token/verification mismatches
+- HubSpot:
+  - Keep existing connector-gateway path when project connector secrets are actually present.
+  - Improve fallback to stored company token when gateway secrets are absent.
+  - Diagnose whether failure is from connector verification, direct API auth, or permission mismatch.
+- GitHub:
+  - Keep stored-token flow, but verify against `/user` with richer response classification.
+  - Distinguish “not configured” from “configured but invalid”.
+- Ensure the same stored token that passes verification is the one used for later summary fetches, so status does not flip incorrectly between connect-time and runtime.
 
-4. Make GitHub API status reporting explicit and diagnosable
-- In `supabase/functions/github-api/index.ts`, standardize all return paths to the same stable health schema.
-- Add explicit error codes for:
-  - missing stored token
-  - stored token decode failure
-  - user verification failure
-  - repo scan partial failure
-  - upstream API auth failure
-  - summary failure
-- Preserve all current GitHub metrics and summary fields.
-- Add targeted logs mirroring HubSpot so status transitions are explainable from backend logs.
+4. Add non-sensitive logging for diagnosis
+- In both runtime functions and `manage-company-integration`, add targeted logs at:
+  - credential source selected
+  - verification endpoint called
+  - provider response status
+  - classified failure type
+  - final returned `status` and `error_code`
+- Log only safe metadata:
+  - source (`connector_gateway` vs `stored_token`)
+  - HTTP status
+  - provider error category/message snippet
+  - token fingerprint metadata only if needed (prefix length / token length), never the token itself
+- Remove ambiguity around current generic branches like “verification failed” by logging the actual classified cause.
 
-5. Keep Integrations page compatibility
-- Ensure the new health fields remain additive so `src/pages/Integrations.tsx` can continue using existing `status`, `degraded_reason`, and `last_verified_at` behavior without breaking.
-- Optionally map new fields back into legacy names inside the API responses so both Team Briefing and Integrations consume the same health contract cleanly.
+5. Keep UI and integration health behavior intact
+- Do not change existing connected/degraded/not_configured semantics in the Team Briefing UI.
+- Preserve the current backend contract used by:
+  - `src/pages/Integrations.tsx`
+  - `src/components/ceo/CommsPulseCard.tsx`
+  - `supabase/functions/ceo-briefing/index.ts`
+- Only improve diagnosis and correctness of status transitions.
 
-6. Verification to produce after implementation
-- Generate or capture evidence for all three UI states in Comms Pulse:
-  - connected state visible
-  - degraded state visible
-  - not_configured state visible
-- Verify persisted Team Briefing payload includes the stable schema for both `hubspot_signal` and `github_signal`.
-- Verify backend logs clearly show why each degraded / not_configured status was assigned.
+6. Verification after implementation
+- Test HubSpot with:
+  - no token
+  - invalid token
+  - valid token
+- Test GitHub with:
+  - no token
+  - invalid token
+  - valid token
+- Confirm for each case:
+  - exact `error_code` matches the real cause
+  - valid credentials return `connected`
+  - invalid credentials return `degraded`
+  - absent credentials return `not_configured`
+  - logs clearly show the decision path without exposing secrets
 
 Technical details
 - Files to update:
-  - `src/components/ceo/CommsPulseCard.tsx`
-  - `supabase/functions/ceo-briefing/index.ts`
+  - `supabase/functions/manage-company-integration/index.ts`
   - `supabase/functions/hubspot-api/index.ts`
   - `supabase/functions/github-api/index.ts`
-- Current root cause:
-  - UI currently hides HubSpot/GitHub unless `status === "connected"` or `connected === true`
-  - Team Briefing normalization currently persists inconsistent shapes centered on legacy fields like `degraded_reason`
-  - API functions currently return useful metrics, but error semantics and diagnostics are not standardized
-- Constraints preserved:
-  - no architecture changes
-  - no Team Briefing flow changes
-  - no streaming/tooling changes
-  - backward compatibility maintained for existing payload consumers
+- Important current findings:
+  - HubSpot already has two paths: connector-gateway if connector secrets exist, otherwise stored company token.
+  - GitHub currently uses only stored company token.
+  - The workspace currently shows a Slack connector only, so HubSpot/GitHub likely rely on stored tokens right now unless connectors are later linked.
+  - `manage-company-integration` currently stores any submitted token and only marks it `degraded` with a generic message on failure; it does not preserve a precise auth diagnosis.
+  - `hubspot-api` / `github-api` currently collapse several 401/403 cases into broad codes such as `connector_verification_failed`, `upstream_auth_failed`, or `user_verification_failed`.
