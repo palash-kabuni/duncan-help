@@ -1,94 +1,121 @@
 
-Goal: diagnose HubSpot/GitHub 401s precisely, make valid credentials resolve to `connected`, preserve `degraded` / `not_configured` for invalid credentials, and add clear non-sensitive diagnostics.
+Goal: eliminate the persistent 401 state for HubSpot and GitHub when valid credentials exist, while preserving explicit `degraded` / `not_configured` behavior for invalid or absent credentials.
 
-1. Harden credential diagnosis in the integration verification entrypoint
-- Update `supabase/functions/manage-company-integration/index.ts` so HubSpot and GitHub verification returns structured diagnostics instead of a single generic error string.
-- Add provider-specific parsing for common auth failures:
-  - missing token / empty token
-  - invalid token / bad credentials
-  - expired or revoked token
-  - insufficient scope / permission
-  - verification endpoint mismatch / unsupported token type
-  - rate-limited or provider unavailable
-- Return a normalized verification payload with:
-  - `status`
-  - `connected`
-  - `error_code`
-  - `error_message`
-  - `last_verified_at`
-- Keep token storage behavior unchanged except for setting status from the richer verification result.
+Current diagnosis
+- HubSpot is currently failing from the stored-token path, not the connector path.
+  - Latest runtime log: `hubspot_invalid_token`
+  - Provider response: `401`
+  - Upstream message: `Authentication credentials not found. This API supports OAuth 2.0 authentication...`
+- GitHub is also currently failing from the stored-token path.
+  - Latest runtime log: `github_invalid_token`
+  - Provider response: `401`
+  - Upstream message: `Bad credentials`
+- Workspace/project connector state confirms the root cause:
+  - Only Slack is linked to this project.
+  - No HubSpot connector is linked.
+  - No GitHub connector is linked.
+- Because no HubSpot/GitHub connector secrets are available, the runtime falls back to `company_integrations.encrypted_api_key`.
+- The stored credentials being used for both providers are currently invalid for the verification endpoints, so the UI is correctly showing failure, but not because the runtime path is healthy.
 
-2. Make runtime status functions use the same diagnosis rules
-- Refactor `supabase/functions/hubspot-api/index.ts` and `supabase/functions/github-api/index.ts` so 401/403 paths are classified consistently in both:
-  - initial verification
-  - summary fetch
-  - partial downstream fetch failures
-- Preserve current stable response contract:
-  - `status`
-  - `connected`
-  - `last_sync_at`
-  - `error_code`
-  - `error_message`
-  - `metrics_summary`
-- Ensure valid credentials always produce `connected` on the `status` action.
-- Ensure invalid credentials never silently look connected.
+What to build
+1. Tighten the runtime diagnosis so the UI distinguishes:
+- invalid stored token
+- missing stored token
+- connector not linked to project
+- connector linked but verification failed
+- insufficient scope
+- expired/revoked token
+- verification-flow mismatch
 
-3. Fix provider-specific token/verification mismatches
+2. Prefer connector-backed credentials when available, but make the source explicit in health payloads
+- Add a non-sensitive `credential_source` field to HubSpot/GitHub runtime responses:
+  - `connector_gateway`
+  - `stored_token`
+  - `none`
+- Keep current fields intact for backward compatibility.
+
+3. Harden status semantics so `connected` only appears when the exact credential source used at runtime passes verification
+- If connector secrets exist and verification passes: `connected`
+- If connector secrets exist and verification fails: `degraded`
+- If no connector secrets exist but a stored token exists and passes verification: `connected`
+- If no connector secrets exist and no stored token exists: `not_configured`
+- If stored token exists and fails verification: `degraded`
+
+4. Improve UI messaging so the 401 cause is diagnosable in both Team Briefing and Integrations
+- Surface short, non-sensitive reason text based on `error_code`
+- Show whether the failing source is the project connector or stored company token
+- Keep current always-visible HubSpot/GitHub tiles in Comms Pulse
+
+Implementation steps
+1. Update `supabase/functions/hubspot-api/index.ts`
+- Add explicit response metadata:
+  - `credential_source`
+  - `verification_path`
+- Split the current connector/stored-token branches into clearly logged outcomes:
+  - connector unavailable
+  - connector verification failed
+  - stored token missing
+  - stored token invalid
+- Refine HubSpot 401 classification to map the current upstream message (`Authentication credentials not found`) to a clearer code such as:
+  - `hubspot_missing_oauth_token` or `hubspot_invalid_token`
+- Preserve existing stable fields:
+  - `status`, `connected`, `last_sync_at`, `error_code`, `error_message`, `metrics_summary`
+
+2. Update `supabase/functions/github-api/index.ts`
+- Add the same metadata:
+  - `credential_source`
+  - `verification_path`
+- Keep stored-token verification against `/user`, but classify `Bad credentials` explicitly and consistently
+- Preserve the same stable response contract
+
+3. Update `supabase/functions/manage-company-integration/index.ts`
+- Align connect-time verification output with runtime output
+- Store or return richer diagnostics so a token that fails at connect-time is visibly the same class of failure seen at runtime
+- Do not change token storage mechanics beyond diagnosis and status accuracy
+
+4. Update `supabase/functions/ceo-briefing/index.ts`
+- Preserve the existing normalized payload contract
+- Add passthrough support for the new additive fields:
+  - `credential_source`
+  - `verification_path`
+- Keep backward compatibility for existing briefing payload readers
+
+5. Update `src/components/ceo/CommsPulseCard.tsx`
+- Continue rendering HubSpot/GitHub in all states
+- Add compact display of:
+  - credential source
+  - clearer failure reason text
+  - existing error code
+- No change to broader card layout or other comms tiles
+
+6. Update `src/pages/Integrations.tsx`
+- Use runtime status detail to show the exact source of failure
+- Replace generic “pending/degraded” messaging with diagnosable labels such as:
+  - “Stored token invalid”
+  - “Connector not linked”
+  - “Missing required permissions”
+- Keep overall integration card behavior unchanged
+
+Expected outcome
+- The UI will stop showing ambiguous 401 failures and instead show exactly why HubSpot/GitHub are degraded.
+- If valid connector credentials are linked to the project, runtime status will move to `connected`.
+- If valid stored tokens are present, runtime status will also move to `connected`.
+- If credentials remain invalid, the UI will still show `degraded`, but with a precise, diagnosable cause.
+
+Verification to perform after implementation
 - HubSpot:
-  - Keep existing connector-gateway path when project connector secrets are actually present.
-  - Improve fallback to stored company token when gateway secrets are absent.
-  - Diagnose whether failure is from connector verification, direct API auth, or permission mismatch.
+  - no credential → `not_configured`
+  - invalid stored token → `degraded`
+  - valid connector or valid stored token → `connected`
 - GitHub:
-  - Keep stored-token flow, but verify against `/user` with richer response classification.
-  - Distinguish “not configured” from “configured but invalid”.
-- Ensure the same stored token that passes verification is the one used for later summary fetches, so status does not flip incorrectly between connect-time and runtime.
+  - no credential → `not_configured`
+  - invalid stored token → `degraded`
+  - valid stored token → `connected`
+- Confirm logs show:
+  - credential source used
+  - provider status
+  - classified `error_code`
+  - no secret leakage
 
-4. Add non-sensitive logging for diagnosis
-- In both runtime functions and `manage-company-integration`, add targeted logs at:
-  - credential source selected
-  - verification endpoint called
-  - provider response status
-  - classified failure type
-  - final returned `status` and `error_code`
-- Log only safe metadata:
-  - source (`connector_gateway` vs `stored_token`)
-  - HTTP status
-  - provider error category/message snippet
-  - token fingerprint metadata only if needed (prefix length / token length), never the token itself
-- Remove ambiguity around current generic branches like “verification failed” by logging the actual classified cause.
-
-5. Keep UI and integration health behavior intact
-- Do not change existing connected/degraded/not_configured semantics in the Team Briefing UI.
-- Preserve the current backend contract used by:
-  - `src/pages/Integrations.tsx`
-  - `src/components/ceo/CommsPulseCard.tsx`
-  - `supabase/functions/ceo-briefing/index.ts`
-- Only improve diagnosis and correctness of status transitions.
-
-6. Verification after implementation
-- Test HubSpot with:
-  - no token
-  - invalid token
-  - valid token
-- Test GitHub with:
-  - no token
-  - invalid token
-  - valid token
-- Confirm for each case:
-  - exact `error_code` matches the real cause
-  - valid credentials return `connected`
-  - invalid credentials return `degraded`
-  - absent credentials return `not_configured`
-  - logs clearly show the decision path without exposing secrets
-
-Technical details
-- Files to update:
-  - `supabase/functions/manage-company-integration/index.ts`
-  - `supabase/functions/hubspot-api/index.ts`
-  - `supabase/functions/github-api/index.ts`
-- Important current findings:
-  - HubSpot already has two paths: connector-gateway if connector secrets exist, otherwise stored company token.
-  - GitHub currently uses only stored company token.
-  - The workspace currently shows a Slack connector only, so HubSpot/GitHub likely rely on stored tokens right now unless connectors are later linked.
-  - `manage-company-integration` currently stores any submitted token and only marks it `degraded` with a generic message on failure; it does not preserve a precise auth diagnosis.
-  - `hubspot-api` / `github-api` currently collapse several 401/403 cases into broad codes such as `connector_verification_failed`, `upstream_auth_failed`, or `user_verification_failed`.
+Important finding to act on first
+- Right now this project does not have HubSpot or GitHub connectors linked at all, so even perfect connector logic cannot make them connected until those connections are linked or valid company tokens are supplied.
