@@ -134,7 +134,7 @@ function buildRoleAwareQuery(title: string): string {
     .map((alias) => `"${alias}"`);
   const recruitmentClauses = RECRUITMENT_TERMS.map((term) => `"${term}"`);
 
-  return `${attachmentClause} (${roleClauses.join(" OR ")}) (${recruitmentClauses.join(" OR ")})`;
+  return `${attachmentClause} newer_than:30d (${[...roleClauses, ...recruitmentClauses].join(" OR ")})`;
 }
 
 function includesAnyTerm(haystack: string, terms: string[]): boolean {
@@ -143,10 +143,11 @@ function includesAnyTerm(haystack: string, terms: string[]): boolean {
 
 function classifyAttachmentBatch(
   subject: string,
+  snippet: string,
   filenames: string[],
   roleTitle?: string | null,
 ): { accepted: boolean; reason?: string; roleSignal: boolean; recruitmentSignal: boolean } {
-  const combinedText = normalizeText([subject, ...filenames].join(" "));
+  const combinedText = normalizeText([subject, snippet, ...filenames].join(" "));
   const recruitmentSignal = includesAnyTerm(combinedText, RECRUITMENT_TERMS);
   const exclusionSignal = includesAnyTerm(combinedText, NON_CV_TERMS);
   const roleSignal = roleTitle ? includesAnyTerm(combinedText, generateRoleAliases(roleTitle)) : false;
@@ -155,7 +156,7 @@ function classifyAttachmentBatch(
     if (!roleSignal) {
       return { accepted: false, reason: "Missing role signal", roleSignal, recruitmentSignal };
     }
-    if (!recruitmentSignal) {
+    if (!recruitmentSignal && filenames.length === 0) {
       return { accepted: false, reason: "Missing recruitment signal", roleSignal, recruitmentSignal };
     }
   } else if (!recruitmentSignal && exclusionSignal) {
@@ -443,6 +444,7 @@ serve(async (req) => {
 
       const msgHeaders = msgData.payload?.headers || [];
       const subject = msgHeaders.find((h: any) => h.name.toLowerCase() === "subject")?.value || "";
+      const snippet = msgData.snippet || "";
 
       // Role matching with confidence enforcement
       const roleMatch = matchRoleToSubject(subject, activeRoles);
@@ -477,11 +479,21 @@ serve(async (req) => {
 
       const attachmentGate = classifyAttachmentBatch(
         subject,
+        snippet,
         cvAttachments.map((attachment) => attachment.filename),
         selectedRole?.title || matchedRoleTitle,
       );
 
       if (!attachmentGate.accepted) {
+        if (selectedRole) {
+          console.log("Skipping role-specific message", {
+            messageId: msg.id,
+            subject,
+            snippet,
+            filenames: cvAttachments.map((attachment) => attachment.filename),
+            reason: attachmentGate.reason,
+          });
+        }
         skipped++;
         for (const cv of cvAttachments) {
           details.push({
