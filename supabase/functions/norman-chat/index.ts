@@ -3823,6 +3823,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
       const startTime = Date.now();
       let lastChunkTime = startTime;
       let hasToolCallStarted = false;
+      let streamFinished = false;
 
       const hasToolName = (toolCall: any) => {
         const name = toolCall?.function?.name;
@@ -3859,7 +3860,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
           }
 
           const { done, value } = readResult;
-          if (done) break;
+          if (done && streamFinished) break;
+          if (done) continue;
 
           lastChunkTime = Date.now();
           buffer += decoder.decode(value, { stream: true });
@@ -3874,7 +3876,10 @@ Format as a natural, readable summary with clear sections. If a section has no d
             if (!line.startsWith("data: ")) continue;
 
             const jsonStr = line.slice(6).trim();
-            if (jsonStr === "[DONE]") continue;
+            if (jsonStr === "[DONE]") {
+              streamFinished = true;
+              continue;
+            }
 
             try {
               const parsed = JSON.parse(jsonStr);
@@ -3949,37 +3954,36 @@ Format as a natural, readable summary with clear sections. If a section has no d
        });
 
        const capturedToolCalls = hasToolCallStarted
-         ? toolCalls.map((toolCall) => {
-             const rawArguments = typeof toolCall?.function?.arguments === "string"
-               ? toolCall.function.arguments
-               : "";
-
-             let argumentsParseable = false;
-             if (rawArguments.trim().length > 0) {
-               try {
-                 JSON.parse(rawArguments);
-                 argumentsParseable = true;
-               } catch {
-                 argumentsParseable = false;
-               }
-             }
-
-             return {
-               id: typeof toolCall?.id === "string" && toolCall.id.trim().length > 0
-                 ? toolCall.id
-                 : `streamed_tool_${Math.random().toString(36).slice(2, 10)}`,
-               type: "function",
-               function: {
-                 name: toolCall?.function?.name || "",
-                 arguments: rawArguments,
-               },
-               _debug: {
-                 rawArgumentsLength: rawArguments.length,
-                 argumentsParseable,
-               },
-             };
-           })
+         ? toolCalls.map((toolCall) => ({
+             id: typeof toolCall?.id === "string" && toolCall.id.trim().length > 0
+               ? toolCall.id
+               : `streamed_tool_${Math.random().toString(36).slice(2, 10)}`,
+             type: "function",
+             function: {
+               name: toolCall?.function?.name || "",
+               arguments: typeof toolCall?.function?.arguments === "string"
+                 ? toolCall.function.arguments
+                 : "",
+             },
+           }))
          : toolCalls;
+
+       toolCalls.forEach((tc) => {
+         const args = tc?.function?.arguments || "";
+         const trimmed = args.trim();
+         if (!(trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+           console.warn("DROPPING INCOMPLETE TOOL CALL:", trimmed);
+         }
+       });
+
+       const finalizedToolCalls = capturedToolCalls.filter((tc) => {
+         const args = tc?.function?.arguments || "";
+         const trimmed = args.trim();
+         return (
+           trimmed.startsWith("{") &&
+           trimmed.endsWith("}")
+         );
+       });
 
        console.log("ROUND HAS CONTENT:", {
          round,
@@ -3998,14 +4002,16 @@ Format as a natural, readable summary with clear sections. If a section has no d
        });
        console.log("SSE tool stream state", {
          hasToolCallStarted,
-         toolCallsLength: capturedToolCalls.length,
-         rawArgumentsLengths: capturedToolCalls.map((toolCall: any) => toolCall?._debug?.rawArgumentsLength ?? 0),
+          toolCallsLength: finalizedToolCalls.length,
+          rawArgumentsLengths: finalizedToolCalls.map((toolCall: any) =>
+            typeof toolCall?.function?.arguments === "string" ? toolCall.function.arguments.length : 0
+          ),
          streamDurationMs: Date.now() - startTime,
        });
 
        return {
          fullContent,
-         toolCalls: capturedToolCalls.map(({ _debug, ...toolCall }: any) => toolCall),
+          toolCalls: finalizedToolCalls,
        };
     }
 
