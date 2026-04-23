@@ -12,6 +12,7 @@ const GITHUB_API = "https://api.github.com";
 
 type Status = "connected" | "not_configured" | "degraded";
 type RequestStage = "verify" | "summary" | "repo_scan";
+type CredentialSource = "stored_token" | "none";
 
 class ProviderRequestError extends Error {
   status: number;
@@ -33,6 +34,8 @@ type GithubSummary = {
   ok: boolean;
   connected: boolean;
   status: Status;
+  credential_source: CredentialSource;
+  verification_path: string | null;
   last_verified_at: string | null;
   last_sync_at: string | null;
   degraded_reason: string | null;
@@ -53,6 +56,8 @@ function baseResponse(overrides: Partial<GithubSummary> = {}): GithubSummary {
     ok: true,
     connected: false,
     status: "not_configured",
+    credential_source: "none",
+    verification_path: null,
     last_verified_at: null,
     last_sync_at: null,
     degraded_reason: null,
@@ -204,8 +209,10 @@ Deno.serve(async (req) => {
     logGithub("missing token branch", { branch: "stored_token_missing" });
     return responseWithLogging({
       status: "not_configured",
-      error_code: "stored_token_missing",
-      error_message: "GitHub token not configured",
+      credential_source: "none",
+      verification_path: null,
+      error_code: "github_not_configured",
+      error_message: "No stored GitHub company token found",
     });
   }
 
@@ -213,6 +220,8 @@ Deno.serve(async (req) => {
     logGithub("decode failure branch", { branch: "stored_token_decode_failed", stored_status: stored.storedStatus });
     return responseWithLogging({
       status: "degraded",
+      credential_source: "stored_token",
+      verification_path: "/user",
       last_verified_at: stored.lastSync ?? new Date().toISOString(),
       last_sync_at: stored.lastSync ?? new Date().toISOString(),
       error_code: "stored_token_decode_failed",
@@ -229,6 +238,8 @@ Deno.serve(async (req) => {
       return responseWithLogging({
         connected: true,
         status: "connected",
+        credential_source: "stored_token",
+        verification_path: "/user",
         last_verified_at: verifiedAt,
         last_sync_at: stored.lastSync ?? verifiedAt,
       });
@@ -297,6 +308,8 @@ Deno.serve(async (req) => {
     return responseWithLogging({
       connected: true,
       status: partialFailure ? "degraded" : "connected",
+      credential_source: "stored_token",
+      verification_path: "/user",
       last_verified_at: verifiedAt,
       last_sync_at: stored.lastSync ?? verifiedAt,
       error_code: partialFailure ? "repo_scan_partial_failure" : null,
@@ -323,6 +336,8 @@ Deno.serve(async (req) => {
     return responseWithLogging({
       status: classification.status,
       connected: false,
+      credential_source: "stored_token",
+      verification_path: error instanceof ProviderRequestError ? error.path : "/user",
       last_verified_at: stored.lastSync ?? new Date().toISOString(),
       last_sync_at: stored.lastSync ?? new Date().toISOString(),
       error_code: classification.error_code,
