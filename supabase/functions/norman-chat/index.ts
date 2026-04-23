@@ -4043,18 +4043,32 @@ Format as a natural, readable summary with clear sections. If a section has no d
       for (const tc of toolCalls) {
         try {
           const rawArguments = tc?.function?.arguments;
-          let args: any = {};
+          let args: any;
+          let isValidArgs = false;
 
           console.log("RAW TOOL CALL:", tc);
 
           if (typeof rawArguments === "string" && rawArguments.trim().length > 0) {
             try {
               args = JSON.parse(rawArguments);
+              isValidArgs = true;
             } catch {
-              args = {};
+              isValidArgs = false;
             }
-          } else {
-            args = {};
+          }
+
+          if (!isValidArgs) {
+            console.warn("INVALID TOOL ARGUMENTS — SKIPPING TOOL:", {
+              tool: tc.function.name,
+              rawArguments,
+            });
+
+            toolResults.push({
+              role: "assistant",
+              content: `⚠️ Tool "${tc.function.name}" failed due to invalid arguments. Retrying...`,
+            });
+
+            continue;
           }
 
           console.log("PARSED ARGS:", args);
