@@ -50,16 +50,26 @@ interface Props {
   hubspotSignal?: {
     status?: string;
     connected?: boolean;
+    last_sync_at?: string | null;
+    last_verified_at?: string | null;
+    error_code?: string | null;
+    error_message?: string | null;
+    metrics_summary?: string | null;
     accounts_scanned?: number;
     stale_deals?: number;
     at_risk_accounts?: number;
-    escalations?: number;
+    customer_escalations?: number;
     summary?: string | null;
     degraded_reason?: string | null;
   } | null;
   githubSignal?: {
     status?: string;
     connected?: boolean;
+    last_sync_at?: string | null;
+    last_verified_at?: string | null;
+    error_code?: string | null;
+    error_message?: string | null;
+    metrics_summary?: string | null;
     repos_scanned?: number;
     open_prs?: number;
     blocked_prs?: number;
@@ -85,12 +95,28 @@ function ExternalSignalColumn({
 }) {
   const status = String(signal?.status || "not_configured");
   const summary = typeof signal?.summary === "string" ? signal.summary : null;
-  const degradedReason = typeof signal?.degraded_reason === "string" ? signal.degraded_reason : null;
+  const metricsSummary = typeof signal?.metrics_summary === "string" ? signal.metrics_summary : null;
+  const degradedReason = typeof signal?.degraded_reason === "string"
+    ? signal.degraded_reason
+    : typeof signal?.error_message === "string"
+    ? signal.error_message
+    : null;
+  const errorCode = typeof signal?.error_code === "string" ? signal.error_code : null;
+  const lastSyncAt = typeof signal?.last_sync_at === "string"
+    ? signal.last_sync_at
+    : typeof signal?.last_verified_at === "string"
+    ? signal.last_verified_at
+    : null;
   const tone = status === "connected"
     ? "border-border bg-card"
     : status === "degraded"
     ? "border-amber-500/40 bg-amber-500/5"
     : "border-dashed border-border bg-muted/20";
+  const formattedLastSync = (() => {
+    if (!lastSyncAt) return null;
+    const date = new Date(lastSyncAt);
+    return Number.isNaN(date.getTime()) ? lastSyncAt : date.toLocaleString();
+  })();
 
   return (
     <div className={`rounded border p-3 space-y-2.5 ${tone}`}>
@@ -115,15 +141,17 @@ function ExternalSignalColumn({
         </div>
       </div>
 
+      <div className="space-y-1 text-[10px] text-muted-foreground">
+        {formattedLastSync ? <div>Last sync: {formattedLastSync}</div> : null}
+        {degradedReason ? <div>Reason: {degradedReason}</div> : null}
+        {errorCode ? <div>Code: {errorCode}</div> : null}
+      </div>
+
       <div className="text-[11px] leading-relaxed text-muted-foreground">
-        {summary || (status === "not_configured"
+        {metricsSummary || summary || (status === "not_configured"
           ? `${title} is not connected, so Team Briefing is explicitly operating with a blind spot here.`
           : degradedReason || `${title} returned no narrative summary for this run.`)}
       </div>
-
-      {degradedReason && status !== "not_configured" ? (
-        <div className="text-[10px] text-muted-foreground">{degradedReason}</div>
-      ) : null}
     </div>
   );
 }
@@ -495,8 +523,6 @@ function SlackColumn({ pulse }: { pulse: SlackPulseSummary | null | undefined })
 
 export default function CommsPulseCard({ emailPulse, slackPulse, hubspotSignal, githubSignal }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const showHubSpot = hubspotSignal?.status === "connected" || hubspotSignal?.connected === true;
-  const showGitHub = githubSignal?.status === "connected" || githubSignal?.connected === true;
 
   // Leadership status from email pulse (slack equivalent doesn't exist yet)
   const status = emailPulse?.leadership_status || [];
@@ -515,7 +541,7 @@ export default function CommsPulseCard({ emailPulse, slackPulse, hubspotSignal, 
         }))
       : [];
 
-  const hasAnyComms = !!(emailPulse?.per_mailbox || slackPulse || showHubSpot || showGitHub);
+  const hasAnyComms = !!(emailPulse?.per_mailbox || slackPulse || hubspotSignal || githubSignal);
   if (!hasAnyComms) {
     return (
       <div className="rounded-lg border border-dashed border-border bg-card p-4">
@@ -544,7 +570,7 @@ export default function CommsPulseCard({ emailPulse, slackPulse, hubspotSignal, 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <EmailColumn pulse={emailPulse} />
           <SlackColumn pulse={slackPulse} />
-          {showHubSpot && (
+          {hubspotSignal && (
             <ExternalSignalColumn
               title="HubSpot"
               icon={Database}
@@ -553,7 +579,7 @@ export default function CommsPulseCard({ emailPulse, slackPulse, hubspotSignal, 
               secondaryMetric={{ label: "Stale / Risk", value: `${Number(hubspotSignal?.stale_deals || 0)} / ${Number(hubspotSignal?.at_risk_accounts || 0)}` }}
             />
           )}
-          {showGitHub && (
+          {githubSignal && (
             <ExternalSignalColumn
               title="GitHub"
               icon={GitBranch}
