@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { streamLLM, WORKFLOW_ROUTING } from "../_shared/llm.ts";
+import { streamLLM } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -3973,13 +3973,11 @@ Format as a natural, readable summary with clear sections. If a section has no d
     }
 
     // Helper to execute tool calls and return results
-    const routedProvider: "anthropic" | "openai" = WORKFLOW_ROUTING["norman-chat"]?.primary === "claude" ? "anthropic" : "openai";
-
     function detectToolResultProvider(toolCalls: any[]): "anthropic" | "openai" {
-      const firstToolId = toolCalls.find((tc) => typeof tc?.id === "string")?.id ?? "";
+      const firstToolId = toolCalls.find((tc) => typeof tc?.id === "string")?.id || "";
       if (firstToolId.startsWith("toolu_")) return "anthropic";
       if (firstToolId.startsWith("call_")) return "openai";
-      return routedProvider;
+      return "openai";
     }
 
     async function executeToolCalls(toolCalls: any[], provider: "anthropic" | "openai"): Promise<any[]> {
@@ -4212,6 +4210,10 @@ Format as a natural, readable summary with clear sections. If a section has no d
             console.log(`Tool call round ${round}:`, toolCalls.map(tc => tc.function.name));
 
             const provider = detectToolResultProvider(toolCalls);
+            console.log("DETECTED PROVIDER:", {
+              tool_id: toolCalls[0]?.id,
+              detected: provider,
+            });
             const toolResults = await executeToolCalls(toolCalls, provider);
 
             const assistantMsg: any = { role: "assistant", tool_calls: toolCalls };
