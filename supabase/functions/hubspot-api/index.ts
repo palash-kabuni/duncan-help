@@ -348,26 +348,35 @@ Deno.serve(async (req) => {
       await verifyGatewayCredentials(LOVABLE_API_KEY, HUBSPOT_API_KEY);
 
       if (action === "status") {
-        return responseWithLogging({ connected: true, status: "connected", last_verified_at: verifiedAt, last_sync_at: verifiedAt });
+        return responseWithLogging({
+          connected: true,
+          status: "connected",
+          credential_source: "connector_gateway",
+          verification_path: "/api/v1/verify_credentials",
+          last_verified_at: verifiedAt,
+          last_sync_at: verifiedAt,
+        });
       }
 
       const [companies, deals] = await Promise.all([
         hubspotGateway("/crm/v3/objects/companies?limit=25&properties=name,hs_lastmodifieddate,hubspotscore", LOVABLE_API_KEY, HUBSPOT_API_KEY),
         hubspotGateway("/crm/v3/objects/deals?limit=25&properties=dealname,dealstage,hs_lastmodifieddate,amount", LOVABLE_API_KEY, HUBSPOT_API_KEY),
       ]);
-      return json(summarise(companies, deals, verifiedAt));
+      return json(summarise(companies, deals, verifiedAt, null, null,));
     }
 
-    logHubspot("credential source", { source: "stored_token" });
+    logHubspot("credential source", { source: "stored_token", connector_available: false });
     const stored = await getStoredToken();
     if (!stored) {
       logHubspot("missing token branch", { branch: "stored_token_missing" });
       return responseWithLogging({
         status: "not_configured",
+        credential_source: "none",
+        verification_path: null,
         last_verified_at: null,
         last_sync_at: null,
-        error_code: "stored_token_missing",
-        error_message: "HubSpot token not configured",
+        error_code: "hubspot_not_configured",
+        error_message: "No HubSpot connector linked and no stored company token found",
       });
     }
 
@@ -375,6 +384,8 @@ Deno.serve(async (req) => {
       logHubspot("decode failure branch", { branch: "stored_token_decode_failed", stored_status: stored.storedStatus });
       return responseWithLogging({
         status: "degraded",
+        credential_source: "stored_token",
+        verification_path: "/crm/v3/objects/companies",
         last_verified_at: stored.lastSync ?? verifiedAt,
         last_sync_at: stored.lastSync ?? verifiedAt,
         error_code: "stored_token_decode_failed",
@@ -384,7 +395,14 @@ Deno.serve(async (req) => {
 
     await hubspotApi("/crm/v3/objects/companies?limit=1&properties=name", stored.token, "verify");
     if (action === "status") {
-      return responseWithLogging({ connected: true, status: "connected", last_verified_at: verifiedAt, last_sync_at: stored.lastSync ?? verifiedAt });
+      return responseWithLogging({
+        connected: true,
+        status: "connected",
+        credential_source: "stored_token",
+        verification_path: "/crm/v3/objects/companies",
+        last_verified_at: verifiedAt,
+        last_sync_at: stored.lastSync ?? verifiedAt,
+      });
     }
 
     const [companies, deals] = await Promise.all([
@@ -392,7 +410,11 @@ Deno.serve(async (req) => {
       hubspotApi("/crm/v3/objects/deals?limit=25&properties=dealname,dealstage,hs_lastmodifieddate,amount", stored.token),
     ]);
 
-    return json(summarise(companies, deals, stored.lastSync ?? verifiedAt));
+    return json({
+      ...summarise(companies, deals, stored.lastSync ?? verifiedAt),
+      credential_source: "stored_token",
+      verification_path: "/crm/v3/objects/companies",
+    });
   } catch (error) {
     const classification = classifyProviderFailure(error);
     logHubspot("classified failure", {
@@ -411,6 +433,8 @@ Deno.serve(async (req) => {
     return responseWithLogging({
       status: classification.status,
       connected: false,
+      credential_source: error instanceof ProviderRequestError ? error.source : "none",
+      verification_path: error instanceof ProviderRequestError ? error.path : null,
       last_verified_at: verifiedAt,
       last_sync_at: lastSyncAt,
       error_code: classification.error_code,
