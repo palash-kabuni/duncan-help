@@ -3680,7 +3680,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
     }
 
     const SIMPLE_INPUT_PATTERNS = [/^hi[!.?\s]*$/i, /^hello[!.?\s]*$/i, /^how are you[?.!\s]*$/i];
-    const MAX_TOOL_ROUNDS = 2;
+    const MAX_TOOL_ROUNDS = 3;
     const MAX_EXECUTION_TIME_MS = 20_000;
 
     function extractPlainText(content: unknown): string {
@@ -4183,6 +4183,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
           let currentResponse = response;
           let round = 0;
           const executionStart = Date.now();
+          const toolHistory = new Set();
 
           while (true) {
             const { fullContent, toolCalls } = await consumeSSEStream(currentResponse, enqueue);
@@ -4195,6 +4196,12 @@ Format as a natural, readable summary with clear sections. If a section has no d
             });
 
             const elapsedMs = Date.now() - executionStart;
+            const signature = JSON.stringify(
+              toolCalls.map(tc => ({
+                name: tc?.function?.name,
+                args: tc?.function?.arguments,
+              }))
+            );
 
             console.log(
               `Round ${round} streamed - content length: ${fullContent.length}, tool calls: ${toolCalls.length}`,
@@ -4207,12 +4214,26 @@ Format as a natural, readable summary with clear sections. If a section has no d
               console.log("length:", fullContent?.length);
             }
 
-            if (
-              shouldBypassTools ||
-              toolCalls.length === 0 ||
-              round >= MAX_TOOL_ROUNDS ||
-              elapsedMs >= MAX_EXECUTION_TIME_MS
-            ) {
+            if (shouldBypassTools) {
+              break;
+            }
+
+            if (!toolCalls || toolCalls.length === 0) {
+              console.log("FINAL ANSWER — no tool calls");
+              break;
+            }
+
+            if (toolHistory.has(signature)) {
+              console.warn("REPEATED TOOL CALL — stopping loop");
+              break;
+            }
+
+            toolHistory.add(signature);
+
+            if (round >= MAX_TOOL_ROUNDS || elapsedMs >= MAX_EXECUTION_TIME_MS) {
+              if (round >= MAX_TOOL_ROUNDS) {
+                console.warn("MAX TOOL ROUNDS REACHED — stopping loop");
+              }
               if (elapsedMs >= MAX_EXECUTION_TIME_MS) {
                 console.log(`Stopping tool loop after ${elapsedMs}ms due to hard execution limit`);
               }
@@ -4228,6 +4249,12 @@ Format as a natural, readable summary with clear sections. If a section has no d
               detected: provider,
             });
             const toolResults = await executeToolCalls(toolCalls, provider);
+            const toolResultsString = JSON.stringify(toolResults);
+
+            if (!toolResultsString || toolResultsString.length < 10) {
+              console.warn("EMPTY OR USELESS TOOL RESULT — stopping loop");
+              break;
+            }
 
             const assistantMsg: any = { role: "assistant", tool_calls: toolCalls };
             if (fullContent) {
