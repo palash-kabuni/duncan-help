@@ -3831,15 +3831,6 @@ Format as a natural, readable summary with clear sections. If a section has no d
           const inactivityTimeoutMs = hasToolCallStarted ? TOOL_INACTIVITY_TIMEOUT_MS : TEXT_INACTIVITY_TIMEOUT_MS;
           const maxDurationMs = hasToolCallStarted ? TOOL_MAX_STREAM_DURATION_MS : TEXT_MAX_STREAM_DURATION_MS;
 
-          if (totalMs > maxDurationMs || (inactivityMs > inactivityTimeoutMs && !hasIncompleteToolCall())) {
-            console.log("SSE timeout triggered", {
-              inactivityMs,
-              totalMs,
-              hasToolCallStarted,
-            });
-            break;
-          }
-
           const readResult = await Promise.race<
             ReadableStreamReadResult<Uint8Array> | { timeout: true }
           >([
