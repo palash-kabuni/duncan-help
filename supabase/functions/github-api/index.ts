@@ -11,6 +11,23 @@ const json = (body: unknown, status = 200) =>
 const GITHUB_API = "https://api.github.com";
 
 type Status = "connected" | "not_configured" | "degraded";
+type RequestStage = "verify" | "summary" | "repo_scan";
+
+class ProviderRequestError extends Error {
+  status: number;
+  body: unknown;
+  stage: RequestStage;
+  path: string;
+
+  constructor(message: string, details: { status: number; body: unknown; stage: RequestStage; path: string }) {
+    super(message);
+    this.name = "ProviderRequestError";
+    this.status = details.status;
+    this.body = details.body;
+    this.stage = details.stage;
+    this.path = details.path;
+  }
+}
 
 type GithubSummary = {
   ok: boolean;
@@ -55,6 +72,16 @@ function baseResponse(overrides: Partial<GithubSummary> = {}): GithubSummary {
 
 function logGithub(event: string, details: Record<string, unknown>) {
   console.log(`[github-api] ${event}`, details);
+}
+
+function safeSnippet(value: unknown) {
+  const raw = typeof value === "string" ? value : JSON.stringify(value ?? {});
+  return raw.slice(0, 240);
+}
+
+function tokenFingerprint(token?: string | null) {
+  if (!token) return null;
+  return { token_length: token.length, token_prefix: token.slice(0, 4) };
 }
 
 function buildResponse(overrides: Partial<GithubSummary> = {}) {
@@ -117,6 +144,7 @@ async function getStoredToken() {
 }
 
 async function githubRequest<T>(path: string, token: string) {
+  logGithub("verification endpoint", { path, ...tokenFingerprint(token) });
   const res = await fetch(`${GITHUB_API}${path}`, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -125,18 +153,42 @@ async function githubRequest<T>(path: string, token: string) {
     },
   });
   const data = await res.json().catch(() => ({}));
+  logGithub("provider response", { path, status: res.status, snippet: safeSnippet(data) });
   if (!res.ok) {
-    throw new Error(`GitHub API failed [${res.status}]: ${JSON.stringify(data).slice(0, 240)}`);
+    throw new ProviderRequestError("GitHub API failed", {
+      status: res.status,
+      body: data,
+      stage: path === "/user" ? "verify" : path.includes("/pulls") ? "repo_scan" : "summary",
+      path,
+    });
   }
   return data as T;
 }
 
 function classifyError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  if (/401|403|unauthorized|forbidden|bad credentials|expired/i.test(message)) {
-    return { error_code: "upstream_auth_failed", status: "degraded" as Status };
+  if (error instanceof ProviderRequestError) {
+    const snippet = safeSnippet(error.body).toLowerCase();
+    if (error.status === 429 || /rate limit|too many requests/.test(snippet)) {
+      return { error_code: "github_rate_limited", status: "degraded" as Status, error_message: "GitHub is rate limited" };
+    }
+    if (error.status >= 500) {
+      return { error_code: "github_provider_unavailable", status: "degraded" as Status, error_message: "GitHub is temporarily unavailable" };
+    }
+    if (error.status === 401 || error.status === 403 || /unauthorized|forbidden|bad credentials|authentication/.test(snippet)) {
+      if (/scope|permission|resource not accessible by integration|insufficient/.test(snippet)) {
+        return { error_code: "github_insufficient_scope", status: "degraded" as Status, error_message: "GitHub token is missing required permissions" };
+      }
+      if (/expired|revoked/.test(snippet)) {
+        return { error_code: "github_token_expired", status: "degraded" as Status, error_message: "GitHub token is expired or revoked" };
+      }
+      if (/installation|unsupported token|token type/.test(snippet)) {
+        return { error_code: "github_verification_mismatch", status: "degraded" as Status, error_message: "GitHub token type does not match the verification flow" };
+      }
+      return { error_code: "github_invalid_token", status: "degraded" as Status, error_message: "GitHub token is invalid" };
+    }
+    return { error_code: error.stage === "repo_scan" ? "repo_scan_partial_failure" : "summary_failed", status: "degraded" as Status, error_message: "GitHub request failed" };
   }
-  return { error_code: "summary_failed", status: "degraded" as Status };
+  return { error_code: "summary_failed", status: "degraded" as Status, error_message: "GitHub summary failed" };
 }
 
 Deno.serve(async (req) => {
@@ -222,7 +274,9 @@ Deno.serve(async (req) => {
         partialFailure = true;
         logGithub("repo scan failure", {
           repo: `${owner}/${name}`,
-          message: error instanceof Error ? error.message : String(error),
+          message: error instanceof ProviderRequestError ? safeSnippet(error.body) : (error instanceof Error ? error.message : String(error)),
+          error_code: classifyError(error).error_code,
+          provider_status: error instanceof ProviderRequestError ? error.status : null,
         });
         if (signals.length < 6) {
           signals.push({
@@ -260,15 +314,19 @@ Deno.serve(async (req) => {
     const classification = classifyError(error);
     logGithub("verification failure", {
       error_code: classification.error_code,
-      message: error instanceof Error ? error.message : String(error),
+      error_message: classification.error_message,
+      message: error instanceof ProviderRequestError ? safeSnippet(error.body) : (error instanceof Error ? error.message : String(error)),
+      provider_status: error instanceof ProviderRequestError ? error.status : null,
+      stage: error instanceof ProviderRequestError ? error.stage : null,
+      path: error instanceof ProviderRequestError ? error.path : null,
     });
     return responseWithLogging({
       status: classification.status,
       connected: false,
       last_verified_at: stored.lastSync ?? new Date().toISOString(),
       last_sync_at: stored.lastSync ?? new Date().toISOString(),
-      error_code: classification.error_code === "upstream_auth_failed" ? "user_verification_failed" : classification.error_code,
-      error_message: error instanceof Error ? error.message : "GitHub verification failed",
+      error_code: classification.error_code,
+      error_message: classification.error_message,
     });
   }
 });

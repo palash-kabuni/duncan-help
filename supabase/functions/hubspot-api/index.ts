@@ -13,6 +13,8 @@ const VERIFY_URL = "https://connector-gateway.lovable.dev/api/v1/verify_credenti
 const HUBSPOT_API = "https://api.hubapi.com";
 
 type Status = "connected" | "not_configured" | "degraded";
+type CredentialSource = "connector_gateway" | "stored_token";
+type RequestStage = "verify" | "summary" | "repo_scan";
 
 type HubspotSummary = {
   ok: boolean;
@@ -31,6 +33,24 @@ type HubspotSummary = {
   signals: Array<Record<string, unknown>>;
   summary: string | null;
 };
+
+class ProviderRequestError extends Error {
+  status: number;
+  body: unknown;
+  source: CredentialSource;
+  stage: RequestStage;
+  path: string;
+
+  constructor(message: string, details: { status: number; body: unknown; source: CredentialSource; stage: RequestStage; path: string }) {
+    super(message);
+    this.name = "ProviderRequestError";
+    this.status = details.status;
+    this.body = details.body;
+    this.source = details.source;
+    this.stage = details.stage;
+    this.path = details.path;
+  }
+}
 
 function baseResponse(overrides: Partial<HubspotSummary> = {}): HubspotSummary {
   return {
@@ -51,6 +71,20 @@ function baseResponse(overrides: Partial<HubspotSummary> = {}): HubspotSummary {
     summary: null,
     ...overrides,
   };
+}
+
+function safeSnippet(value: unknown) {
+  const raw = typeof value === "string" ? value : JSON.stringify(value ?? {});
+  return raw.slice(0, 240);
+}
+
+function providerName(source: CredentialSource) {
+  return source === "connector_gateway" ? "HubSpot connector" : "HubSpot token";
+}
+
+function tokenFingerprint(token?: string | null) {
+  if (!token) return null;
+  return { token_length: token.length, token_prefix: token.slice(0, 4) };
 }
 
 function logHubspot(event: string, details: Record<string, unknown>) {
@@ -116,7 +150,73 @@ async function getStoredToken() {
   }
 }
 
+function classifyProviderFailure(error: unknown) {
+  const fallback = {
+    status: "degraded" as Status,
+    error_code: "hubspot_summary_failed",
+    error_message: "HubSpot summary failed",
+  };
+
+  if (!(error instanceof ProviderRequestError)) {
+    return fallback;
+  }
+
+  const snippet = safeSnippet(error.body).toLowerCase();
+  const label = providerName(error.source);
+
+  if (error.status === 429 || /rate limit|too many requests/.test(snippet)) {
+    return {
+      status: "degraded" as Status,
+      error_code: error.source === "connector_gateway" ? "connector_rate_limited" : "hubspot_rate_limited",
+      error_message: `${label} is rate limited`,
+    };
+  }
+
+  if (error.status >= 500) {
+    return {
+      status: "degraded" as Status,
+      error_code: error.source === "connector_gateway" ? "connector_provider_unavailable" : "hubspot_provider_unavailable",
+      error_message: `${label} is temporarily unavailable`,
+    };
+  }
+
+  if (error.status === 401 || error.status === 403 || /unauthorized|forbidden|authentication|token/.test(snippet)) {
+    if (/scope|permission|insufficient/.test(snippet)) {
+      return {
+        status: "degraded" as Status,
+        error_code: error.source === "connector_gateway" ? "connector_insufficient_scope" : "hubspot_insufficient_scope",
+        error_message: `${label} is missing required permissions`,
+      };
+    }
+
+    if (/expired|revoked/.test(snippet)) {
+      return {
+        status: "degraded" as Status,
+        error_code: error.source === "connector_gateway" ? "connector_token_expired" : "hubspot_token_expired",
+        error_message: `${label} is expired or revoked`,
+      };
+    }
+
+    if (/private app|unsupported token|token type|integration installation/.test(snippet)) {
+      return {
+        status: "degraded" as Status,
+        error_code: error.source === "connector_gateway" ? "connector_verification_mismatch" : "hubspot_verification_mismatch",
+        error_message: `${label} does not match the expected verification flow`,
+      };
+    }
+
+    return {
+      status: "degraded" as Status,
+      error_code: error.source === "connector_gateway" ? "connector_invalid_token" : "hubspot_invalid_token",
+      error_message: `${label} is invalid`,
+    };
+  }
+
+  return fallback;
+}
+
 async function verifyGatewayCredentials(lovableKey: string, hubspotKey: string) {
+  logHubspot("verification endpoint", { source: "connector_gateway", path: "/api/v1/verify_credentials" });
   const res = await fetch(VERIFY_URL, {
     method: "POST",
     headers: {
@@ -125,10 +225,26 @@ async function verifyGatewayCredentials(lovableKey: string, hubspotKey: string) 
     },
   });
   const data = await res.json().catch(() => ({}));
-  return { ok: res.ok, data, status: res.status };
+  logHubspot("provider response", {
+    source: "connector_gateway",
+    stage: "verify",
+    status: res.status,
+    outcome: data?.outcome ?? null,
+    snippet: safeSnippet(data),
+  });
+  if (!res.ok || data?.outcome === "failed") {
+    throw new ProviderRequestError("HubSpot connector verification failed", {
+      status: res.status,
+      body: data,
+      source: "connector_gateway",
+      stage: "verify",
+      path: "/api/v1/verify_credentials",
+    });
+  }
 }
 
-async function hubspotGateway(path: string, lovableKey: string, hubspotKey: string) {
+async function hubspotGateway(path: string, lovableKey: string, hubspotKey: string, stage: RequestStage = "summary") {
+  logHubspot("verification endpoint", { source: "connector_gateway", path, stage });
   const res = await fetch(`${GATEWAY_URL}${path}`, {
     method: "GET",
     headers: {
@@ -138,11 +254,21 @@ async function hubspotGateway(path: string, lovableKey: string, hubspotKey: stri
     },
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`HubSpot gateway failed [${res.status}]: ${JSON.stringify(data).slice(0, 240)}`);
+  logHubspot("provider response", { source: "connector_gateway", stage, path, status: res.status, snippet: safeSnippet(data) });
+  if (!res.ok) {
+    throw new ProviderRequestError("HubSpot gateway failed", {
+      status: res.status,
+      body: data,
+      source: "connector_gateway",
+      stage,
+      path,
+    });
+  }
   return data;
 }
 
-async function hubspotApi(path: string, token: string) {
+async function hubspotApi(path: string, token: string, stage: RequestStage = "summary") {
+  logHubspot("verification endpoint", { source: "stored_token", path, stage, ...tokenFingerprint(token) });
   const res = await fetch(`${HUBSPOT_API}${path}`, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -150,7 +276,16 @@ async function hubspotApi(path: string, token: string) {
     },
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`HubSpot API failed [${res.status}]: ${JSON.stringify(data).slice(0, 240)}`);
+  logHubspot("provider response", { source: "stored_token", stage, path, status: res.status, snippet: safeSnippet(data) });
+  if (!res.ok) {
+    throw new ProviderRequestError("HubSpot API failed", {
+      status: res.status,
+      body: data,
+      source: "stored_token",
+      stage,
+      path,
+    });
+  }
   return data;
 }
 
@@ -188,14 +323,6 @@ function summarise(companies: any, deals: any, lastVerifiedAt: string, degradedR
   });
 }
 
-function classifyError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  if (/401|403|unauthorized|forbidden|invalid.+token|expired/i.test(message)) {
-    return { error_code: "upstream_auth_failed", status: "degraded" as Status };
-  }
-  return { error_code: "upstream_request_failed", status: "degraded" as Status };
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -210,17 +337,7 @@ Deno.serve(async (req) => {
   try {
     if (LOVABLE_API_KEY && HUBSPOT_API_KEY) {
       logHubspot("credential source", { source: "connector_gateway" });
-      const verify = await verifyGatewayCredentials(LOVABLE_API_KEY, HUBSPOT_API_KEY);
-      logHubspot("verification outcome", { ok: verify.ok, status: verify.status, outcome: verify.data?.outcome ?? null });
-      if (!verify.ok || verify.data?.outcome === "failed") {
-        return responseWithLogging({
-          status: "degraded",
-          last_verified_at: verifiedAt,
-          last_sync_at: verifiedAt,
-          error_code: "connector_verification_failed",
-          error_message: verify.data?.error || "HubSpot connector verification failed",
-        });
-      }
+      await verifyGatewayCredentials(LOVABLE_API_KEY, HUBSPOT_API_KEY);
 
       if (action === "status") {
         return responseWithLogging({ connected: true, status: "connected", last_verified_at: verifiedAt, last_sync_at: verifiedAt });
@@ -257,7 +374,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    await hubspotApi("/crm/v3/objects/companies?limit=1&properties=name", stored.token);
+    await hubspotApi("/crm/v3/objects/companies?limit=1&properties=name", stored.token, "verify");
     if (action === "status") {
       return responseWithLogging({ connected: true, status: "connected", last_verified_at: verifiedAt, last_sync_at: stored.lastSync ?? verifiedAt });
     }
@@ -269,15 +386,27 @@ Deno.serve(async (req) => {
 
     return json(summarise(companies, deals, stored.lastSync ?? verifiedAt));
   } catch (error) {
-    const classification = classifyError(error);
-    logHubspot("upstream failure", { error_code: classification.error_code, message: error instanceof Error ? error.message : String(error) });
+    const classification = classifyProviderFailure(error);
+    logHubspot("classified failure", {
+      error_code: classification.error_code,
+      error_message: classification.error_message,
+      status: classification.status,
+      provider_status: error instanceof ProviderRequestError ? error.status : null,
+      source: error instanceof ProviderRequestError ? error.source : null,
+      stage: error instanceof ProviderRequestError ? error.stage : null,
+      path: error instanceof ProviderRequestError ? error.path : null,
+      snippet: error instanceof ProviderRequestError ? safeSnippet(error.body) : (error instanceof Error ? error.message : String(error)),
+    });
+    const lastSyncAt = error instanceof ProviderRequestError && error.source === "stored_token"
+      ? (await getStoredToken())?.lastSync ?? verifiedAt
+      : verifiedAt;
     return responseWithLogging({
       status: classification.status,
       connected: false,
       last_verified_at: verifiedAt,
-      last_sync_at: verifiedAt,
+      last_sync_at: lastSyncAt,
       error_code: classification.error_code,
-      error_message: error instanceof Error ? error.message : "HubSpot summary failed",
+      error_message: classification.error_message,
     });
   }
 });
