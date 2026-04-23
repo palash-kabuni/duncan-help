@@ -444,6 +444,7 @@ serve(async (req) => {
 
       const msgHeaders = msgData.payload?.headers || [];
       const subject = msgHeaders.find((h: any) => h.name.toLowerCase() === "subject")?.value || "";
+      const snippet = msgData.snippet || "";
 
       // Role matching with confidence enforcement
       const roleMatch = matchRoleToSubject(subject, activeRoles);
@@ -478,11 +479,21 @@ serve(async (req) => {
 
       const attachmentGate = classifyAttachmentBatch(
         subject,
+        snippet,
         cvAttachments.map((attachment) => attachment.filename),
         selectedRole?.title || matchedRoleTitle,
       );
 
       if (!attachmentGate.accepted) {
+        if (selectedRole) {
+          console.log("Skipping role-specific message", {
+            messageId: msg.id,
+            subject,
+            snippet,
+            filenames: cvAttachments.map((attachment) => attachment.filename),
+            reason: attachmentGate.reason,
+          });
+        }
         skipped++;
         for (const cv of cvAttachments) {
           details.push({
