@@ -32,6 +32,26 @@ import { useIsAdmin } from "@/hooks/useUserRoles";
 type IntegrationStatus = "connected" | "pending" | "disconnected";
 type IntegrationType = "user" | "company";
 
+const getRuntimeStatusLabel = (detail: any | null | undefined) => {
+  if (!detail) return null;
+  const source = detail.credential_source === "connector_gateway"
+    ? "Connector"
+    : detail.credential_source === "stored_token"
+    ? "Stored token"
+    : "No credential";
+
+  const code = String(detail.error_code || "");
+  if (!code) return detail.status === "connected" ? `${source} verified` : null;
+
+  if (code.includes("not_configured") || code.includes("missing")) return `${source} missing`;
+  if (code.includes("insufficient_scope")) return `${source} missing permissions`;
+  if (code.includes("expired")) return `${source} expired or revoked`;
+  if (code.includes("mismatch")) return `${source} verification mismatch`;
+  if (code.includes("invalid_token") || code.includes("invalid")) return `${source} invalid`;
+  if (code.includes("rate_limited")) return `${source} rate limited`;
+  return `${source} ${code.replace(/_/g, " ")}`;
+};
+
 interface Integration {
   id: string;
   name: string;
@@ -371,11 +391,7 @@ const Integrations = () => {
     return getStatus(integration, userIntegrations, companyIntegrations);
   };
 
-  const conditionallyHiddenIntegrationIds = new Set(["hubspot", "github"]);
-  const visibleIntegrations = baseVisibleIntegrations.filter((integration) => {
-    if (!conditionallyHiddenIntegrationIds.has(integration.id)) return true;
-    return getRealtimeStatus(integration) === "connected";
-  });
+  const visibleIntegrations = baseVisibleIntegrations;
 
   const categories = ["all", ...Array.from(new Set(visibleIntegrations.map((i) => i.category)))];
   const filtered = filter === "all" ? visibleIntegrations : visibleIntegrations.filter((i) => i.category === filter);
@@ -473,10 +489,10 @@ const Integrations = () => {
                     </div>
 
                     <div className="flex items-center justify-between">
-                      {integrationData?.last_sync ? (
+                      {(integrationData?.last_sync || (integration.id === "hubspot" || integration.id === "github")) ? (
                         <div className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground/50">
                           <Clock className="h-3 w-3" />
-                          Last sync: {new Date(integrationData.last_sync).toLocaleDateString()}
+                          {integrationData?.last_sync ? `Last sync: ${new Date(integrationData.last_sync).toLocaleDateString()}` : "Runtime-diagnosed"}
                         </div>
                       ) : (
                         <span className="text-[10px] font-mono text-muted-foreground/30">Not synced yet</span>
@@ -643,6 +659,7 @@ const IntegrationDetail = ({
       ? "pending"
       : "disconnected"
     : status;
+  const runtimeStatusLabel = getRuntimeStatusLabel(statusDetail);
   const s = statusConfig[resolvedStatus];
 
   const handleConnect = async () => {
@@ -909,7 +926,11 @@ const IntegrationDetail = ({
                   <div className="rounded-lg border border-border bg-secondary/20 p-4 space-y-2">
                     <p className="text-sm text-foreground">Use a workspace connector if available, or paste a company token below for the fastest path.</p>
                     <p className="text-xs text-muted-foreground">Team Briefing keeps generating even while this remains disconnected, but it will explicitly flag the blind spot.</p>
-                    {statusDetail?.degraded_reason ? <p className="text-xs text-muted-foreground">Current status: {statusDetail.degraded_reason}</p> : null}
+                    {runtimeStatusLabel || statusDetail?.degraded_reason ? (
+                      <p className="text-xs text-muted-foreground">
+                        Current status: {runtimeStatusLabel || statusDetail?.degraded_reason}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="api-key" className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
@@ -1034,8 +1055,11 @@ const IntegrationDetail = ({
                   <p className="text-sm text-foreground/80">
                     {isSlack
                       ? "Only channels Duncan can access are scanned. Private or unjoined channels are now surfaced as reduced visibility."
-                      : statusDetail?.degraded_reason || "This integration is available to the Team Briefing pipeline."}
+                      : runtimeStatusLabel || statusDetail?.degraded_reason || "This integration is available to the Team Briefing pipeline."}
                   </p>
+                  {!isSlack && statusDetail?.verification_path ? (
+                    <p className="text-xs text-muted-foreground">Verification path: {statusDetail.verification_path}</p>
+                  ) : null}
                 </div>
               )}
               {isBasecamp && (
@@ -1057,11 +1081,14 @@ const IntegrationDetail = ({
             <div className="space-y-3">
               <div className="flex items-center gap-2 rounded-xl border border-norman-warning/20 bg-norman-warning/5 px-4 py-3">
                 <AlertCircle className="h-4 w-4 text-norman-warning" />
-                <span className="text-sm text-norman-warning">Connected with reduced visibility</span>
+                <span className="text-sm text-norman-warning">{runtimeStatusLabel || "Connected with reduced visibility"}</span>
               </div>
-              {statusDetail?.degraded_reason ? (
+              {statusDetail?.degraded_reason || statusDetail?.verification_path ? (
                 <div className="rounded-lg border border-border bg-secondary/20 p-4 text-sm text-foreground/80">
-                  {statusDetail.degraded_reason}
+                  <div>{statusDetail?.degraded_reason}</div>
+                  {statusDetail?.verification_path ? (
+                    <div className="mt-1 text-xs text-muted-foreground">Verification path: {statusDetail.verification_path}</div>
+                  ) : null}
                 </div>
               ) : null}
               {canEdit && isRuntimeStatusIntegration ? (

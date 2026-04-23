@@ -50,6 +50,8 @@ interface Props {
   hubspotSignal?: {
     status?: string;
     connected?: boolean;
+    credential_source?: string | null;
+    verification_path?: string | null;
     last_sync_at?: string | null;
     last_verified_at?: string | null;
     error_code?: string | null;
@@ -65,6 +67,8 @@ interface Props {
   githubSignal?: {
     status?: string;
     connected?: boolean;
+    credential_source?: string | null;
+    verification_path?: string | null;
     last_sync_at?: string | null;
     last_verified_at?: string | null;
     error_code?: string | null;
@@ -94,6 +98,8 @@ function ExternalSignalColumn({
   secondaryMetric: { label: string; value: string | number };
 }) {
   const status = String(signal?.status || "not_configured");
+  const credentialSource = typeof signal?.credential_source === "string" ? signal.credential_source : null;
+  const verificationPath = typeof signal?.verification_path === "string" ? signal.verification_path : null;
   const summary = typeof signal?.summary === "string" ? signal.summary : null;
   const metricsSummary = typeof signal?.metrics_summary === "string" ? signal.metrics_summary : null;
   const degradedReason = typeof signal?.degraded_reason === "string"
@@ -117,6 +123,11 @@ function ExternalSignalColumn({
     const date = new Date(lastSyncAt);
     return Number.isNaN(date.getTime()) ? lastSyncAt : date.toLocaleString();
   })();
+  const sourceLabel = credentialSource === "connector_gateway"
+    ? "Connector"
+    : credentialSource === "stored_token"
+    ? "Stored token"
+    : "No credential";
 
   return (
     <div className={`rounded border p-3 space-y-2.5 ${tone}`}>
@@ -142,9 +153,11 @@ function ExternalSignalColumn({
       </div>
 
       <div className="space-y-1 text-[10px] text-muted-foreground">
+        <div>Source: {sourceLabel}</div>
         {formattedLastSync ? <div>Last sync: {formattedLastSync}</div> : null}
         {degradedReason ? <div>Reason: {degradedReason}</div> : null}
         {errorCode ? <div>Code: {errorCode}</div> : null}
+        {verificationPath ? <div>Check: {verificationPath}</div> : null}
       </div>
 
       <div className="text-[11px] leading-relaxed text-muted-foreground">
