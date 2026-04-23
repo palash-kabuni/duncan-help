@@ -4293,9 +4293,10 @@ Format as a natural, readable summary with clear sections. If a section has no d
           const executionStart = Date.now();
           const toolHistory = new Set();
           let lastRoundHadToolCalls = false;
+          let forcedRecoveryContent = "";
 
           while (true) {
-            const { fullContent, toolCalls } = await consumeSSEStream(currentResponse, enqueue);
+            const { fullContent, toolCalls, finishReason, sawAnyDelta, sawContentDelta, sawToolDelta } = await consumeSSEStream(currentResponse, enqueue);
             lastFullContent = fullContent;
             aggregatedContent += fullContent;
             console.log("ROUND RESULT", {
@@ -4303,7 +4304,26 @@ Format as a natural, readable summary with clear sections. If a section has no d
               fullContentLength: fullContent.length,
               fullContentPreview: fullContent.slice(0, 200),
               toolCallsLength: toolCalls.length,
+              finishReason,
+              sawAnyDelta,
+              sawContentDelta,
+              sawToolDelta,
             });
+
+            if (!fullContent.trim() && toolCalls.length === 0) {
+              console.warn("EMPTY MODEL ROUND DETECTED", {
+                round,
+                finishReason,
+                sawAnyDelta,
+                sawContentDelta,
+                sawToolDelta,
+              });
+              forcedRecoveryContent = await recoverEmptyCompletion(conversationMessages);
+              lastFullContent = forcedRecoveryContent;
+              aggregatedContent += forcedRecoveryContent;
+              enqueue(`data: ${JSON.stringify({ choices: [{ delta: { content: forcedRecoveryContent } }] })}\n\n`);
+              break;
+            }
 
             const elapsedMs = Date.now() - executionStart;
             lastRoundHadToolCalls = !!toolCalls?.length;
@@ -4383,9 +4403,9 @@ Format as a natural, readable summary with clear sections. If a section has no d
             console.log(JSON.stringify(conversationMessages.slice(-3), null, 2));
             currentResponse = await fetchAIWithRetry({
               model: "gpt-4.1",
-              messages: conversationMessages,
+              messages: sanitizeConversationMessages(conversationMessages),
               stream: true,
-              ...(isLastRound ? {} : { tools }),
+              tools,
             });
             console.log("LLM RESPONSE RECEIVED:");
             console.log({
@@ -4444,10 +4464,10 @@ Format as a natural, readable summary with clear sections. If a section has no d
 
           const needsFinalAnswer = !lastFullContent || lastFullContent.trim().length < 20;
 
-          if (lastRoundHadToolCalls || !lastFullContent || !aggregatedContent || aggregatedContent.trim().length < 20 || needsFinalAnswer) {
+          if (!forcedRecoveryContent && (lastRoundHadToolCalls || !lastFullContent || !aggregatedContent || aggregatedContent.trim().length < 20 || needsFinalAnswer)) {
             console.log("FORCING FINAL SYNTHESIS CALL");
 
-            const finalMessages = conversationMessages;
+            const finalMessages = sanitizeConversationMessages(conversationMessages);
 
             const finalResponse = await fetchAIWithRetry({
               messages: finalMessages,
@@ -4455,8 +4475,25 @@ Format as a natural, readable summary with clear sections. If a section has no d
               tools,
             });
 
-            const { fullContent: finalContent } = await consumeSSEStream(finalResponse, enqueue);
-            lastFullContent = finalContent;
+            const finalResult = await consumeSSEStream(finalResponse, enqueue);
+            lastFullContent = finalResult.fullContent;
+
+            if (!lastFullContent.trim() && finalResult.toolCalls.length === 0) {
+              console.warn("FINAL SYNTHESIS RETURNED EMPTY CONTENT", {
+                finishReason: finalResult.finishReason,
+                sawAnyDelta: finalResult.sawAnyDelta,
+                sawContentDelta: finalResult.sawContentDelta,
+                sawToolDelta: finalResult.sawToolDelta,
+              });
+              const fallbackContent = await recoverEmptyCompletion(finalMessages);
+              lastFullContent = fallbackContent;
+              enqueue(`data: ${JSON.stringify({ choices: [{ delta: { content: fallbackContent } }] })}\n\n`);
+            }
+          }
+
+          if (!lastFullContent.trim()) {
+            lastFullContent = "I couldn’t complete the synthesis for this request. Please retry.";
+            enqueue(`data: ${JSON.stringify({ choices: [{ delta: { content: lastFullContent } }] })}\n\n`);
           }
 
           console.log("FINAL RESPONSE SENT TO UI:");
