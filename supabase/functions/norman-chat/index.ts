@@ -4118,6 +4118,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
               result = { error: `Unknown tool: ${tc.function.name}` };
           }
           
+          result = trimToolResultForLLM(result);
+
           console.log("TOOL RESULT RAW:", result);
           console.log("TOOL RESULT TYPE:", typeof result);
 
@@ -4207,6 +4209,10 @@ Format as a natural, readable summary with clear sections. If a section has no d
     const stream = new ReadableStream({
       async start(controller) {
         const enqueue = (chunk: string) => controller.enqueue(encoder.encode(chunk));
+        const emitFinalContent = (content: string) => {
+          if (!content) return;
+          enqueue(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`);
+        };
         let aggregatedContent = "";
 
         try {
@@ -4221,7 +4227,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
           const executionStart = Date.now();
 
           while (true) {
-            const { fullContent, toolCalls } = await consumeSSEStream(currentResponse, enqueue);
+            const { fullContent, toolCalls } = await consumeSSEStream(currentResponse);
             aggregatedContent += fullContent;
 
             const elapsedMs = Date.now() - executionStart;
@@ -4243,6 +4249,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
               round >= MAX_TOOL_ROUNDS ||
               elapsedMs >= MAX_EXECUTION_TIME_MS
             ) {
+              emitFinalContent(fullContent);
               if (elapsedMs >= MAX_EXECUTION_TIME_MS) {
                 console.log(`Stopping tool loop after ${elapsedMs}ms due to hard execution limit`);
               }
@@ -4277,6 +4284,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
               model: "gpt-4.1",
               messages: conversationMessages,
               stream: true,
+              max_tokens: MAX_RESPONSE_TOKENS,
               ...(isLastRound ? {} : { tools }),
             });
 
