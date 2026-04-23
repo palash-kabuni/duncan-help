@@ -106,7 +106,7 @@ const NON_CV_TERMS = [
 ];
 
 const ROLE_FETCH_MAX_RESULTS_PER_PAGE = 100;
-const ROLE_FETCH_MAX_PAGES = 5;
+const ROLE_FETCH_MAX_PAGES = 20;
 
 function stripFileExtension(filename: string): string {
   return filename.replace(/\.(pdf|docx?|rtf)$/i, "");
@@ -153,17 +153,18 @@ function generateRoleAliases(title: string): string[] {
 }
 
 function buildRoleAwareQuery(title: string): string {
-  const attachmentClause = `has:attachment (filename:pdf OR filename:docx OR filename:doc)`;
-  const aliases = generateRoleAliases(title);
-  const subjectPhraseClauses = aliases.map((alias) => `subject:"${alias}"`);
-  const subjectTokenClauses = aliases
-    .map((alias) => tokenize(alias))
-    .filter((tokens) => tokens.length > 0)
-    .map((tokens) => tokens.map((token) => `subject:${token}`).join(" "));
+  void title;
+  return `has:attachment (filename:pdf OR filename:docx OR filename:doc)`;
+}
 
-  const subjectClauses = uniqueStrings([...subjectPhraseClauses, ...subjectTokenClauses]);
+function subjectMatchesRole(subject: string, roleTitle: string): boolean {
+  const normalizedSubject = normalizeText(subject);
+  if (!normalizedSubject) return false;
 
-  return `${attachmentClause} (${subjectClauses.join(" OR ")})`;
+  return generateRoleAliases(roleTitle).some((alias) => {
+    const aliasTokens = tokenize(alias);
+    return aliasTokens.length > 0 && aliasTokens.every((token) => normalizedSubject.includes(token));
+  });
 }
 
 function includesAnyTerm(haystack: string, terms: string[]): boolean {
@@ -524,6 +525,10 @@ serve(async (req) => {
       const msgHeaders = msgData.payload?.headers || [];
       const subject = msgHeaders.find((h: any) => h.name.toLowerCase() === "subject")?.value || "";
       const snippet = msgData.snippet || "";
+
+      if (selectedRole && !subjectMatchesRole(subject, selectedRole.title)) {
+        continue;
+      }
 
       // Role matching with confidence enforcement
       const roleMatch = selectedRole ? null : matchRoleToSubject(subject, activeRoles);
