@@ -522,10 +522,11 @@ Deno.serve(async (req) => {
         generated_at: new Date().toISOString(),
       });
     }
-    const memberChannels = allChannels.filter((c) => c.is_member && !c.is_archived);
+    const publicChannels = allChannels.filter((c) => !c.is_archived);
+    const memberChannels = publicChannels.filter((c) => c.is_member);
 
     // Cap to top N by member count as a proxy for activity
-    const eligible = [...memberChannels]
+    const eligible = [...publicChannels]
       .sort((a, b) => (b.num_members || 0) - (a.num_members || 0))
       .slice(0, MAX_CHANNELS);
 
@@ -533,16 +534,26 @@ Deno.serve(async (req) => {
     const channelResults = await Promise.all(
       eligible.map(async (ch) => {
         try {
-          const rawMessages = await fetchChannelHistory(
-            ch.id,
+          const history = await fetchChannelHistory(
+            ch,
             oldest,
             SLACK_API_KEY,
             LOVABLE_API_KEY,
             botUserId,
           );
-          return { channel: ch, messages: rawMessages };
+          return { channel: ch, ...history };
         } catch (e: any) {
-          return { channel: ch, messages: [] as SlackMessage[], error: e?.message || String(e) };
+          return {
+            channel: ch,
+            messages: [] as SlackMessage[],
+            history_ok: false,
+            join_attempted: false,
+            joined_channel: false,
+            unresolved_membership: false,
+            error_code: "unknown",
+            error_message: e?.message || String(e),
+            status: "history_failed" as const,
+          };
         }
       }),
     );
@@ -568,24 +579,51 @@ Deno.serve(async (req) => {
           ts: m.ts,
           thread_ts: m.thread_ts,
         }));
+
+        if (!r.history_ok) {
+          return {
+            channel_id: r.channel.id,
+            channel_name: r.channel.name,
+            is_member: !!r.channel.is_member,
+            joined_channel: r.joined_channel,
+            join_attempted: r.join_attempted,
+            messages_scanned: 0,
+            signals: emptySignals(),
+            status: r.status,
+            status_reason: r.status,
+            error_code: r.error_code,
+            error_message: r.error_message,
+          };
+        }
+
         if (enriched.length === 0) {
           return {
             channel_id: r.channel.id,
             channel_name: r.channel.name,
+            is_member: !!r.channel.is_member,
+            joined_channel: r.joined_channel,
+            join_attempted: r.join_attempted,
             messages_scanned: 0,
             signals: emptySignals(),
-            status: r.channel.is_member ? "no_messages" : "not_member",
-            status_reason: r.error ? "history_failed" : r.channel.is_member ? "no_recent_messages" : "bot_not_member",
+            status: r.status === "joined_then_scanned" ? "joined_then_scanned" : "ok",
+            status_reason: r.status === "joined_then_scanned" ? "joined_then_scanned" : "no_recent_messages",
+            error_code: null,
+            error_message: null,
           };
         }
         const signals = await extractChannelSignals(r.channel.name, enriched);
         return {
           channel_id: r.channel.id,
           channel_name: r.channel.name,
+          is_member: !!r.channel.is_member,
+          joined_channel: r.joined_channel,
+          join_attempted: r.join_attempted,
           messages_scanned: enriched.length,
           signals,
-          status: "ok",
-          status_reason: null,
+          status: r.status === "joined_then_scanned" ? "joined_then_scanned" : "ok",
+          status_reason: r.status === "joined_then_scanned" ? "joined_then_scanned" : null,
+          error_code: null,
+          error_message: null,
         };
       }),
     );
@@ -600,15 +638,34 @@ Deno.serve(async (req) => {
     const channelsWithErrors: Array<{ channel: string; reason: string }> = [];
     let totalMessages = 0;
     let historyFailures = 0;
+    let joinedChannels = 0;
+    let effectiveAccessibleChannels = 0;
+    let inaccessibleAfterJoin = 0;
 
     for (const r of perChannelOutput) {
       totalMessages += r.messages_scanned;
-      if (r.status === "no_messages") {
+      if (["ok", "joined_then_scanned"].includes(r.status)) {
+        effectiveAccessibleChannels += 1;
+      }
+      if (r.status === "joined_then_scanned") joinedChannels += 1;
+
+      if (["join_failed", "history_failed_after_join", "history_failed"].includes(r.status)) {
+        historyFailures += 1;
+        const unresolvedMembership = r.status === "join_failed" || (r.status === "history_failed_after_join" && r.error_code && ["bot_not_invited", "not_in_channel"].includes(r.error_code));
+        if (unresolvedMembership) inaccessibleAfterJoin += 1;
+        channelsWithErrors.push({
+          channel: r.channel_name,
+          reason: r.status === "join_failed"
+            ? "Auto-join failed"
+            : r.status === "history_failed_after_join"
+              ? "History fetch failed after join"
+              : "History fetch failed",
+        });
+        continue;
+      }
+
+      if (r.messages_scanned === 0) {
         silentChannels.push({ channel: r.channel_name, reason: "0 human messages in last 24h" });
-        if (r.status_reason === "history_failed") {
-          historyFailures += 1;
-          channelsWithErrors.push({ channel: r.channel_name, reason: "History fetch failed" });
-        }
         continue;
       }
       const tag = (arr: any[]) => arr.map((x) => ({ ...x, _channel: r.channel_name }));
@@ -620,9 +677,9 @@ Deno.serve(async (req) => {
     }
 
     // Channels the bot is NOT a member of (so the team can invite Duncan)
-    const notMember = allChannels
-      .filter((c) => !c.is_member && !c.is_archived)
-      .map((c) => ({ id: c.id, name: c.name, is_private: !!c.is_private }));
+    const notMember = perChannelOutput
+      .filter((r) => r.status === "join_failed" || (r.status === "history_failed_after_join" && r.error_code && ["bot_not_invited", "not_in_channel"].includes(r.error_code)))
+      .map((r) => ({ id: r.channel_id, name: r.channel_name, is_private: false }));
     const inaccessiblePrivateChannelsCount = allChannels.filter((c) => !!c.is_private && !c.is_member && !c.is_archived).length;
     if (notMember.length > 0) degraded_codes.push("bot_not_invited");
     if (inaccessiblePrivateChannelsCount > 0) degraded_codes.push("private_channels_inaccessible");
@@ -631,27 +688,37 @@ Deno.serve(async (req) => {
     const isDegraded = degraded || uniqueCodes.length > 0;
     if (isDegraded && visibility_scope === "full_public") visibility_scope = "partial";
 
+    const degradedSummaryParts: string[] = [];
+    if (joinedChannels > 0) degradedSummaryParts.push(`${joinedChannels} public channels auto-joined`);
+    degradedSummaryParts.push(`${effectiveAccessibleChannels}/${eligible.length} public channels scanned`);
+    if (inaccessibleAfterJoin > 0) degradedSummaryParts.push(`${inaccessibleAfterJoin} still inaccessible after join attempt`);
+    if (inaccessiblePrivateChannelsCount > 0) degradedSummaryParts.push(`${inaccessiblePrivateChannelsCount} private channels remain gated`);
+    const computedDegradedReason = degradedSummaryParts.join("; ");
+
     return json({
       ok: true,
       degraded: isDegraded,
       visibility_scope,
       degraded_codes: uniqueCodes,
-      degraded_reason,
+      degraded_reason: computedDegradedReason || degraded_reason,
       window_hours: 24,
       channels_total: allChannels.length,
-      channels_member: memberChannels.length,
+      channels_member: effectiveAccessibleChannels,
       channels_eligible: eligible.length,
-      channels_scanned: perChannelOutput.length,
+      channels_scanned: effectiveAccessibleChannels,
       messages_analysed: totalMessages,
       not_member_channels_count: notMember.length,
       inaccessible_private_channels_count: inaccessiblePrivateChannelsCount,
       history_failures_count: historyFailures,
+      channels_joined: joinedChannels,
       channels_with_errors: channelsWithErrors,
       not_member_channels: notMember.slice(0, 50),
       per_channel: perChannelOutput.map((r) => ({
         channel: r.channel_name,
         status: r.status,
         status_reason: r.status_reason,
+        join_attempted: r.join_attempted,
+        joined_channel: r.joined_channel,
         messages_scanned: r.messages_scanned,
         commitments: r.signals.commitments.length,
         escalations: r.signals.escalations.length,
