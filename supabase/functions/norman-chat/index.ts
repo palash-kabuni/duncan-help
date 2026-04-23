@@ -4045,6 +4045,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
           const rawArguments = tc?.function?.arguments;
           let args: any = {};
 
+          console.log("RAW TOOL CALL:", tc);
+
           if (typeof rawArguments === "string" && rawArguments.trim().length > 0) {
             try {
               args = JSON.parse(rawArguments);
@@ -4054,6 +4056,12 @@ Format as a natural, readable summary with clear sections. If a section has no d
           } else {
             args = {};
           }
+
+          console.log("PARSED ARGS:", args);
+          console.log("EXECUTING TOOL:", {
+            name: tc.function.name,
+            args,
+          });
 
           console.log("Executing tool call", {
             toolName: tc?.function?.name,
@@ -4115,6 +4123,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
           } else {
               result = { error: `Unknown tool: ${tc.function.name}` };
           }
+
+          console.log("TOOL EXECUTION RESULT:", result);
           
           console.log("TOOL RESULT RAW:", result);
           console.log("TOOL RESULT TYPE:", typeof result);
@@ -4161,6 +4171,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
             });
           }
         } catch (error) {
+          console.log("TOOL EXECUTION ERROR:", error);
           const toolError = error instanceof Error ? error : new Error(String(error));
           console.error(`Tool ${tc.function.name} threw error:`, toolError.message, toolError.stack);
           const errorResult = { error: toolError.message };
