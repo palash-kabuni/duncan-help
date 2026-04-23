@@ -411,13 +411,15 @@ serve(async (req) => {
       }
     }
 
-    // BROADER FETCH: search for all emails with CV-like attachments, not just subject matches
-    const query = `has:attachment (filename:pdf OR filename:docx OR filename:doc)`;
+    const selectedRole = filterRoleId && activeRoles.length === 1 ? activeRoles[0] : null;
+    const query = selectedRole
+      ? buildRoleAwareQuery(selectedRole.title)
+      : `has:attachment (filename:pdf OR filename:docx OR filename:doc)`;
     console.log("Gmail search query:", query);
 
     const searchUrl = new URL(`${GMAIL_API}/messages`);
     searchUrl.searchParams.set("q", query);
-    searchUrl.searchParams.set("maxResults", "50");
+    searchUrl.searchParams.set("maxResults", selectedRole ? "100" : "50");
 
     const searchRes = await fetch(searchUrl.toString(), { headers: gmailHeaders });
     if (!searchRes.ok) {
@@ -472,6 +474,26 @@ serve(async (req) => {
       collectAttachments(msgData.payload?.parts || []);
 
       if (cvAttachments.length === 0) continue;
+
+      const attachmentGate = classifyAttachmentBatch(
+        subject,
+        cvAttachments.map((attachment) => attachment.filename),
+        selectedRole?.title || matchedRoleTitle,
+      );
+
+      if (!attachmentGate.accepted) {
+        skipped++;
+        for (const cv of cvAttachments) {
+          details.push({
+            gmail_message_id: msg.id,
+            filename: cv.filename,
+            outcome: "skipped",
+            reason: attachmentGate.reason,
+            role_title: matchedRoleTitle || selectedRole?.title || undefined,
+          });
+        }
+        continue;
+      }
 
       for (const cv of cvAttachments) {
         // --- DEDUP LAYER 1: exact gmail_message_id + exact filename ---
