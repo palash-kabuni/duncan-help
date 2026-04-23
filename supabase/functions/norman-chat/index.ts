@@ -3805,10 +3805,10 @@ Format as a natural, readable summary with clear sections. If a section has no d
     ): Promise<{ fullContent: string; toolCalls: any[] }> {
       const reader = streamResponse.body!.getReader();
       const decoder = new TextDecoder();
-      const TEXT_INACTIVITY_TIMEOUT_MS = 3_000;
-      const TEXT_MAX_STREAM_DURATION_MS = 15_000;
-      const TOOL_INACTIVITY_TIMEOUT_MS = 10_000;
-      const TOOL_MAX_STREAM_DURATION_MS = 30_000;
+      const TEXT_INACTIVITY_TIMEOUT_MS = Number.POSITIVE_INFINITY;
+      const TEXT_MAX_STREAM_DURATION_MS = Number.POSITIVE_INFINITY;
+      const TOOL_INACTIVITY_TIMEOUT_MS = Number.POSITIVE_INFINITY;
+      const TOOL_MAX_STREAM_DURATION_MS = Number.POSITIVE_INFINITY;
       const READ_POLL_MS = 500;
       let fullContent = "";
       const toolCalls: any[] = [];
