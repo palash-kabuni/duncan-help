@@ -1,47 +1,48 @@
 
-Root cause: Team Briefing is rendering the persisted `payload.slack_pulse` from the latest `ceo_briefings` row, not a live Slack fetch. The latest stored briefing rows still contain the old values (`channels_member = 0`, `channels_scanned = 0`, `degraded_codes = ["bot_not_invited"]`, `visibility_scope = "partial"`), so the UI is accurately showing stale briefing data rather than the newer Slack logic.
+Root cause: the selected-role CV fetch is still rejecting valid CV emails unless the message text explicitly mentions the role title. In `supabase/functions/fetch-gmail-cvs/index.ts`, once a role is selected, `classifyAttachmentBatch()` hard-requires a `roleSignal`, so emails like “Harry Freeman CV” are skipped even if they are clearly CV submissions. The current role fetch also only pulls the first 100 Gmail search results and does not paginate, so “all CVs for a role” is not guaranteed.
 
-What I’ll do
+## What I’ll change
 
-1. Verify the deployed Slack pulse directly
-- Call the deployed `ceo-slack-pulse` function directly.
-- Confirm whether it now returns the newer diagnostics:
-  - `missing_scope: channels:join`, or
-  - `join_failed: <error_code>`, or
-  - real joined/scanned channel counts.
-- Check recent logs for:
-  - `auth.test`
-  - join attempts
-  - join failures
-  - retry outcomes
+1. Make selected-role fetch trust the selected role
+- When the user clicks `Fetch CVs` for `Operations Manager`, treat that chosen role as the assignment target.
+- Stop requiring the email subject/snippet/filename to contain `Operations Manager`, `Ops Manager`, etc. for acceptance.
+- Keep CV/recruitment heuristics, but use role-term matching as a relevance signal, not a hard rejection gate, when a role is already selected.
 
-2. Verify the briefing pipeline is using the current Slack pulse output
-- Confirm the deployed `ceo-briefing` function is invoking `ceo-slack-pulse` and persisting its latest response into `ceo_briefings.payload.slack_pulse`.
-- If the direct Slack pulse response is correct but the persisted briefing row is still old, identify whether:
-  - `ceo-briefing` is using an outdated deployment, or
-  - a fresh briefing has simply not been generated since the Slack fix.
+2. Preserve non-CV protection
+- Keep excluding obvious business/legal/operations documents such as agreements, trackers, invoices, tickets, and strategy docs.
+- For selected-role mode, accept CV-like emails even when they only say things like:
+  - `Harry Freeman CV`
+  - `Resume attached`
+  - `Application`
+  - a personal intro plus attached CV
+- Ensure the system still rejects clear non-recruitment attachments.
 
-3. Regenerate Team Briefing data
-- Trigger a fresh morning Team Briefing generation so a new `ceo_briefings` row is written with current Slack diagnostics.
-- Re-check the newest `ceo_briefings` row to confirm:
-  - updated `degraded_reason`
-  - updated `degraded_codes`
-  - updated `channels_member`
-  - updated `channels_scanned`
-  - updated `messages_analysed`
+3. Assign the selected role directly during selected-role fetch
+- If a role is explicitly selected, use that role ID for inserted candidates instead of depending on subject-based role matching.
+- Keep the existing subject-based matching for non-selected/general ingestion flows.
 
-4. Only patch code if the new run still stores stale semantics
-- If the direct Slack pulse is correct but the saved briefing still collapses to old wording, update the persistence/normalization path so the stored briefing preserves the exact Slack pulse payload.
-- If the direct Slack pulse itself still returns the old payload, redeploy/fix only the affected backend function(s), keeping frontend unchanged unless the stored semantics require a small display adjustment.
+4. Paginate Gmail search results for role fetches
+- Replace the single `maxResults=100` request with pagination using `nextPageToken`.
+- Continue fetching additional pages for role-specific runs up to a safe cap, so recent/valid CVs are not missed because of the first page cutoff.
+- Include totals in logs/response so it’s clear how many Gmail messages were examined.
 
-Expected outcome
-- Team Briefing will stop showing the old `0 of 83 / bot_not_invited / Scanned: 0` state once a fresh briefing is generated from the corrected Slack pulse.
-- If the connector is missing scope, the panel will show that exact reason.
-- If joins are failing for another reason, the panel will show that exact reason.
-- If joins succeed, the panel will show real joined/scanned counts.
+5. Improve diagnostics for skipped role fetches
+- Add explicit logging for selected-role runs showing whether a message was skipped because it looked non-CV versus previously missing a role title.
+- This will make it easy to verify Harry Freeman emails are being seen and whether they are accepted or filtered.
 
-Technical details
-- `src/hooks/useCEOBriefing.ts` loads the latest `ceo_briefings` row.
-- `src/pages/CEOBriefing.tsx` passes `payload.slack_pulse` into `CommsPulseCard`.
-- `src/components/ceo/CommsPulseCard.tsx` is only rendering what is already stored.
-- The latest database rows currently still store the old Slack pulse payload, so the immediate issue is stale persisted briefing data, not just the card UI.
+## Expected outcome
+After this change, when you fetch CVs for `Operations Manager`:
+- emails like `Harry Freeman CV` should be ingested even if they do not mention `Operations Manager`
+- both manually sent Operations Manager CV emails should be assignable to that role through the selected-role flow
+- the system should still avoid pulling obvious non-CV attachments
+- the fetch should cover more than the first 100 matching emails
+
+## Files to update
+- `supabase/functions/fetch-gmail-cvs/index.ts`
+
+## Technical details
+- Relax `classifyAttachmentBatch()` for selected-role mode so `roleSignal` is optional
+- Use `selectedRole.id` as the authoritative `job_role_id` during selected-role fetches
+- Keep `matchRoleToSubject()` for broad/general mode only
+- Add Gmail pagination via `nextPageToken`
+- Keep duplicate detection, storage upload, orphan relinking, and parse trigger behavior unchanged
