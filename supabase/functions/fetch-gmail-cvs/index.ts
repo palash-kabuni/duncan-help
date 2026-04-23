@@ -79,6 +79,96 @@ function tokenize(text: string): string[] {
   return normalizeText(text).split(" ").filter(Boolean);
 }
 
+const RECRUITMENT_TERMS = [
+  "cv",
+  "resume",
+  "application",
+  "candidate",
+  "applicant",
+  "cover letter",
+  "job application",
+  "curriculum vitae",
+];
+
+const NON_CV_TERMS = [
+  "agreement",
+  "supplier",
+  "tracker",
+  "tournament",
+  "consent form",
+  "invoice",
+  "framework",
+  "purchase order",
+  "legal",
+  "contract",
+  "school confirmations",
+  "update",
+];
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function generateRoleAliases(title: string): string[] {
+  const normalizedTitle = normalizeText(title);
+  const aliases = [normalizedTitle];
+
+  if (normalizedTitle.includes("operations manager")) {
+    aliases.push("ops manager", "operations mgr", "ops mgr");
+  }
+
+  const genericAliases = [
+    normalizedTitle.replace(/\bmanager\b/g, "mgr"),
+    normalizedTitle.replace(/\boperations\b/g, "ops"),
+    normalizedTitle.replace(/\boperations\b/g, "ops").replace(/\bmanager\b/g, "mgr"),
+  ];
+
+  aliases.push(...genericAliases);
+  return uniqueStrings(aliases);
+}
+
+function buildRoleAwareQuery(title: string): string {
+  const attachmentClause = `has:attachment (filename:pdf OR filename:docx OR filename:doc)`;
+  const roleClauses = generateRoleAliases(title)
+    .filter((alias) => alias.length >= 4)
+    .map((alias) => `"${alias}"`);
+  const recruitmentClauses = RECRUITMENT_TERMS.map((term) => `"${term}"`);
+
+  return `${attachmentClause} (${roleClauses.join(" OR ")}) (${recruitmentClauses.join(" OR ")})`;
+}
+
+function includesAnyTerm(haystack: string, terms: string[]): boolean {
+  return terms.some((term) => haystack.includes(normalizeText(term)));
+}
+
+function classifyAttachmentBatch(
+  subject: string,
+  filenames: string[],
+  roleTitle?: string | null,
+): { accepted: boolean; reason?: string; roleSignal: boolean; recruitmentSignal: boolean } {
+  const combinedText = normalizeText([subject, ...filenames].join(" "));
+  const recruitmentSignal = includesAnyTerm(combinedText, RECRUITMENT_TERMS);
+  const exclusionSignal = includesAnyTerm(combinedText, NON_CV_TERMS);
+  const roleSignal = roleTitle ? includesAnyTerm(combinedText, generateRoleAliases(roleTitle)) : false;
+
+  if (roleTitle) {
+    if (!roleSignal) {
+      return { accepted: false, reason: "Missing role signal", roleSignal, recruitmentSignal };
+    }
+    if (!recruitmentSignal) {
+      return { accepted: false, reason: "Missing recruitment signal", roleSignal, recruitmentSignal };
+    }
+  } else if (!recruitmentSignal && exclusionSignal) {
+    return { accepted: false, reason: "Looks like business document, not a CV", roleSignal, recruitmentSignal };
+  }
+
+  if (exclusionSignal && !recruitmentSignal) {
+    return { accepted: false, reason: "Excluded non-CV document pattern", roleSignal, recruitmentSignal };
+  }
+
+  return { accepted: true, roleSignal, recruitmentSignal };
+}
+
 function matchRoleToSubject(
   subject: string,
   roles: { id: string; title: string }[]
@@ -86,8 +176,10 @@ function matchRoleToSubject(
   const normalizedSubject = normalizeText(subject);
   const subjectTokens = tokenize(subject);
 
-  // Pass 1: Exact normalized match (subject contains the full normalized title)
-  const exactMatches = roles.filter((r) => normalizedSubject.includes(normalizeText(r.title)));
+   // Pass 1: Exact normalized alias match
+   const exactMatches = roles.filter((r) =>
+     generateRoleAliases(r.title).some((alias) => normalizedSubject.includes(alias))
+   );
 
   if (exactMatches.length === 1) {
     return { roleId: exactMatches[0].id, confidence: "exact" };
@@ -98,14 +190,19 @@ function matchRoleToSubject(
     return { roleId: exactMatches[0].id, confidence: "high" };
   }
 
-  // Pass 2: Word-based matching
+  // Pass 2: Word-based matching across aliases
   const wordMatches: { role: typeof roles[0]; matchedWords: number; totalWords: number }[] = [];
   for (const role of roles) {
-    const titleTokens = tokenize(role.title);
-    if (titleTokens.length === 0) continue;
-    const matched = titleTokens.filter((t) => subjectTokens.includes(t));
-    if (matched.length === titleTokens.length) {
-      wordMatches.push({ role, matchedWords: matched.length, totalWords: titleTokens.length });
+    const aliasTokenSets = generateRoleAliases(role.title)
+      .map((alias) => tokenize(alias))
+      .filter((tokens) => tokens.length > 0);
+
+    for (const titleTokens of aliasTokenSets) {
+      const matched = titleTokens.filter((t) => subjectTokens.includes(t));
+      if (matched.length === titleTokens.length) {
+        wordMatches.push({ role, matchedWords: matched.length, totalWords: titleTokens.length });
+        break;
+      }
     }
   }
 
