@@ -3944,11 +3944,11 @@ Format as a natural, readable summary with clear sections. If a section has no d
              })
          : toolCalls;
 
-       console.log("SSE tool stream state", {
-         hasToolCallStarted,
-         toolCallsLength: capturedToolCalls.length,
-         rawArgumentsLengths: capturedToolCalls.map((toolCall: any) => toolCall?._debug?.rawArgumentsLength ?? 0),
-         streamDurationMs: Date.now() - startTime,
+       console.log("STREAM RESULT:");
+       console.log({
+         fullContentLength: fullContent?.length || 0,
+         preview: fullContent?.slice(0, 200),
+         toolCallsLength: capturedToolCalls?.length || 0,
        });
 
        return {
@@ -4172,6 +4172,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
       async start(controller) {
         const enqueue = (chunk: string) => controller.enqueue(encoder.encode(chunk));
         let aggregatedContent = "";
+        let lastFullContent = "";
 
         try {
           // Conversation history for multi-round tool calls
@@ -4187,6 +4188,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
 
           while (true) {
             const { fullContent, toolCalls } = await consumeSSEStream(currentResponse, enqueue);
+            lastFullContent = fullContent;
             aggregatedContent += fullContent;
             console.log("ROUND RESULT", {
               round,
@@ -4268,20 +4270,18 @@ Format as a natural, readable summary with clear sections. If a section has no d
               console.log(`Stopping before follow-up LLM call due to hard execution limit`);
               break;
             }
-            console.log("NEXT LLM INPUT", {
-              round,
-              last3Messages: JSON.stringify(conversationMessages.slice(-3), null, 2),
-            });
+            console.log("FINAL LLM INPUT (last 3 messages):");
+            console.log(JSON.stringify(conversationMessages.slice(-3), null, 2));
             currentResponse = await fetchAIWithRetry({
               model: "gpt-4.1",
               messages: conversationMessages,
               stream: true,
               ...(isLastRound ? {} : { tools }),
             });
-            console.log("LLM RESPONSE OBJECT", {
-              round,
-              responseType: typeof currentResponse,
-              hasBody: currentResponse.body !== null,
+            console.log("LLM RESPONSE RECEIVED:");
+            console.log({
+              hasBody: !!currentResponse?.body,
+              status: currentResponse?.status,
             });
 
             if (!currentResponse.ok) {
@@ -4333,6 +4333,11 @@ Format as a natural, readable summary with clear sections. If a section has no d
             }
           }
 
+          console.log("FINAL RESPONSE SENT TO UI:");
+          console.log({
+            fullContentLength: lastFullContent?.length || 0,
+            preview: lastFullContent?.slice(0, 200),
+          });
           enqueue("data: [DONE]\n\n");
           controller.close();
         } catch (streamErr) {
