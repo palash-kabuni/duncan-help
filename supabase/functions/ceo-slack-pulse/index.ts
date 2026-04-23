@@ -126,7 +126,6 @@ async function listAllChannels(
         degraded = true;
         visibility_scope = /missing_scope/i.test(msg) ? "public_only" : "partial";
         degraded_codes.add(/missing_scope/i.test(msg) ? "missing_scope" : "auth_failed");
-        if (/not_in_channel/i.test(msg)) degraded_codes.add("bot_not_invited");
         if (/missing_scope/i.test(msg)) degraded_codes.add("public_only_visibility");
         degraded_reason = `conversations.list permission error — ${msg.slice(0, 200)}`;
         break;
