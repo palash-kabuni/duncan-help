@@ -3968,33 +3968,15 @@ Format as a natural, readable summary with clear sections. If a section has no d
            }))
          : toolCalls;
 
-       toolCalls.forEach((tc) => {
-         const args = tc?.function?.arguments || "";
-         const trimmed = args.trim();
-         try {
-           JSON.parse(trimmed);
-         } catch {
-           console.warn("DROPPING INVALID JSON TOOL CALL:", trimmed);
-         }
-       });
-
         const finalizedToolCalls = capturedToolCalls.filter((tc) => {
-          const args = tc?.function?.arguments || "";
           const name = tc?.function?.name || "";
-          const trimmed = args.trim();
 
           if (!name || name.trim().length === 0) {
             console.warn("DROPPING TOOL CALL WITH EMPTY NAME:", tc);
             return false;
           }
 
-          try {
-            JSON.parse(trimmed);
-            return true;
-          } catch {
-            console.warn("DROPPING INVALID JSON TOOL CALL:", trimmed);
-            return false;
-          }
+          return true;
         });
 
        console.log("ROUND HAS CONTENT:", {
