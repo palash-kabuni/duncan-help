@@ -4468,10 +4468,28 @@ Format as a natural, readable summary with clear sections. If a section has no d
                 sawToolDelta,
                 hadIncompleteToolCall,
               });
-              forcedRecoveryContent = await recoverEmptyCompletion(conversationMessages);
-              lastFullContent = forcedRecoveryContent;
-              aggregatedContent += forcedRecoveryContent;
-              enqueue(`data: ${JSON.stringify({ choices: [{ delta: { content: forcedRecoveryContent } }] })}\n\n`);
+              const recovery = await recoverEmptyCompletion(conversationMessages);
+
+              if (recovery.toolCalls.length > 0) {
+                console.log("RECOVERY PRODUCED TOOL CALLS", recovery.toolCalls.map((tc) => tc?.function?.name));
+                const provider = detectToolResultProvider(recovery.toolCalls);
+                const toolResults = await executeToolCalls(recovery.toolCalls, provider);
+                const assistantMsg: any = { role: "assistant", tool_calls: recovery.toolCalls };
+                if (recovery.fullContent) assistantMsg.content = recovery.fullContent;
+                conversationMessages.push(assistantMsg, ...toolResults);
+                round++;
+                currentResponse = await fetchAIWithRetry({
+                  messages: sanitizeConversationMessages(conversationMessages),
+                  stream: true,
+                  tools,
+                });
+                continue;
+              }
+
+              forcedRecoveryContent = recovery.fullContent;
+              lastFullContent = recovery.fullContent;
+              aggregatedContent += recovery.fullContent;
+              enqueue(`data: ${JSON.stringify({ choices: [{ delta: { content: recovery.fullContent } }] })}\n\n`);
               break;
             }
 
@@ -4636,9 +4654,9 @@ Format as a natural, readable summary with clear sections. If a section has no d
                 sawToolDelta: finalResult.sawToolDelta,
                 hadIncompleteToolCall: finalResult.hadIncompleteToolCall,
               });
-              const fallbackContent = await recoverEmptyCompletion(finalMessages);
-              lastFullContent = fallbackContent;
-              enqueue(`data: ${JSON.stringify({ choices: [{ delta: { content: fallbackContent } }] })}\n\n`);
+              const recovery = await recoverEmptyCompletion(finalMessages);
+              lastFullContent = recovery.fullContent;
+              enqueue(`data: ${JSON.stringify({ choices: [{ delta: { content: recovery.fullContent } }] })}\n\n`);
             }
           }
 
