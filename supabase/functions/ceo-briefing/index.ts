@@ -1293,29 +1293,53 @@ Deno.serve(async (req) => {
       if (!hubspot_signal_error) hubspot_signal_error = `invoke failed: ${e?.message || e}`;
       if (!github_signal_error) github_signal_error = `invoke failed: ${e?.message || e}`;
     }
-    const normalizedHubspotSignal = {
-      status: hubspot_signal?.status ?? (hubspot_signal_error ? "degraded" : "not_configured"),
-      connected: hubspot_signal?.connected ?? false,
-      accounts_scanned: hubspot_signal?.accounts_scanned ?? 0,
-      stale_deals: hubspot_signal?.stale_deals ?? 0,
-      at_risk_accounts: hubspot_signal?.at_risk_accounts ?? 0,
-      customer_escalations: hubspot_signal?.customer_escalations ?? 0,
-      signals: hubspot_signal?.signals ?? [],
-      summary: hubspot_signal?.summary ?? null,
-      degraded_reason: hubspot_signal?.degraded_reason ?? hubspot_signal_error ?? null,
+    const normalizeExternalSignal = (
+      signal: any,
+      fallbackError: string | null,
+      defaults: Record<string, number>,
+      metricsSummary: (source: any) => string,
+    ) => {
+      const status = signal?.status ?? (fallbackError ? "degraded" : "not_configured");
+      const lastSyncAt = signal?.last_sync_at ?? signal?.last_verified_at ?? signal?.last_sync ?? null;
+      const errorMessage = signal?.error_message ?? signal?.degraded_reason ?? fallbackError ?? null;
+      return {
+        status,
+        connected: signal?.connected ?? false,
+        last_sync_at: lastSyncAt,
+        last_verified_at: signal?.last_verified_at ?? lastSyncAt,
+        error_code: signal?.error_code ?? (fallbackError ? "briefing_fetch_failed" : status === "not_configured" ? "not_configured" : null),
+        error_message: errorMessage,
+        degraded_reason: errorMessage,
+        metrics_summary: signal?.metrics_summary ?? metricsSummary(signal),
+        signals: signal?.signals ?? [],
+        summary: signal?.summary ?? null,
+        ...defaults,
+        ...Object.fromEntries(Object.keys(defaults).map((key) => [key, signal?.[key] ?? defaults[key]])),
+      };
     };
-    const normalizedGithubSignal = {
-      status: github_signal?.status ?? (github_signal_error ? "degraded" : "not_configured"),
-      connected: github_signal?.connected ?? false,
-      repos_scanned: github_signal?.repos_scanned ?? 0,
-      open_prs: github_signal?.open_prs ?? 0,
-      blocked_prs: github_signal?.blocked_prs ?? 0,
-      stale_prs: github_signal?.stale_prs ?? 0,
-      release_risks: github_signal?.release_risks ?? 0,
-      signals: github_signal?.signals ?? [],
-      summary: github_signal?.summary ?? null,
-      degraded_reason: github_signal?.degraded_reason ?? github_signal_error ?? null,
-    };
+    const normalizedHubspotSignal = normalizeExternalSignal(
+      hubspot_signal,
+      hubspot_signal_error,
+      {
+        accounts_scanned: 0,
+        stale_deals: 0,
+        at_risk_accounts: 0,
+        customer_escalations: 0,
+      },
+      (source) => `${Number(source?.stale_deals ?? 0)} stale deals · ${Number(source?.at_risk_accounts ?? 0)} at-risk accounts across ${Number(source?.accounts_scanned ?? 0)} accounts`,
+    );
+    const normalizedGithubSignal = normalizeExternalSignal(
+      github_signal,
+      github_signal_error,
+      {
+        repos_scanned: 0,
+        open_prs: 0,
+        blocked_prs: 0,
+        stale_prs: 0,
+        release_risks: 0,
+      },
+      (source) => `${Number(source?.open_prs ?? 0)} open PRs · ${Number(source?.blocked_prs ?? 0)} blocked · ${Number(source?.stale_prs ?? 0)} stale across ${Number(source?.repos_scanned ?? 0)} repos`,
+    );
     console.log(`[ceo-briefing] email_pulse: ${email_pulse ? 'ok' : 'null'} (err=${email_pulse_error}); slack_pulse: ${slack_pulse ? 'ok' : 'null'} (err=${slack_pulse_error}); hubspot: ${normalizedHubspotSignal.status} (err=${normalizedHubspotSignal.degraded_reason}); github: ${normalizedGithubSignal.status} (err=${normalizedGithubSignal.degraded_reason})`);
 
     // ─── Calendar events for leaders (last 7d) — best-effort, opt-in via google_calendar_tokens ─
@@ -2315,11 +2339,11 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
             ? `Slack scanned with reduced scopes — public channels only (${(slack_pulse as any)?.degraded_reason || "permission limited"}). Inbound: ${spChannelsScanned} of ${spChannelsMember} member channels (out of ${spChannelsTotal} total), ${spMessagesAnalysed} messages. Outbound: slack_notification_logs.`
             : `Inbound: scanned ${spChannelsScanned} of ${spChannelsMember} member channels (out of ${spChannelsTotal} total), ${spMessagesAnalysed} messages via ceo-slack-pulse. Outbound: slack_notification_logs. Channels Duncan is not a member of are not scanned.`)
         : `Duncan's own outbound notifications only (slack_notification_logs). Slack inbound pulse did not run on this briefing${slack_pulse_error ? ` — error: ${slack_pulse_error}` : ""}.`,
-      hubspot: hubspot_signal
-        ? `HubSpot ${hubspot_signal.status === "connected" ? "connected" : hubspot_signal.status}. Accounts scanned: ${hubspot_signal.accounts_scanned ?? 0}. ${hubspot_signal.summary || hubspot_signal.degraded_reason || "No material CRM signal returned."}`
+      hubspot: normalizedHubspotSignal
+        ? `HubSpot ${normalizedHubspotSignal.status === "connected" ? "connected" : normalizedHubspotSignal.status}. Accounts scanned: ${normalizedHubspotSignal.accounts_scanned ?? 0}. ${normalizedHubspotSignal.metrics_summary || normalizedHubspotSignal.summary || normalizedHubspotSignal.error_message || "No material CRM signal returned."}`
         : `HubSpot summary unavailable${hubspot_signal_error ? ` — error: ${hubspot_signal_error}` : ""}.`,
-      github: github_signal
-        ? `GitHub ${github_signal.status === "connected" ? "connected" : github_signal.status}. Repos scanned: ${github_signal.repos_scanned ?? 0}. ${github_signal.summary || github_signal.degraded_reason || "No material engineering signal returned."}`
+      github: normalizedGithubSignal
+        ? `GitHub ${normalizedGithubSignal.status === "connected" ? "connected" : normalizedGithubSignal.status}. Repos scanned: ${normalizedGithubSignal.repos_scanned ?? 0}. ${normalizedGithubSignal.metrics_summary || normalizedGithubSignal.summary || normalizedGithubSignal.error_message || "No material engineering signal returned."}`
         : `GitHub summary unavailable${github_signal_error ? ` — error: ${github_signal_error}` : ""}.`,
       email: "Per-mailbox 24h scan via ceo-email-pulse for opted-in users only.",
       meetings: "Plaud-ingested transcripts via fetch-plaud-meetings (last 24h for activity, last 10 transcripts for priority signals).",
@@ -3696,10 +3720,15 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
     parsed.payload.hubspot_signal = {
       status: normalizedHubspotSignal.status,
       connected: normalizedHubspotSignal.connected,
+      last_sync_at: normalizedHubspotSignal.last_sync_at,
+      error_code: normalizedHubspotSignal.error_code,
+      error_message: normalizedHubspotSignal.error_message,
+      metrics_summary: normalizedHubspotSignal.metrics_summary,
       accounts_scanned: normalizedHubspotSignal.accounts_scanned,
       stale_deals: normalizedHubspotSignal.stale_deals,
       at_risk_accounts: normalizedHubspotSignal.at_risk_accounts,
       escalations: normalizedHubspotSignal.customer_escalations,
+      customer_escalations: normalizedHubspotSignal.customer_escalations,
       signals: normalizedHubspotSignal.signals,
       summary: normalizedHubspotSignal.summary,
       degraded_reason: normalizedHubspotSignal.degraded_reason,
@@ -3707,6 +3736,10 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
     parsed.payload.github_signal = {
       status: normalizedGithubSignal.status,
       connected: normalizedGithubSignal.connected,
+      last_sync_at: normalizedGithubSignal.last_sync_at,
+      error_code: normalizedGithubSignal.error_code,
+      error_message: normalizedGithubSignal.error_message,
+      metrics_summary: normalizedGithubSignal.metrics_summary,
       repos_scanned: normalizedGithubSignal.repos_scanned,
       open_prs: normalizedGithubSignal.open_prs,
       blocked_prs: normalizedGithubSignal.blocked_prs,

@@ -10,12 +10,18 @@ const json = (body: unknown, status = 200) =>
 
 const GITHUB_API = "https://api.github.com";
 
+type Status = "connected" | "not_configured" | "degraded";
+
 type GithubSummary = {
   ok: boolean;
   connected: boolean;
-  status: "connected" | "not_configured" | "degraded";
+  status: Status;
   last_verified_at: string | null;
+  last_sync_at: string | null;
   degraded_reason: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  metrics_summary: string | null;
   repos_scanned: number;
   open_prs: number;
   blocked_prs: number;
@@ -31,7 +37,11 @@ function baseResponse(overrides: Partial<GithubSummary> = {}): GithubSummary {
     connected: false,
     status: "not_configured",
     last_verified_at: null,
+    last_sync_at: null,
     degraded_reason: null,
+    error_code: null,
+    error_message: null,
+    metrics_summary: null,
     repos_scanned: 0,
     open_prs: 0,
     blocked_prs: 0,
@@ -41,6 +51,34 @@ function baseResponse(overrides: Partial<GithubSummary> = {}): GithubSummary {
     summary: null,
     ...overrides,
   };
+}
+
+function logGithub(event: string, details: Record<string, unknown>) {
+  console.log(`[github-api] ${event}`, details);
+}
+
+function buildResponse(overrides: Partial<GithubSummary> = {}) {
+  const merged = baseResponse(overrides);
+  const errorMessage = merged.error_message ?? merged.degraded_reason ?? null;
+  const metricsSummary = merged.metrics_summary ?? merged.summary ?? null;
+  return {
+    ...merged,
+    last_sync_at: merged.last_sync_at ?? merged.last_verified_at,
+    degraded_reason: errorMessage,
+    error_message: errorMessage,
+    metrics_summary: metricsSummary,
+  } satisfies GithubSummary;
+}
+
+function responseWithLogging(overrides: Partial<GithubSummary> = {}) {
+  const response = buildResponse(overrides);
+  logGithub("returning status", {
+    status: response.status,
+    connected: response.connected,
+    error_code: response.error_code,
+    error_message: response.error_message,
+  });
+  return json(response);
 }
 
 async function getUser(req: Request) {
@@ -93,6 +131,14 @@ async function githubRequest<T>(path: string, token: string) {
   return data as T;
 }
 
+function classifyError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/401|403|unauthorized|forbidden|bad credentials|expired/i.test(message)) {
+    return { error_code: "upstream_auth_failed", status: "degraded" as Status };
+  }
+  return { error_code: "summary_failed", status: "degraded" as Status };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -102,21 +148,38 @@ Deno.serve(async (req) => {
   const { action } = await req.json().catch(() => ({ action: "status" }));
   const stored = await getStoredToken();
 
-  if (!stored?.token) {
-    return json(baseResponse({ degraded_reason: stored && !stored.token ? "Stored GitHub token could not be decoded" : "GitHub token not configured" }));
+  if (!stored) {
+    logGithub("missing token branch", { branch: "stored_token_missing" });
+    return responseWithLogging({
+      status: "not_configured",
+      error_code: "stored_token_missing",
+      error_message: "GitHub token not configured",
+    });
+  }
+
+  if (!stored.token) {
+    logGithub("decode failure branch", { branch: "stored_token_decode_failed", stored_status: stored.storedStatus });
+    return responseWithLogging({
+      status: "degraded",
+      last_verified_at: stored.lastSync ?? new Date().toISOString(),
+      last_sync_at: stored.lastSync ?? new Date().toISOString(),
+      error_code: "stored_token_decode_failed",
+      error_message: "Stored GitHub token could not be decoded",
+    });
   }
 
   try {
     const verifiedAt = new Date().toISOString();
+    logGithub("credential source", { source: "stored_token" });
     await githubRequest("/user", stored.token);
 
     if (action === "status") {
-      return json(baseResponse({
+      return responseWithLogging({
         connected: true,
         status: "connected",
         last_verified_at: verifiedAt,
-        degraded_reason: null,
-      }));
+        last_sync_at: stored.lastSync ?? verifiedAt,
+      });
     }
 
     const repos = await githubRequest<Array<{ owner?: { login?: string }; name?: string; pushed_at?: string | null }>>(
@@ -128,6 +191,7 @@ Deno.serve(async (req) => {
     let blockedPrs = 0;
     let stalePrs = 0;
     const signals: Array<Record<string, unknown>> = [];
+    let partialFailure = false;
 
     for (const repo of repos.slice(0, 5)) {
       const owner = repo.owner?.login;
@@ -155,6 +219,11 @@ Deno.serve(async (req) => {
           }
         }
       } catch (error) {
+        partialFailure = true;
+        logGithub("repo scan failure", {
+          repo: `${owner}/${name}`,
+          message: error instanceof Error ? error.message : String(error),
+        });
         if (signals.length < 6) {
           signals.push({
             type: "repo_scan_failed",
@@ -167,28 +236,39 @@ Deno.serve(async (req) => {
 
     const releaseRisks = blockedPrs + stalePrs;
     const reposScanned = Math.min(repos.length, 5);
+    const summary = reposScanned === 0
+      ? "GitHub connected but no repositories were available to scan."
+      : `${openPrs} open PRs, ${blockedPrs} blocked drafts, and ${stalePrs} stale PRs across ${reposScanned} repositories.`;
 
-    return json(baseResponse({
+    return responseWithLogging({
       connected: true,
-      status: signals.some((s) => s.type === "repo_scan_failed") ? "degraded" : "connected",
+      status: partialFailure ? "degraded" : "connected",
       last_verified_at: verifiedAt,
-      degraded_reason: signals.some((s) => s.type === "repo_scan_failed") ? "Some repositories could not be scanned fully" : null,
+      last_sync_at: stored.lastSync ?? verifiedAt,
+      error_code: partialFailure ? "repo_scan_partial_failure" : null,
+      error_message: partialFailure ? "Some repositories could not be scanned fully" : null,
       repos_scanned: reposScanned,
       open_prs: openPrs,
       blocked_prs: blockedPrs,
       stale_prs: stalePrs,
       release_risks: releaseRisks,
       signals,
-      summary: reposScanned === 0
-        ? "GitHub connected but no repositories were available to scan."
-        : `${openPrs} open PRs, ${blockedPrs} blocked drafts, and ${stalePrs} stale PRs across ${reposScanned} repositories.`,
-    }));
+      summary,
+      metrics_summary: summary,
+    });
   } catch (error) {
-    return json(baseResponse({
-      status: "degraded",
+    const classification = classifyError(error);
+    logGithub("verification failure", {
+      error_code: classification.error_code,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return responseWithLogging({
+      status: classification.status,
       connected: false,
       last_verified_at: stored.lastSync ?? new Date().toISOString(),
-      degraded_reason: error instanceof Error ? error.message : "GitHub verification failed",
-    }));
+      last_sync_at: stored.lastSync ?? new Date().toISOString(),
+      error_code: classification.error_code === "upstream_auth_failed" ? "user_verification_failed" : classification.error_code,
+      error_message: error instanceof Error ? error.message : "GitHub verification failed",
+    });
   }
 });
