@@ -49,6 +49,17 @@ interface SlackMessage {
   reply_users_count?: number;
 }
 
+interface HistoryFetchResult {
+  messages: SlackMessage[];
+  history_ok: boolean;
+  join_attempted: boolean;
+  joined_channel: boolean;
+  unresolved_membership: boolean;
+  error_code: string | null;
+  error_message: string | null;
+  status: "ok" | "joined_then_scanned" | "join_failed" | "history_failed" | "history_failed_after_join";
+}
+
 async function slackCall(
   endpoint: string,
   params: Record<string, string>,
@@ -128,13 +139,48 @@ async function listAllChannels(
   return { channels: all, degraded, degraded_reason, degraded_codes: Array.from(degraded_codes), visibility_scope };
 }
 
-async function fetchChannelHistory(
+function parseSlackApiError(errorLike: unknown): string {
+  const message = String(errorLike ?? "");
+  const known = [
+    "not_in_channel",
+    "bot_not_invited",
+    "missing_scope",
+    "channel_not_found",
+    "is_archived",
+    "restricted_action",
+    "method_not_supported_for_channel_type",
+    "not_authed",
+    "invalid_auth",
+  ];
+
+  for (const code of known) {
+    if (message.includes(code)) return code;
+  }
+
+  const quoted = message.match(/"error":"([^"]+)"/i)?.[1];
+  if (quoted) return quoted;
+
+  const slackError = message.match(/error:\s*([a-z_]+)/i)?.[1];
+  return slackError || "unknown";
+}
+
+function filterHumanMessages(messages: SlackMessage[], botUserId: string): SlackMessage[] {
+  return messages.filter((m) => {
+    if (m.bot_id) return false;
+    if (m.subtype && ["channel_join", "channel_leave", "bot_message", "channel_topic", "channel_purpose"].includes(m.subtype)) return false;
+    if (m.user && m.user === botUserId) return false;
+    if (!m.text || !m.text.trim()) return false;
+    return true;
+  });
+}
+
+async function fetchHistoryPage(
   channelId: string,
   oldest: number,
   apiKey: string,
   lovableKey: string,
   botUserId: string,
-): Promise<SlackMessage[]> {
+): Promise<{ ok: boolean; messages: SlackMessage[]; error_code: string | null; error_message: string | null }> {
   try {
     const data = await slackCall(
       "conversations.history",
@@ -147,20 +193,135 @@ async function fetchChannelHistory(
       apiKey,
       lovableKey,
     );
-    if (!data.ok) return [];
-    const messages = (data.messages || []) as SlackMessage[];
-    return messages.filter((m) => {
-      // Skip bot/system messages and Duncan's own posts
-      if (m.bot_id) return false;
-      if (m.subtype && ["channel_join", "channel_leave", "bot_message", "channel_topic", "channel_purpose"].includes(m.subtype)) return false;
-      if (m.user && m.user === botUserId) return false;
-      if (!m.text || !m.text.trim()) return false;
-      return true;
-    });
+
+    if (!data.ok) {
+      return {
+        ok: false,
+        messages: [],
+        error_code: String(data.error || "unknown"),
+        error_message: `conversations.history error: ${String(data.error || "unknown")}`,
+      };
+    }
+
+    return {
+      ok: true,
+      messages: filterHumanMessages((data.messages || []) as SlackMessage[], botUserId),
+      error_code: null,
+      error_message: null,
+    };
   } catch (e) {
-    console.warn(`history failed for ${channelId}:`, e);
-    return [];
+    const error_code = parseSlackApiError(e);
+    return {
+      ok: false,
+      messages: [],
+      error_code,
+      error_message: String(e),
+    };
   }
+}
+
+async function joinPublicChannel(
+  channelId: string,
+  apiKey: string,
+  lovableKey: string,
+): Promise<{ ok: boolean; error_code: string | null; error_message: string | null }> {
+  try {
+    const data = await slackCall("conversations.join", { channel: channelId }, apiKey, lovableKey);
+    if (!data.ok) {
+      return {
+        ok: false,
+        error_code: String(data.error || "unknown"),
+        error_message: `conversations.join error: ${String(data.error || "unknown")}`,
+      };
+    }
+
+    return { ok: true, error_code: null, error_message: null };
+  } catch (e) {
+    return {
+      ok: false,
+      error_code: parseSlackApiError(e),
+      error_message: String(e),
+    };
+  }
+}
+
+async function fetchChannelHistory(
+  channel: SlackChannel,
+  oldest: number,
+  apiKey: string,
+  lovableKey: string,
+  botUserId: string,
+): Promise<HistoryFetchResult> {
+  const initial = await fetchHistoryPage(channel.id, oldest, apiKey, lovableKey, botUserId);
+  if (initial.ok) {
+    return {
+      messages: initial.messages,
+      history_ok: true,
+      join_attempted: false,
+      joined_channel: false,
+      unresolved_membership: false,
+      error_code: null,
+      error_message: null,
+      status: "ok",
+    };
+  }
+
+  const joinableError = initial.error_code === "bot_not_invited" || initial.error_code === "not_in_channel";
+  if (!joinableError || channel.is_private) {
+    console.warn(`history failed for ${channel.id}:`, initial.error_message || initial.error_code);
+    return {
+      messages: [],
+      history_ok: false,
+      join_attempted: false,
+      joined_channel: false,
+      unresolved_membership: false,
+      error_code: initial.error_code,
+      error_message: initial.error_message,
+      status: "history_failed",
+    };
+  }
+
+  const joinResult = await joinPublicChannel(channel.id, apiKey, lovableKey);
+  if (!joinResult.ok) {
+    console.warn(`join failed for ${channel.id}:`, joinResult.error_message || joinResult.error_code);
+    return {
+      messages: [],
+      history_ok: false,
+      join_attempted: true,
+      joined_channel: false,
+      unresolved_membership: true,
+      error_code: joinResult.error_code,
+      error_message: joinResult.error_message,
+      status: "join_failed",
+    };
+  }
+
+  const retry = await fetchHistoryPage(channel.id, oldest, apiKey, lovableKey, botUserId);
+  if (!retry.ok) {
+    const unresolvedMembership = retry.error_code === "bot_not_invited" || retry.error_code === "not_in_channel";
+    console.warn(`history retry failed for ${channel.id}:`, retry.error_message || retry.error_code);
+    return {
+      messages: [],
+      history_ok: false,
+      join_attempted: true,
+      joined_channel: true,
+      unresolved_membership: unresolvedMembership,
+      error_code: retry.error_code,
+      error_message: retry.error_message,
+      status: "history_failed_after_join",
+    };
+  }
+
+  return {
+    messages: retry.messages,
+    history_ok: true,
+    join_attempted: true,
+    joined_channel: true,
+    unresolved_membership: false,
+    error_code: null,
+    error_message: null,
+    status: "joined_then_scanned",
+  };
 }
 
 async function getBotUserId(apiKey: string, lovableKey: string): Promise<string> {
