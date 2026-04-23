@@ -2339,11 +2339,11 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
             ? `Slack scanned with reduced scopes — public channels only (${(slack_pulse as any)?.degraded_reason || "permission limited"}). Inbound: ${spChannelsScanned} of ${spChannelsMember} member channels (out of ${spChannelsTotal} total), ${spMessagesAnalysed} messages. Outbound: slack_notification_logs.`
             : `Inbound: scanned ${spChannelsScanned} of ${spChannelsMember} member channels (out of ${spChannelsTotal} total), ${spMessagesAnalysed} messages via ceo-slack-pulse. Outbound: slack_notification_logs. Channels Duncan is not a member of are not scanned.`)
         : `Duncan's own outbound notifications only (slack_notification_logs). Slack inbound pulse did not run on this briefing${slack_pulse_error ? ` — error: ${slack_pulse_error}` : ""}.`,
-      hubspot: hubspot_signal
-        ? `HubSpot ${hubspot_signal.status === "connected" ? "connected" : hubspot_signal.status}. Accounts scanned: ${hubspot_signal.accounts_scanned ?? 0}. ${hubspot_signal.summary || hubspot_signal.degraded_reason || "No material CRM signal returned."}`
+      hubspot: normalizedHubspotSignal
+        ? `HubSpot ${normalizedHubspotSignal.status === "connected" ? "connected" : normalizedHubspotSignal.status}. Accounts scanned: ${normalizedHubspotSignal.accounts_scanned ?? 0}. ${normalizedHubspotSignal.metrics_summary || normalizedHubspotSignal.summary || normalizedHubspotSignal.error_message || "No material CRM signal returned."}`
         : `HubSpot summary unavailable${hubspot_signal_error ? ` — error: ${hubspot_signal_error}` : ""}.`,
-      github: github_signal
-        ? `GitHub ${github_signal.status === "connected" ? "connected" : github_signal.status}. Repos scanned: ${github_signal.repos_scanned ?? 0}. ${github_signal.summary || github_signal.degraded_reason || "No material engineering signal returned."}`
+      github: normalizedGithubSignal
+        ? `GitHub ${normalizedGithubSignal.status === "connected" ? "connected" : normalizedGithubSignal.status}. Repos scanned: ${normalizedGithubSignal.repos_scanned ?? 0}. ${normalizedGithubSignal.metrics_summary || normalizedGithubSignal.summary || normalizedGithubSignal.error_message || "No material engineering signal returned."}`
         : `GitHub summary unavailable${github_signal_error ? ` — error: ${github_signal_error}` : ""}.`,
       email: "Per-mailbox 24h scan via ceo-email-pulse for opted-in users only.",
       meetings: "Plaud-ingested transcripts via fetch-plaud-meetings (last 24h for activity, last 10 transcripts for priority signals).",
