@@ -4161,24 +4161,25 @@ Format as a natural, readable summary with clear sections. If a section has no d
 
       for (const tc of toolCalls) {
         try {
-          const rawArguments = tc?.function?.arguments;
-          let args: any = {};
-
-          if (typeof rawArguments === "string" && rawArguments.trim().length > 0) {
-            try {
-              args = JSON.parse(rawArguments);
-            } catch {
-              args = {};
-            }
-          } else {
-            args = {};
-          }
+          const parsedArguments = parseToolArguments(tc);
+          const rawArguments = parsedArguments.rawArguments;
+          const args = parsedArguments.args;
 
           console.log("Executing tool call", {
             toolName: tc?.function?.name,
             rawArguments,
             parsedArgs: args,
+            repairedArguments: parsedArguments.repaired,
+            missingRequired: parsedArguments.missingRequired,
+            parseError: parsedArguments.parseError,
           });
+
+          if (!parsedArguments.valid) {
+            const invalidReason = parsedArguments.parseError
+              ? `Malformed tool arguments: ${parsedArguments.parseError}`
+              : `Missing required arguments: ${parsedArguments.missingRequired.join(", ")}`;
+            throw new Error(invalidReason);
+          }
 
           let result: any;
           
