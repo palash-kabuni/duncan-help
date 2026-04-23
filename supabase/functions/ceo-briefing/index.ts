@@ -1293,29 +1293,53 @@ Deno.serve(async (req) => {
       if (!hubspot_signal_error) hubspot_signal_error = `invoke failed: ${e?.message || e}`;
       if (!github_signal_error) github_signal_error = `invoke failed: ${e?.message || e}`;
     }
-    const normalizedHubspotSignal = {
-      status: hubspot_signal?.status ?? (hubspot_signal_error ? "degraded" : "not_configured"),
-      connected: hubspot_signal?.connected ?? false,
-      accounts_scanned: hubspot_signal?.accounts_scanned ?? 0,
-      stale_deals: hubspot_signal?.stale_deals ?? 0,
-      at_risk_accounts: hubspot_signal?.at_risk_accounts ?? 0,
-      customer_escalations: hubspot_signal?.customer_escalations ?? 0,
-      signals: hubspot_signal?.signals ?? [],
-      summary: hubspot_signal?.summary ?? null,
-      degraded_reason: hubspot_signal?.degraded_reason ?? hubspot_signal_error ?? null,
+    const normalizeExternalSignal = (
+      signal: any,
+      fallbackError: string | null,
+      defaults: Record<string, number>,
+      metricsSummary: (source: any) => string,
+    ) => {
+      const status = signal?.status ?? (fallbackError ? "degraded" : "not_configured");
+      const lastSyncAt = signal?.last_sync_at ?? signal?.last_verified_at ?? signal?.last_sync ?? null;
+      const errorMessage = signal?.error_message ?? signal?.degraded_reason ?? fallbackError ?? null;
+      return {
+        status,
+        connected: signal?.connected ?? false,
+        last_sync_at: lastSyncAt,
+        last_verified_at: signal?.last_verified_at ?? lastSyncAt,
+        error_code: signal?.error_code ?? (fallbackError ? "briefing_fetch_failed" : status === "not_configured" ? "not_configured" : null),
+        error_message: errorMessage,
+        degraded_reason: errorMessage,
+        metrics_summary: signal?.metrics_summary ?? metricsSummary(signal),
+        signals: signal?.signals ?? [],
+        summary: signal?.summary ?? null,
+        ...defaults,
+        ...Object.fromEntries(Object.keys(defaults).map((key) => [key, signal?.[key] ?? defaults[key]])),
+      };
     };
-    const normalizedGithubSignal = {
-      status: github_signal?.status ?? (github_signal_error ? "degraded" : "not_configured"),
-      connected: github_signal?.connected ?? false,
-      repos_scanned: github_signal?.repos_scanned ?? 0,
-      open_prs: github_signal?.open_prs ?? 0,
-      blocked_prs: github_signal?.blocked_prs ?? 0,
-      stale_prs: github_signal?.stale_prs ?? 0,
-      release_risks: github_signal?.release_risks ?? 0,
-      signals: github_signal?.signals ?? [],
-      summary: github_signal?.summary ?? null,
-      degraded_reason: github_signal?.degraded_reason ?? github_signal_error ?? null,
-    };
+    const normalizedHubspotSignal = normalizeExternalSignal(
+      hubspot_signal,
+      hubspot_signal_error,
+      {
+        accounts_scanned: 0,
+        stale_deals: 0,
+        at_risk_accounts: 0,
+        customer_escalations: 0,
+      },
+      (source) => `${Number(source?.stale_deals ?? 0)} stale deals · ${Number(source?.at_risk_accounts ?? 0)} at-risk accounts across ${Number(source?.accounts_scanned ?? 0)} accounts`,
+    );
+    const normalizedGithubSignal = normalizeExternalSignal(
+      github_signal,
+      github_signal_error,
+      {
+        repos_scanned: 0,
+        open_prs: 0,
+        blocked_prs: 0,
+        stale_prs: 0,
+        release_risks: 0,
+      },
+      (source) => `${Number(source?.open_prs ?? 0)} open PRs · ${Number(source?.blocked_prs ?? 0)} blocked · ${Number(source?.stale_prs ?? 0)} stale across ${Number(source?.repos_scanned ?? 0)} repos`,
+    );
     console.log(`[ceo-briefing] email_pulse: ${email_pulse ? 'ok' : 'null'} (err=${email_pulse_error}); slack_pulse: ${slack_pulse ? 'ok' : 'null'} (err=${slack_pulse_error}); hubspot: ${normalizedHubspotSignal.status} (err=${normalizedHubspotSignal.degraded_reason}); github: ${normalizedGithubSignal.status} (err=${normalizedGithubSignal.degraded_reason})`);
 
     // ─── Calendar events for leaders (last 7d) — best-effort, opt-in via google_calendar_tokens ─
