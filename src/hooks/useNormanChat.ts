@@ -15,13 +15,19 @@ export interface ChatAttachment {
   extractedText?: string;
 }
 
-const FUNCTION_BASE_URL = import.meta.env.VITE_SUPABASE_URL
-  ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`
+const rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const normalizedSupabaseUrl =
+  rawSupabaseUrl && rawSupabaseUrl !== "undefined" && rawSupabaseUrl !== "null"
+    ? rawSupabaseUrl
+    : null;
+const FUNCTION_BASE_URL = normalizedSupabaseUrl
+  ? `${normalizedSupabaseUrl}/functions/v1`
   : `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1`;
 const CHAT_URL = `${FUNCTION_BASE_URL}/norman-chat`;
 const EXTRACT_URL = `${FUNCTION_BASE_URL}/extract-chat-file`;
-const FASTAPI_CHAT_URL = import.meta.env.VITE_API_BASE_URL
-  ? `${import.meta.env.VITE_API_BASE_URL}/norman-chat`
+const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+const FASTAPI_CHAT_URL = rawApiBaseUrl && rawApiBaseUrl !== "undefined" && rawApiBaseUrl !== "null"
+  ? `${rawApiBaseUrl}/norman-chat`
   : null;
 const CHAT_REQUEST_TIMEOUT_MS = 90_000;
 
