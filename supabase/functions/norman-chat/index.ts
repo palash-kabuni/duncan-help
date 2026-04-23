@@ -4345,6 +4345,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
             const finalResponse = await fetchAIWithRetry({
               messages: finalMessages,
               stream: true,
+              tools,
             });
 
             const { fullContent: finalContent } = await consumeSSEStream(finalResponse, enqueue);
