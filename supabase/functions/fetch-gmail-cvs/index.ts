@@ -154,12 +154,7 @@ function generateRoleAliases(title: string): string[] {
 
 function buildRoleAwareQuery(title: string): string {
   const attachmentClause = `has:attachment (filename:pdf OR filename:docx OR filename:doc)`;
-  const roleClauses = generateRoleAliases(title)
-    .filter((alias) => alias.length >= 4)
-    .map((alias) => `"${alias}"`);
-  const recruitmentClauses = RECRUITMENT_TERMS.map((term) => `"${term}"`);
-
-  return `${attachmentClause} newer_than:30d (${[...roleClauses, ...recruitmentClauses].join(" OR ")})`;
+  return `${attachmentClause} newer_than:30d subject:"${title.replace(/"/g, '\\"')}"`;
 }
 
 function includesAnyTerm(haystack: string, terms: string[]): boolean {
