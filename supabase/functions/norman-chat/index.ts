@@ -3974,9 +3974,20 @@ Format as a natural, readable summary with clear sections. If a section has no d
 
     // Helper to execute tool calls and return results
     function detectToolResultProvider(toolCalls: any[]): "anthropic" | "openai" {
-      const firstToolId = toolCalls.find((tc) => typeof tc?.id === "string")?.id || "";
-      if (firstToolId.startsWith("toolu_")) return "anthropic";
-      if (firstToolId.startsWith("call_")) return "openai";
+      const firstTool = toolCalls.find((tc) => tc && typeof tc === "object");
+      const toolId = typeof firstTool?.id === "string" ? firstTool.id : "";
+
+      if (!toolId) {
+        console.warn("Tool call ID missing, using fallback provider", toolCalls);
+      }
+
+      if (toolId.startsWith("toolu_")) return "anthropic";
+      if (toolId.startsWith("call_")) return "openai";
+
+      if (firstTool?.type === "function") {
+        return "openai";
+      }
+
       return "openai";
     }
 
