@@ -3760,6 +3760,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
           tool_choice: body.tool_choice,
           temperature: body.temperature,
           max_tokens: body.max_tokens,
+          force_provider: body.force_provider,
+          model_override: body.model_override,
         });
         return new Response(stream, {
           status: 200,
@@ -3807,7 +3809,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
     async function consumeSSEStream(
       streamResponse: Response,
       onChunk?: (chunk: string) => void,
-    ): Promise<{ fullContent: string; toolCalls: any[] }> {
+    ): Promise<{ fullContent: string; toolCalls: any[]; finishReason: string | null; sawAnyDelta: boolean; sawContentDelta: boolean; sawToolDelta: boolean }> {
       const reader = streamResponse.body!.getReader();
       const decoder = new TextDecoder();
       const TEXT_INACTIVITY_TIMEOUT_MS = Number.POSITIVE_INFINITY;
@@ -3821,6 +3823,10 @@ Format as a natural, readable summary with clear sections. If a section has no d
       const startTime = Date.now();
       let lastChunkTime = startTime;
       let hasToolCallStarted = false;
+      let finishReason: string | null = null;
+      let sawAnyDelta = false;
+      let sawContentDelta = false;
+      let sawToolDelta = false;
 
       const hasToolName = (toolCall: any) => {
         const name = toolCall?.function?.name;
@@ -3867,14 +3873,26 @@ Format as a natural, readable summary with clear sections. If a section has no d
 
             try {
               const parsed = JSON.parse(jsonStr);
+              if (parsed?.error) {
+                console.error("LLM stream payload error:", parsed.error);
+              }
               const delta = parsed.choices?.[0]?.delta;
+              const chunkFinishReason = parsed.choices?.[0]?.finish_reason;
+
+              if (chunkFinishReason) {
+                finishReason = chunkFinishReason;
+              }
 
               if (delta?.content) {
                 fullContent += delta.content;
+                sawAnyDelta = true;
+                sawContentDelta = true;
               }
 
               if (delta?.tool_calls) {
                 hasToolCallStarted = true;
+                sawAnyDelta = true;
+                sawToolDelta = true;
                 for (const tc of delta.tool_calls) {
                   const index = tc.index;
                   if (!toolCalls[index]) {
@@ -3949,11 +3967,19 @@ Format as a natural, readable summary with clear sections. If a section has no d
          fullContentLength: fullContent?.length || 0,
          preview: fullContent?.slice(0, 200),
          toolCallsLength: capturedToolCalls?.length || 0,
+          finishReason,
+          sawAnyDelta,
+          sawContentDelta,
+          sawToolDelta,
        });
 
        return {
          fullContent,
          toolCalls: capturedToolCalls.map(({ _debug, ...toolCall }: any) => toolCall),
+          finishReason,
+          sawAnyDelta,
+          sawContentDelta,
+          sawToolDelta,
        };
     }
 
