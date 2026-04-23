@@ -4340,11 +4340,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
           if (lastRoundHadToolCalls || !lastFullContent || !aggregatedContent || aggregatedContent.trim().length < 20 || needsFinalAnswer) {
             console.log("FORCING FINAL SYNTHESIS CALL");
 
-            const finalMessages = [
-              { role: "system", content: systemContent },
-              ...messages,
-              ...conversationMessages.slice(messages.length + 1),
-            ];
+            const finalMessages = conversationMessages;
 
             const finalResponse = await fetchAIWithRetry({
               messages: finalMessages,
