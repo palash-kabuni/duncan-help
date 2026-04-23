@@ -60,12 +60,26 @@ interface HistoryFetchResult {
   status: "ok" | "joined_then_scanned" | "join_failed" | "history_failed" | "history_failed_after_join";
 }
 
-async function slackCall(
+interface SlackApiResponse {
+  status: number;
+  headers: Headers;
+  data: any;
+}
+
+interface SlackAuthStatus {
+  ok: boolean;
+  user_id: string;
+  team_id: string | null;
+  scopes: string[];
+  missingJoinScope: boolean;
+}
+
+async function slackCallDetailed(
   endpoint: string,
   params: Record<string, string>,
   apiKey: string,
   lovableKey: string,
-): Promise<any> {
+): Promise<SlackApiResponse> {
   const qs = new URLSearchParams(params).toString();
   const url = `${GATEWAY_URL}/${endpoint}${qs ? `?${qs}` : ""}`;
   const res = await fetch(url, {
@@ -76,10 +90,69 @@ async function slackCall(
     },
   });
   const data = await res.json().catch(() => ({}));
+  return {
+    status: res.status,
+    headers: res.headers,
+    data,
+  };
+}
+
+async function slackCall(
+  endpoint: string,
+  params: Record<string, string>,
+  apiKey: string,
+  lovableKey: string,
+): Promise<any> {
+  const { status, data } = await slackCallDetailed(endpoint, params, apiKey, lovableKey);
   if (!res.ok) {
-    throw new Error(`Slack ${endpoint} HTTP ${res.status}: ${JSON.stringify(data).slice(0, 200)}`);
+    throw new Error(`Slack ${endpoint} HTTP ${status}: ${JSON.stringify(data).slice(0, 200)}`);
   }
   return data;
+}
+
+function extractScopesFromHeaders(headers: Headers): string[] {
+  const raw = headers.get("x-oauth-scopes") || headers.get("X-OAuth-Scopes") || "";
+  return raw
+    .split(",")
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+}
+
+async function getSlackAuthStatus(apiKey: string, lovableKey: string): Promise<SlackAuthStatus> {
+  try {
+    const { status, headers, data } = await slackCallDetailed("auth.test", {}, apiKey, lovableKey);
+    const scopes = Array.from(new Set([
+      ...extractScopesFromHeaders(headers),
+      ...(Array.isArray(data?.scopes) ? data.scopes : []),
+      ...(typeof data?.scope === "string"
+        ? data.scope.split(",").map((scope: string) => scope.trim()).filter(Boolean)
+        : []),
+    ]));
+
+    console.info("[ceo-slack-pulse] auth.test", {
+      http_status: status,
+      user_id: data?.user_id || "",
+      team_id: data?.team_id || null,
+      scopes,
+    });
+
+    return {
+      ok: status >= 200 && status < 300 && !!data?.ok,
+      user_id: data?.user_id || "",
+      team_id: data?.team_id || null,
+      scopes,
+      missingJoinScope: !scopes.includes("channels:join"),
+    };
+  } catch (e) {
+    console.warn("[ceo-slack-pulse] auth.test failed", e);
+    return {
+      ok: false,
+      user_id: "",
+      team_id: null,
+      scopes: [],
+      missingJoinScope: true,
+    };
+  }
 }
 
 async function listAllChannels(
@@ -223,23 +296,45 @@ async function joinPublicChannel(
   channelId: string,
   apiKey: string,
   lovableKey: string,
-): Promise<{ ok: boolean; error_code: string | null; error_message: string | null }> {
+): Promise<{ ok: boolean; http_status: number | null; error_code: string | null; error_message: string | null }> {
   try {
-    const data = await slackCall("conversations.join", { channel: channelId }, apiKey, lovableKey);
+    console.info("[ceo-slack-pulse] conversations.join attempt", { channel_id: channelId });
+    const { status, data } = await slackCallDetailed("conversations.join", { channel: channelId }, apiKey, lovableKey);
     if (!data.ok) {
+      const errorCode = String(data.error || "unknown");
+      console.warn("[ceo-slack-pulse] conversations.join failed", {
+        channel_id: channelId,
+        http_status: status,
+        error_code: errorCode,
+      });
       return {
         ok: false,
-        error_code: String(data.error || "unknown"),
-        error_message: `conversations.join error: ${String(data.error || "unknown")}`,
+        http_status: status,
+        error_code: errorCode,
+        error_message: `conversations.join error: ${errorCode}`,
       };
     }
 
-    return { ok: true, error_code: null, error_message: null };
+    console.info("[ceo-slack-pulse] conversations.join succeeded", {
+      channel_id: channelId,
+      http_status: status,
+    });
+
+    return { ok: true, http_status: status, error_code: null, error_message: null };
   } catch (e) {
+    const errorCode = parseSlackApiError(e);
+    const message = String(e);
+    const httpStatus = Number(message.match(/HTTP\s+(\d{3})/i)?.[1] || "") || null;
+    console.warn("[ceo-slack-pulse] conversations.join failed", {
+      channel_id: channelId,
+      http_status: httpStatus,
+      error_code: errorCode,
+    });
     return {
       ok: false,
-      error_code: parseSlackApiError(e),
-      error_message: String(e),
+      http_status: httpStatus,
+      error_code: errorCode,
+      error_message: message,
     };
   }
 }
@@ -250,6 +345,7 @@ async function fetchChannelHistory(
   apiKey: string,
   lovableKey: string,
   botUserId: string,
+  autoJoinDisabledReason: string | null,
 ): Promise<HistoryFetchResult> {
   const initial = await fetchHistoryPage(channel.id, oldest, apiKey, lovableKey, botUserId);
   if (initial.ok) {
@@ -280,9 +376,26 @@ async function fetchChannelHistory(
     };
   }
 
+  if (autoJoinDisabledReason) {
+    console.warn("[ceo-slack-pulse] auto-join skipped", {
+      channel_id: channel.id,
+      reason: autoJoinDisabledReason,
+      history_error: initial.error_code,
+    });
+    return {
+      messages: [],
+      history_ok: false,
+      join_attempted: false,
+      joined_channel: false,
+      unresolved_membership: true,
+      error_code: autoJoinDisabledReason,
+      error_message: `auto-join skipped: ${autoJoinDisabledReason}`,
+      status: "join_failed",
+    };
+  }
+
   const joinResult = await joinPublicChannel(channel.id, apiKey, lovableKey);
   if (!joinResult.ok) {
-    console.warn(`join failed for ${channel.id}:`, joinResult.error_message || joinResult.error_code);
     return {
       messages: [],
       history_ok: false,
