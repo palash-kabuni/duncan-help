@@ -3682,6 +3682,35 @@ Format as a natural, readable summary with clear sections. If a section has no d
     const SIMPLE_INPUT_PATTERNS = [/^hi[!.?\s]*$/i, /^hello[!.?\s]*$/i, /^how are you[?.!\s]*$/i];
     const MAX_TOOL_ROUNDS = 2;
     const MAX_EXECUTION_TIME_MS = 20_000;
+    const MAX_RESPONSE_TOKENS = 1200;
+
+    function trimToolResultForLLM(value: any): any {
+      if (Array.isArray(value)) {
+        return value.map(trimToolResultForLLM);
+      }
+
+      if (!value || typeof value !== "object") {
+        return value;
+      }
+
+      const trimmed: Record<string, any> = {};
+      for (const [key, nestedValue] of Object.entries(value)) {
+        if (Array.isArray(nestedValue)) {
+          const lowerKey = key.toLowerCase();
+          if (lowerKey.includes("meeting")) {
+            trimmed[key] = nestedValue.slice(0, 3).map(trimToolResultForLLM);
+          } else if (lowerKey.includes("task")) {
+            trimmed[key] = nestedValue.slice(0, 5).map(trimToolResultForLLM);
+          } else {
+            trimmed[key] = nestedValue.map(trimToolResultForLLM);
+          }
+        } else {
+          trimmed[key] = trimToolResultForLLM(nestedValue);
+        }
+      }
+
+      return trimmed;
+    }
 
     function extractPlainText(content: unknown): string {
       if (typeof content === "string") return content;
@@ -3700,6 +3729,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
       latestUserText.length > 0 &&
       (latestUserText.length < 20 || SIMPLE_INPUT_PATTERNS.some((pattern) => pattern.test(latestUserText)));
 
+    systemContent += "\n\nAlways respond in 3 sections:\n\nSchedule:\n\nTasks:\n\nPriorities:\n\nNever cut sentences.\nAlways complete all fields.";
+
     // First call to AI with tools if calendar is connected
     const requestBody: any = {
       model: "gpt-4.1",
@@ -3708,6 +3739,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
         ...messages,
       ],
       stream: true,
+      max_tokens: MAX_RESPONSE_TOKENS,
     };
 
     // Include tools based on what's connected
