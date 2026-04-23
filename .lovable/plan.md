@@ -1,121 +1,159 @@
 
-Goal: eliminate the persistent 401 state for HubSpot and GitHub when valid credentials exist, while preserving explicit `degraded` / `not_configured` behavior for invalid or absent credentials.
+Goal
 
-Current diagnosis
-- HubSpot is currently failing from the stored-token path, not the connector path.
-  - Latest runtime log: `hubspot_invalid_token`
-  - Provider response: `401`
-  - Upstream message: `Authentication credentials not found. This API supports OAuth 2.0 authentication...`
-- GitHub is also currently failing from the stored-token path.
-  - Latest runtime log: `github_invalid_token`
-  - Provider response: `401`
-  - Upstream message: `Bad credentials`
-- Workspace/project connector state confirms the root cause:
-  - Only Slack is linked to this project.
-  - No HubSpot connector is linked.
-  - No GitHub connector is linked.
-- Because no HubSpot/GitHub connector secrets are available, the runtime falls back to `company_integrations.encrypted_api_key`.
-- The stored credentials being used for both providers are currently invalid for the verification endpoints, so the UI is correctly showing failure, but not because the runtime path is healthy.
+Create a production-grade Claude Code prompt that instructs Claude to design and build a separate local agentic AI layer for Duncan, without changing the current Duncan frontend, Edge Function interfaces, tool flow, streaming contract, or model usage today.
 
-What to build
-1. Tighten the runtime diagnosis so the UI distinguishes:
-- invalid stored token
-- missing stored token
-- connector not linked to project
-- connector linked but verification failed
-- insufficient scope
-- expired/revoked token
-- verification-flow mismatch
+What will be delivered
 
-2. Prefer connector-backed credentials when available, but make the source explicit in health payloads
-- Add a non-sensitive `credential_source` field to HubSpot/GitHub runtime responses:
-  - `connector_gateway`
-  - `stored_token`
-  - `none`
-- Keep current fields intact for backward compatibility.
+1. A single Claude Code master prompt the user can paste directly into Claude Code.
+2. The prompt will be tailored to Duncan’s current architecture:
+   - shared LLM router in `supabase/functions/_shared/llm.ts`
+   - `norman-chat` as the main orchestration layer
+   - existing SSE/OpenAI-shaped streaming expectations
+   - current provider routing where Claude and OpenAI already coexist
+   - direct OpenAI embedding dependencies that must remain untouched for now
+3. The prompt will explicitly tell Claude Code to build the new layer as a parallel, local service and not to modify Duncan’s live workflows yet.
 
-3. Harden status semantics so `connected` only appears when the exact credential source used at runtime passes verification
-- If connector secrets exist and verification passes: `connected`
-- If connector secrets exist and verification fails: `degraded`
-- If no connector secrets exist but a stored token exists and passes verification: `connected`
-- If no connector secrets exist and no stored token exists: `not_configured`
-- If stored token exists and fails verification: `degraded`
+Planned structure of the Claude Code prompt
 
-4. Improve UI messaging so the 401 cause is diagnosable in both Team Briefing and Integrations
-- Surface short, non-sensitive reason text based on `error_code`
-- Show whether the failing source is the project connector or stored company token
-- Keep current always-visible HubSpot/GitHub tiles in Comms Pulse
+1. Objective
+- Build a local agentic intelligence/orchestration layer that sits between Duncan and future model providers.
+- Preserve current Duncan behavior exactly.
+- Keep OpenAI models and current routing active for now.
+- Prepare for a future swap from OpenAI-based intelligence paths to Claude-agent-backed reasoning.
 
-Implementation steps
-1. Update `supabase/functions/hubspot-api/index.ts`
-- Add explicit response metadata:
-  - `credential_source`
-  - `verification_path`
-- Split the current connector/stored-token branches into clearly logged outcomes:
-  - connector unavailable
-  - connector verification failed
-  - stored token missing
-  - stored token invalid
-- Refine HubSpot 401 classification to map the current upstream message (`Authentication credentials not found`) to a clearer code such as:
-  - `hubspot_missing_oauth_token` or `hubspot_invalid_token`
-- Preserve existing stable fields:
-  - `status`, `connected`, `last_sync_at`, `error_code`, `error_message`, `metrics_summary`
+2. Current Duncan architecture context
+- Duncan frontend remains unchanged.
+- Lovable backend / Edge Functions remain the system boundary.
+- Current shared LLM router already abstracts provider calls.
+- `norman-chat` owns most tool definitions, reasoning loop behavior, and streaming expectations.
+- Some workflows still call OpenAI directly for embeddings and file-related operations.
+- The new local layer must be designed around this hybrid reality.
 
-2. Update `supabase/functions/github-api/index.ts`
-- Add the same metadata:
-  - `credential_source`
-  - `verification_path`
-- Keep stored-token verification against `/user`, but classify `Bad credentials` explicitly and consistently
-- Preserve the same stable response contract
+3. Non-goals
+- No replacement of OpenAI in current production flows.
+- No edits to frontend request/response contracts.
+- No changes to existing tool schemas, SSE parsing, streaming format, auth flow, or connector logic.
+- No migration of embeddings yet.
+- No breaking changes to `norman-chat` or `_shared/llm.ts`.
 
-3. Update `supabase/functions/manage-company-integration/index.ts`
-- Align connect-time verification output with runtime output
-- Store or return richer diagnostics so a token that fails at connect-time is visibly the same class of failure seen at runtime
-- Do not change token storage mechanics beyond diagnosis and status accuracy
+4. Required outputs from Claude Code
+- Architecture proposal
+- Local service folder structure
+- OpenAI-compatible adapter contract
+- Agent orchestration design
+- Provider abstraction design
+- Observability/logging strategy
+- Integration plan for future cutover
+- Rollback strategy
+- Incremental milestone plan
 
-4. Update `supabase/functions/ceo-briefing/index.ts`
-- Preserve the existing normalized payload contract
-- Add passthrough support for the new additive fields:
-  - `credential_source`
-  - `verification_path`
-- Keep backward compatibility for existing briefing payload readers
+5. Required design constraints for the new local layer
+- Must be external/parallel to Duncan’s current workflow
+- Must support OpenAI-compatible request/response shapes
+- Must support OpenAI-style SSE delta streaming
+- Must support tool-call normalization compatible with Duncan
+- Must allow future provider swap to Claude agents without frontend changes
+- Must preserve Duncan’s existing backend authority over auth, RLS-protected data, and tool execution
 
-5. Update `src/components/ceo/CommsPulseCard.tsx`
-- Continue rendering HubSpot/GitHub in all states
-- Add compact display of:
-  - credential source
-  - clearer failure reason text
-  - existing error code
-- No change to broader card layout or other comms tiles
+6. Future-ready architecture requirement
+- Phase 1: local layer acts as a compatibility adapter and orchestration service only
+- Phase 2: local layer can add planning, memory, routing, retries, and multi-step agent execution
+- Phase 3: Duncan can optionally redirect `_shared/llm.ts` to this service
+- Phase 4: selective workflows can migrate one by one
+- Phase 5: future Claude-agent replacement can occur behind the same contract
 
-6. Update `src/pages/Integrations.tsx`
-- Use runtime status detail to show the exact source of failure
-- Replace generic “pending/degraded” messaging with diagnosable labels such as:
-  - “Stored token invalid”
-  - “Connector not linked”
-  - “Missing required permissions”
-- Keep overall integration card behavior unchanged
+Key technical guidance the prompt will include
 
-Expected outcome
-- The UI will stop showing ambiguous 401 failures and instead show exactly why HubSpot/GitHub are degraded.
-- If valid connector credentials are linked to the project, runtime status will move to `connected`.
-- If valid stored tokens are present, runtime status will also move to `connected`.
-- If credentials remain invalid, the UI will still show `degraded`, but with a precise, diagnosable cause.
+- The safest insertion point for future migration is the shared LLM router, not the frontend.
+- `norman-chat` should remain the tool execution authority initially.
+- The local layer should not assume access to Duncan DB secrets or connectors.
+- The local layer should expose stable APIs that mirror current Duncan expectations.
+- The design must account for direct embedding calls still using OpenAI.
+- The design must separate:
+  - provider adapters
+  - agent planner/orchestrator
+  - tool-call contract normalization
+  - streaming formatter
+  - observability and trace IDs
 
-Verification to perform after implementation
-- HubSpot:
-  - no credential → `not_configured`
-  - invalid stored token → `degraded`
-  - valid connector or valid stored token → `connected`
-- GitHub:
-  - no credential → `not_configured`
-  - invalid stored token → `degraded`
-  - valid stored token → `connected`
-- Confirm logs show:
-  - credential source used
-  - provider status
-  - classified `error_code`
-  - no secret leakage
+Expected Claude Code output requirements
 
-Important finding to act on first
-- Right now this project does not have HubSpot or GitHub connectors linked at all, so even perfect connector logic cannot make them connected until those connections are linked or valid company tokens are supplied.
+Claude Code will be instructed to produce:
+- a concrete architecture document
+- service modules and responsibilities
+- API contract definitions
+- sample OpenAI-compatible endpoints
+- sample streaming event format
+- integration map back to Duncan
+- phased implementation roadmap
+- risk list with mitigations
+- explicit list of what must remain unchanged in Duncan
+
+Feasibility assessment to encode into the prompt
+
+High feasibility if built as a separate local service first.
+Medium feasibility for future gradual cutover.
+Low feasibility if attempting “zero backend change forever,” because eventual routing changes will still be needed to adopt the new layer.
+Best strategy: build now in isolation, integrate later through the shared router.
+
+Main challenges the prompt will ask Claude Code to handle
+
+- Contract compatibility with existing Duncan SSE behavior
+- Tool-call normalization for `norman-chat`
+- Preserving streaming semantics
+- Avoiding changes to current workflows
+- Supporting future Claude-agent swap without redesign
+- Handling hybrid provider reality during migration
+- Tracing/debugging across Duncan and the local layer
+- Latency introduced by an extra hop
+- Keeping backend data/tool authority inside Duncan
+
+Implementation phases that the prompt will ask Claude Code to plan
+
+Phase 1
+- Analyze Duncan integration boundaries and define compatibility interfaces
+
+Phase 2
+- Build local provider abstraction and OpenAI-compatible adapter endpoints
+
+Phase 3
+- Add internal agent orchestration primitives:
+  - planner
+  - executor
+  - memory/session abstraction
+  - tool intent normalization
+
+Phase 4
+- Add observability:
+  - request IDs
+  - per-step traces
+  - stream lifecycle logs
+  - latency/error reporting
+
+Phase 5
+- Produce future integration instructions for Duncan without applying them now
+
+Technical details
+
+Relevant existing Duncan architecture:
+- Shared router: `supabase/functions/_shared/llm.ts`
+- Main orchestration engine: `supabase/functions/norman-chat/index.ts`
+- Frontend general edge invoke helper: `src/lib/edgeApi.ts`
+- Current provider setup:
+  - Claude primary for `norman-chat`
+  - OpenAI fallback in shared router
+  - OpenAI embeddings remain in several direct code paths
+- Important compatibility requirement:
+  Duncan expects OpenAI-shaped non-streaming responses and OpenAI-shaped SSE delta streams.
+
+Final outcome after approval
+
+I will produce the actual Claude Code prompt in a copy-paste-ready format, written as a strict engineering brief with:
+- Duncan-specific architecture context
+- hard constraints
+- non-goals
+- exact deliverables
+- phased build instructions
+- acceptance criteria
+- migration boundaries
