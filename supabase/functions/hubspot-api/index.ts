@@ -362,7 +362,11 @@ Deno.serve(async (req) => {
         hubspotGateway("/crm/v3/objects/companies?limit=25&properties=name,hs_lastmodifieddate,hubspotscore", LOVABLE_API_KEY, HUBSPOT_API_KEY),
         hubspotGateway("/crm/v3/objects/deals?limit=25&properties=dealname,dealstage,hs_lastmodifieddate,amount", LOVABLE_API_KEY, HUBSPOT_API_KEY),
       ]);
-      return json(summarise(companies, deals, verifiedAt, null, null,));
+      return json({
+        ...summarise(companies, deals, verifiedAt),
+        credential_source: "connector_gateway",
+        verification_path: "/api/v1/verify_credentials",
+      });
     }
 
     logHubspot("credential source", { source: "stored_token", connector_available: false });
