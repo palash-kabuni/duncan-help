@@ -32,6 +32,26 @@ import { useIsAdmin } from "@/hooks/useUserRoles";
 type IntegrationStatus = "connected" | "pending" | "disconnected";
 type IntegrationType = "user" | "company";
 
+const getRuntimeStatusLabel = (detail: any | null | undefined) => {
+  if (!detail) return null;
+  const source = detail.credential_source === "connector_gateway"
+    ? "Connector"
+    : detail.credential_source === "stored_token"
+    ? "Stored token"
+    : "No credential";
+
+  const code = String(detail.error_code || "");
+  if (!code) return detail.status === "connected" ? `${source} verified` : null;
+
+  if (code.includes("not_configured") || code.includes("missing")) return `${source} missing`;
+  if (code.includes("insufficient_scope")) return `${source} missing permissions`;
+  if (code.includes("expired")) return `${source} expired or revoked`;
+  if (code.includes("mismatch")) return `${source} verification mismatch`;
+  if (code.includes("invalid_token") || code.includes("invalid")) return `${source} invalid`;
+  if (code.includes("rate_limited")) return `${source} rate limited`;
+  return `${source} ${code.replace(/_/g, " ")}`;
+};
+
 interface Integration {
   id: string;
   name: string;
@@ -371,11 +391,7 @@ const Integrations = () => {
     return getStatus(integration, userIntegrations, companyIntegrations);
   };
 
-  const conditionallyHiddenIntegrationIds = new Set(["hubspot", "github"]);
-  const visibleIntegrations = baseVisibleIntegrations.filter((integration) => {
-    if (!conditionallyHiddenIntegrationIds.has(integration.id)) return true;
-    return getRealtimeStatus(integration) === "connected";
-  });
+  const visibleIntegrations = baseVisibleIntegrations;
 
   const categories = ["all", ...Array.from(new Set(visibleIntegrations.map((i) => i.category)))];
   const filtered = filter === "all" ? visibleIntegrations : visibleIntegrations.filter((i) => i.category === filter);
