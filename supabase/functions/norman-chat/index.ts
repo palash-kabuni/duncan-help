@@ -3973,7 +3973,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
     }
 
     // Helper to execute tool calls and return results
-    const routedProvider: Provider = WORKFLOW_ROUTING["norman-chat"]?.primary === "claude" ? "anthropic" : "openai";
+    const routedProvider: "anthropic" | "openai" = WORKFLOW_ROUTING["norman-chat"]?.primary === "claude" ? "anthropic" : "openai";
 
     function detectToolResultProvider(toolCalls: any[]): "anthropic" | "openai" {
       const firstToolId = toolCalls.find((tc) => typeof tc?.id === "string")?.id ?? "";
