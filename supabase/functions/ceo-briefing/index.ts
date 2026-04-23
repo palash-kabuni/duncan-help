@@ -1305,6 +1305,8 @@ Deno.serve(async (req) => {
       return {
         status,
         connected: signal?.connected ?? false,
+        credential_source: signal?.credential_source ?? (status === "not_configured" ? "none" : null),
+        verification_path: signal?.verification_path ?? null,
         last_sync_at: lastSyncAt,
         last_verified_at: signal?.last_verified_at ?? lastSyncAt,
         error_code: signal?.error_code ?? (fallbackError ? "briefing_fetch_failed" : status === "not_configured" ? "not_configured" : null),
@@ -3720,6 +3722,8 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
     parsed.payload.hubspot_signal = {
       status: normalizedHubspotSignal.status,
       connected: normalizedHubspotSignal.connected,
+      credential_source: normalizedHubspotSignal.credential_source,
+      verification_path: normalizedHubspotSignal.verification_path,
       last_sync_at: normalizedHubspotSignal.last_sync_at,
       error_code: normalizedHubspotSignal.error_code,
       error_message: normalizedHubspotSignal.error_message,
@@ -3736,6 +3740,8 @@ ULTRA COMPACT MODE (LAST ATTEMPT, MANDATORY):
     parsed.payload.github_signal = {
       status: normalizedGithubSignal.status,
       connected: normalizedGithubSignal.connected,
+      credential_source: normalizedGithubSignal.credential_source,
+      verification_path: normalizedGithubSignal.verification_path,
       last_sync_at: normalizedGithubSignal.last_sync_at,
       error_code: normalizedGithubSignal.error_code,
       error_message: normalizedGithubSignal.error_message,
