@@ -4356,7 +4356,11 @@ Format as a natural, readable summary with clear sections. If a section has no d
       return sanitized;
     }
 
-    async function recoverEmptyCompletion(baseMessages: any[]): Promise<string> {
+    async function recoverEmptyCompletion(baseMessages: any[]): Promise<{
+      fullContent: string;
+      toolCalls: any[];
+      hadIncompleteToolCall: boolean;
+    }> {
       const recoveryMessages = [
         ...sanitizeConversationMessages(baseMessages),
         {
@@ -4394,12 +4398,28 @@ Format as a natural, readable summary with clear sections. If a section has no d
           sawAnyDelta: recoveryResult.sawAnyDelta,
         });
 
+        if (recoveryResult.toolCalls.length > 0 && !recoveryResult.hadIncompleteToolCall) {
+          return {
+            fullContent: recoveryResult.fullContent,
+            toolCalls: recoveryResult.toolCalls,
+            hadIncompleteToolCall: false,
+          };
+        }
+
         if (recoveryResult.fullContent.trim().length > 0) {
-          return recoveryResult.fullContent;
+          return {
+            fullContent: recoveryResult.fullContent,
+            toolCalls: [],
+            hadIncompleteToolCall: recoveryResult.hadIncompleteToolCall,
+          };
         }
       }
 
-      return "I couldn’t complete the synthesis for this request. Please retry.";
+      return {
+        fullContent: "I couldn’t complete the synthesis for this request. Please retry.",
+        toolCalls: [],
+        hadIncompleteToolCall: false,
+      };
     }
 
     const encoder = new TextEncoder();
