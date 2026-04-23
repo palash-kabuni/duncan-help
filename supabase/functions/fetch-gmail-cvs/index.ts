@@ -526,6 +526,10 @@ serve(async (req) => {
       const subject = msgHeaders.find((h: any) => h.name.toLowerCase() === "subject")?.value || "";
       const snippet = msgData.snippet || "";
 
+      if (selectedRole && !subjectMatchesRole(subject, selectedRole.title)) {
+        continue;
+      }
+
       // Role matching with confidence enforcement
       const roleMatch = selectedRole ? null : matchRoleToSubject(subject, activeRoles);
       const matchedRoleId = selectedRole
