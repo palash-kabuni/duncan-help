@@ -495,17 +495,15 @@ serve(async (req) => {
       : `has:attachment (filename:pdf OR filename:docx OR filename:doc)`;
     console.log("Gmail search query:", query);
 
-    const searchUrl = new URL(`${GMAIL_API}/messages`);
-    searchUrl.searchParams.set("q", query);
-    searchUrl.searchParams.set("maxResults", selectedRole ? "100" : "50");
+    const searchOutcome = await fetchMatchingMessages(query, gmailHeaders, Boolean(selectedRole));
+    const messages = searchOutcome.messages;
 
-    const searchRes = await fetch(searchUrl.toString(), { headers: gmailHeaders });
-    if (!searchRes.ok) {
-      throw new Error(`Gmail search failed: ${await searchRes.text()}`);
-    }
-
-    const searchData = await searchRes.json();
-    const messages = searchData.messages || [];
+    console.log("Gmail search coverage:", {
+      selectedRole: selectedRole?.title ?? null,
+      totalMessages: messages.length,
+      pagesFetched: searchOutcome.pagesFetched,
+      exhausted: searchOutcome.exhausted,
+    });
 
     let ingested = 0;
     let skipped = 0;
@@ -524,11 +522,12 @@ serve(async (req) => {
       const snippet = msgData.snippet || "";
 
       // Role matching with confidence enforcement
-      const roleMatch = matchRoleToSubject(subject, activeRoles);
-      // Only assign role on exact or high confidence
-      const matchedRoleId = (roleMatch && (roleMatch.confidence === "exact" || roleMatch.confidence === "high"))
-        ? roleMatch.roleId
-        : null;
+      const roleMatch = selectedRole ? null : matchRoleToSubject(subject, activeRoles);
+      const matchedRoleId = selectedRole
+        ? selectedRole.id
+        : (roleMatch && (roleMatch.confidence === "exact" || roleMatch.confidence === "high"))
+          ? roleMatch.roleId
+          : null;
       const matchedRoleTitle = matchedRoleId
         ? activeRoles.find((r: any) => r.id === matchedRoleId)?.title || null
         : null;
@@ -559,6 +558,7 @@ serve(async (req) => {
         snippet,
         cvAttachments.map((attachment) => attachment.filename),
         selectedRole?.title || matchedRoleTitle,
+        { selectedRoleMode: Boolean(selectedRole) },
       );
 
       if (!attachmentGate.accepted) {
@@ -569,6 +569,8 @@ serve(async (req) => {
             snippet,
             filenames: cvAttachments.map((attachment) => attachment.filename),
             reason: attachmentGate.reason,
+            recruitmentSignal: attachmentGate.recruitmentSignal,
+            roleSignal: attachmentGate.roleSignal,
           });
         }
         skipped++;
@@ -632,7 +634,7 @@ serve(async (req) => {
             details.push({
               gmail_message_id: msg.id, filename: cv.filename,
               outcome: "reprocessed", candidate_id: existingExact.id,
-              role_title: matchedRoleTitle || undefined,
+              role_title: matchedRoleTitle || selectedRole?.title || undefined,
             });
             ingested++;
             continue;
@@ -801,8 +803,8 @@ serve(async (req) => {
           gmail_message_id: msg.id, filename: cv.filename,
           outcome: matchedRoleId ? "ingested" : "unmatched",
           candidate_id: candidate.id,
-          role_title: matchedRoleTitle || undefined,
-          confidence: roleMatch?.confidence,
+          role_title: matchedRoleTitle || selectedRole?.title || undefined,
+          confidence: selectedRole ? "selected_role" : roleMatch?.confidence,
         });
       }
     }
@@ -815,6 +817,8 @@ serve(async (req) => {
         unmatched,
         parse_failed: parseFailed,
         total_messages: messages.length,
+        pages_fetched: searchOutcome.pagesFetched,
+        search_exhausted: searchOutcome.exhausted,
         candidates: results,
         details,
       }),
