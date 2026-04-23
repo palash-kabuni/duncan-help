@@ -4330,12 +4330,15 @@ Format as a natural, readable summary with clear sections. If a section has no d
 
             conversationMessages.push(assistantMsg, ...toolResults);
 
+            console.log("TOOL RESULTS BEING SENT:");
+            console.log(JSON.stringify(toolResults, null, 2));
+
             const isLastRound = round >= MAX_TOOL_ROUNDS;
             if (Date.now() - executionStart >= MAX_EXECUTION_TIME_MS) {
               console.log(`Stopping before follow-up LLM call due to hard execution limit`);
               break;
             }
-            console.log("FINAL CONVERSATION SENT TO LLM:");
+            console.log("FINAL CONVERSATION BEFORE LLM:");
             console.log(JSON.stringify(conversationMessages, null, 2));
             const followupRequestBody = {
               model: "gpt-4.1",
@@ -4349,8 +4352,11 @@ Format as a natural, readable summary with clear sections. If a section has no d
             });
             currentResponse = await fetchAIWithRetry(followupRequestBody);
 
+            console.log("SECOND LLM RESPONSE STATUS:", currentResponse.status);
+
             if (!currentResponse.ok) {
               const text = await currentResponse.text();
+              console.error("LLM ERROR RESPONSE:", text);
               console.error(`Follow-up AI error (round ${round}):`, text);
               throw new Error("Failed to process tool results");
             }
