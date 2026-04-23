@@ -3760,6 +3760,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
           tool_choice: body.tool_choice,
           temperature: body.temperature,
           max_tokens: body.max_tokens,
+          force_provider: body.force_provider,
+          model_override: body.model_override,
         });
         return new Response(stream, {
           status: 200,
@@ -3807,7 +3809,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
     async function consumeSSEStream(
       streamResponse: Response,
       onChunk?: (chunk: string) => void,
-    ): Promise<{ fullContent: string; toolCalls: any[] }> {
+    ): Promise<{ fullContent: string; toolCalls: any[]; finishReason: string | null; sawAnyDelta: boolean; sawContentDelta: boolean; sawToolDelta: boolean }> {
       const reader = streamResponse.body!.getReader();
       const decoder = new TextDecoder();
       const TEXT_INACTIVITY_TIMEOUT_MS = Number.POSITIVE_INFINITY;
@@ -3821,6 +3823,10 @@ Format as a natural, readable summary with clear sections. If a section has no d
       const startTime = Date.now();
       let lastChunkTime = startTime;
       let hasToolCallStarted = false;
+      let finishReason: string | null = null;
+      let sawAnyDelta = false;
+      let sawContentDelta = false;
+      let sawToolDelta = false;
 
       const hasToolName = (toolCall: any) => {
         const name = toolCall?.function?.name;
@@ -3867,14 +3873,26 @@ Format as a natural, readable summary with clear sections. If a section has no d
 
             try {
               const parsed = JSON.parse(jsonStr);
+              if (parsed?.error) {
+                console.error("LLM stream payload error:", parsed.error);
+              }
               const delta = parsed.choices?.[0]?.delta;
+              const chunkFinishReason = parsed.choices?.[0]?.finish_reason;
+
+              if (chunkFinishReason) {
+                finishReason = chunkFinishReason;
+              }
 
               if (delta?.content) {
                 fullContent += delta.content;
+                sawAnyDelta = true;
+                sawContentDelta = true;
               }
 
               if (delta?.tool_calls) {
                 hasToolCallStarted = true;
+                sawAnyDelta = true;
+                sawToolDelta = true;
                 for (const tc of delta.tool_calls) {
                   const index = tc.index;
                   if (!toolCalls[index]) {
@@ -3949,11 +3967,19 @@ Format as a natural, readable summary with clear sections. If a section has no d
          fullContentLength: fullContent?.length || 0,
          preview: fullContent?.slice(0, 200),
          toolCallsLength: capturedToolCalls?.length || 0,
+          finishReason,
+          sawAnyDelta,
+          sawContentDelta,
+          sawToolDelta,
        });
 
        return {
          fullContent,
          toolCalls: capturedToolCalls.map(({ _debug, ...toolCall }: any) => toolCall),
+          finishReason,
+          sawAnyDelta,
+          sawContentDelta,
+          sawToolDelta,
        };
     }
 
@@ -4167,6 +4193,87 @@ Format as a natural, readable summary with clear sections. If a section has no d
       return toolResults;
     }
 
+    function sanitizeConversationMessages(messagesToSanitize: any[]): any[] {
+      const sanitized: any[] = [];
+
+      for (const message of messagesToSanitize) {
+        if (!message || typeof message !== "object") continue;
+
+        if (message.role === "assistant" && Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+          const validToolCalls = message.tool_calls.filter((toolCall: any) => {
+            const toolName = toolCall?.function?.name;
+            return typeof toolName === "string" && toolName.trim().length > 0;
+          });
+
+          if (validToolCalls.length === 0 && !message.content) {
+            continue;
+          }
+
+          sanitized.push({
+            ...message,
+            ...(validToolCalls.length > 0 ? { tool_calls: validToolCalls } : {}),
+            ...(validToolCalls.length === 0 ? { tool_calls: undefined } : {}),
+          });
+          continue;
+        }
+
+        if (message.role === "tool") {
+          const toolCallId = typeof message.tool_call_id === "string" ? message.tool_call_id.trim() : "";
+          if (!toolCallId) continue;
+        }
+
+        sanitized.push(message);
+      }
+
+      return sanitized;
+    }
+
+    async function recoverEmptyCompletion(baseMessages: any[]): Promise<string> {
+      const recoveryMessages = [
+        ...sanitizeConversationMessages(baseMessages),
+        {
+          role: "system",
+          content: "The prior completion returned no visible answer. Answer the user directly now. If tools are useful, call them. Otherwise return a concise user-facing response with no preamble.",
+        },
+      ];
+
+      const providers: Array<"claude" | "openai"> = ["claude", "openai"];
+
+      for (const provider of providers) {
+        console.log("EMPTY COMPLETION RECOVERY ATTEMPT", { provider, messageCount: recoveryMessages.length });
+
+        const recoveryResponse = await fetchAIWithRetry({
+          messages: recoveryMessages,
+          stream: true,
+          tools,
+          force_provider: provider,
+        });
+
+        if (!recoveryResponse.ok) {
+          console.error("Empty completion recovery failed before streaming", {
+            provider,
+            status: recoveryResponse.status,
+          });
+          continue;
+        }
+
+        const recoveryResult = await consumeSSEStream(recoveryResponse);
+        console.log("EMPTY COMPLETION RECOVERY RESULT", {
+          provider,
+          fullContentLength: recoveryResult.fullContent.length,
+          toolCallsLength: recoveryResult.toolCalls.length,
+          finishReason: recoveryResult.finishReason,
+          sawAnyDelta: recoveryResult.sawAnyDelta,
+        });
+
+        if (recoveryResult.fullContent.trim().length > 0) {
+          return recoveryResult.fullContent;
+        }
+      }
+
+      return "I couldn’t complete the synthesis for this request. Please retry.";
+    }
+
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
@@ -4186,9 +4293,10 @@ Format as a natural, readable summary with clear sections. If a section has no d
           const executionStart = Date.now();
           const toolHistory = new Set();
           let lastRoundHadToolCalls = false;
+          let forcedRecoveryContent = "";
 
           while (true) {
-            const { fullContent, toolCalls } = await consumeSSEStream(currentResponse, enqueue);
+            const { fullContent, toolCalls, finishReason, sawAnyDelta, sawContentDelta, sawToolDelta } = await consumeSSEStream(currentResponse, enqueue);
             lastFullContent = fullContent;
             aggregatedContent += fullContent;
             console.log("ROUND RESULT", {
@@ -4196,7 +4304,26 @@ Format as a natural, readable summary with clear sections. If a section has no d
               fullContentLength: fullContent.length,
               fullContentPreview: fullContent.slice(0, 200),
               toolCallsLength: toolCalls.length,
+              finishReason,
+              sawAnyDelta,
+              sawContentDelta,
+              sawToolDelta,
             });
+
+            if (!fullContent.trim() && toolCalls.length === 0) {
+              console.warn("EMPTY MODEL ROUND DETECTED", {
+                round,
+                finishReason,
+                sawAnyDelta,
+                sawContentDelta,
+                sawToolDelta,
+              });
+              forcedRecoveryContent = await recoverEmptyCompletion(conversationMessages);
+              lastFullContent = forcedRecoveryContent;
+              aggregatedContent += forcedRecoveryContent;
+              enqueue(`data: ${JSON.stringify({ choices: [{ delta: { content: forcedRecoveryContent } }] })}\n\n`);
+              break;
+            }
 
             const elapsedMs = Date.now() - executionStart;
             lastRoundHadToolCalls = !!toolCalls?.length;
@@ -4276,9 +4403,9 @@ Format as a natural, readable summary with clear sections. If a section has no d
             console.log(JSON.stringify(conversationMessages.slice(-3), null, 2));
             currentResponse = await fetchAIWithRetry({
               model: "gpt-4.1",
-              messages: conversationMessages,
+              messages: sanitizeConversationMessages(conversationMessages),
               stream: true,
-              ...(isLastRound ? {} : { tools }),
+              tools,
             });
             console.log("LLM RESPONSE RECEIVED:");
             console.log({
@@ -4337,10 +4464,10 @@ Format as a natural, readable summary with clear sections. If a section has no d
 
           const needsFinalAnswer = !lastFullContent || lastFullContent.trim().length < 20;
 
-          if (lastRoundHadToolCalls || !lastFullContent || !aggregatedContent || aggregatedContent.trim().length < 20 || needsFinalAnswer) {
+          if (!forcedRecoveryContent && (lastRoundHadToolCalls || !lastFullContent || !aggregatedContent || aggregatedContent.trim().length < 20 || needsFinalAnswer)) {
             console.log("FORCING FINAL SYNTHESIS CALL");
 
-            const finalMessages = conversationMessages;
+            const finalMessages = sanitizeConversationMessages(conversationMessages);
 
             const finalResponse = await fetchAIWithRetry({
               messages: finalMessages,
@@ -4348,8 +4475,25 @@ Format as a natural, readable summary with clear sections. If a section has no d
               tools,
             });
 
-            const { fullContent: finalContent } = await consumeSSEStream(finalResponse, enqueue);
-            lastFullContent = finalContent;
+            const finalResult = await consumeSSEStream(finalResponse, enqueue);
+            lastFullContent = finalResult.fullContent;
+
+            if (!lastFullContent.trim() && finalResult.toolCalls.length === 0) {
+              console.warn("FINAL SYNTHESIS RETURNED EMPTY CONTENT", {
+                finishReason: finalResult.finishReason,
+                sawAnyDelta: finalResult.sawAnyDelta,
+                sawContentDelta: finalResult.sawContentDelta,
+                sawToolDelta: finalResult.sawToolDelta,
+              });
+              const fallbackContent = await recoverEmptyCompletion(finalMessages);
+              lastFullContent = fallbackContent;
+              enqueue(`data: ${JSON.stringify({ choices: [{ delta: { content: fallbackContent } }] })}\n\n`);
+            }
+          }
+
+          if (!lastFullContent.trim()) {
+            lastFullContent = "I couldn’t complete the synthesis for this request. Please retry.";
+            enqueue(`data: ${JSON.stringify({ choices: [{ delta: { content: lastFullContent } }] })}\n\n`);
           }
 
           console.log("FINAL RESPONSE SENT TO UI:");
