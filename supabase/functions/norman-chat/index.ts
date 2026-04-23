@@ -3895,17 +3895,27 @@ Format as a natural, readable summary with clear sections. If a section has no d
                 hasToolCallStarted = true;
                 for (const tc of delta.tool_calls) {
                   const index = tc.index;
+
                   if (!toolCalls[index]) {
-                    toolCalls[index] = { id: tc.id, type: "function", function: { name: "", arguments: "" } };
+                    toolCalls[index] = {
+                      id: tc.id,
+                      type: "function",
+                      function: { name: "", arguments: "" },
+                    };
                   }
+
                   if (tc.id) {
                     toolCalls[index].id = tc.id;
                   }
+
                   if (tc.function?.name) {
                     toolCalls[index].function.name = tc.function.name;
                   }
+
                   if (tc.function?.arguments) {
-                    toolCalls[index].function.arguments += tc.function.arguments;
+                    toolCalls[index].function.arguments =
+                      (toolCalls[index].function.arguments || "") +
+                      tc.function.arguments;
                   }
                 }
               }
@@ -3928,39 +3938,47 @@ Format as a natural, readable summary with clear sections. If a section has no d
         }
       }
 
+       toolCalls.forEach((tc) => {
+         if (typeof tc?.function?.arguments === "string") {
+           try {
+             JSON.parse(tc.function.arguments);
+           } catch {
+             console.warn("FINAL TOOL ARGUMENTS STILL INVALID:", tc.function.arguments);
+           }
+         }
+       });
+
        const capturedToolCalls = hasToolCallStarted
-         ? toolCalls
-             .filter(hasToolName)
-             .map((toolCall) => {
-               const rawArguments = typeof toolCall?.function?.arguments === "string"
-                 ? toolCall.function.arguments
-                 : "";
+         ? toolCalls.map((toolCall) => {
+             const rawArguments = typeof toolCall?.function?.arguments === "string"
+               ? toolCall.function.arguments
+               : "";
 
-               let argumentsParseable = false;
-               if (rawArguments.trim().length > 0) {
-                 try {
-                   JSON.parse(rawArguments);
-                   argumentsParseable = true;
-                 } catch {
-                   argumentsParseable = false;
-                 }
+             let argumentsParseable = false;
+             if (rawArguments.trim().length > 0) {
+               try {
+                 JSON.parse(rawArguments);
+                 argumentsParseable = true;
+               } catch {
+                 argumentsParseable = false;
                }
+             }
 
-               return {
-                 id: typeof toolCall?.id === "string" && toolCall.id.trim().length > 0
-                   ? toolCall.id
-                   : `streamed_tool_${Math.random().toString(36).slice(2, 10)}`,
-                 type: "function",
-                 function: {
-                   name: toolCall.function.name,
-                   arguments: rawArguments,
-                 },
-                 _debug: {
-                   rawArgumentsLength: rawArguments.length,
-                   argumentsParseable,
-                 },
-               };
-             })
+             return {
+               id: typeof toolCall?.id === "string" && toolCall.id.trim().length > 0
+                 ? toolCall.id
+                 : `streamed_tool_${Math.random().toString(36).slice(2, 10)}`,
+               type: "function",
+               function: {
+                 name: toolCall?.function?.name || "",
+                 arguments: rawArguments,
+               },
+               _debug: {
+                 rawArgumentsLength: rawArguments.length,
+                 argumentsParseable,
+               },
+             };
+           })
          : toolCalls;
 
        console.log("ROUND HAS CONTENT:", {
