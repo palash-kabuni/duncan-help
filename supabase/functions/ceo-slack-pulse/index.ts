@@ -426,7 +426,7 @@ RULES:
 
   try {
     const data = await callLLMWithFallback({
-      workflow: "ceo-slack-pulse",
+      workflow: "generic",
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt },
