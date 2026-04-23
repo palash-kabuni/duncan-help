@@ -13,13 +13,15 @@ const VERIFY_URL = "https://connector-gateway.lovable.dev/api/v1/verify_credenti
 const HUBSPOT_API = "https://api.hubapi.com";
 
 type Status = "connected" | "not_configured" | "degraded";
-type CredentialSource = "connector_gateway" | "stored_token";
+type CredentialSource = "connector_gateway" | "stored_token" | "none";
 type RequestStage = "verify" | "summary" | "repo_scan";
 
 type HubspotSummary = {
   ok: boolean;
   connected: boolean;
   status: Status;
+  credential_source: CredentialSource;
+  verification_path: string | null;
   last_verified_at: string | null;
   last_sync_at: string | null;
   degraded_reason: string | null;
@@ -57,6 +59,8 @@ function baseResponse(overrides: Partial<HubspotSummary> = {}): HubspotSummary {
     ok: true,
     connected: false,
     status: "not_configured",
+    credential_source: "none",
+    verification_path: null,
     last_verified_at: null,
     last_sync_at: null,
     degraded_reason: null,
@@ -79,7 +83,11 @@ function safeSnippet(value: unknown) {
 }
 
 function providerName(source: CredentialSource) {
-  return source === "connector_gateway" ? "HubSpot connector" : "HubSpot token";
+  return source === "connector_gateway"
+    ? "HubSpot connector"
+    : source === "stored_token"
+    ? "HubSpot token"
+    : "HubSpot credential";
 }
 
 function tokenFingerprint(token?: string | null) {
