@@ -4193,6 +4193,87 @@ Format as a natural, readable summary with clear sections. If a section has no d
       return toolResults;
     }
 
+    function sanitizeConversationMessages(messagesToSanitize: any[]): any[] {
+      const sanitized: any[] = [];
+
+      for (const message of messagesToSanitize) {
+        if (!message || typeof message !== "object") continue;
+
+        if (message.role === "assistant" && Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+          const validToolCalls = message.tool_calls.filter((toolCall: any) => {
+            const toolName = toolCall?.function?.name;
+            return typeof toolName === "string" && toolName.trim().length > 0;
+          });
+
+          if (validToolCalls.length === 0 && !message.content) {
+            continue;
+          }
+
+          sanitized.push({
+            ...message,
+            ...(validToolCalls.length > 0 ? { tool_calls: validToolCalls } : {}),
+            ...(validToolCalls.length === 0 ? { tool_calls: undefined } : {}),
+          });
+          continue;
+        }
+
+        if (message.role === "tool") {
+          const toolCallId = typeof message.tool_call_id === "string" ? message.tool_call_id.trim() : "";
+          if (!toolCallId) continue;
+        }
+
+        sanitized.push(message);
+      }
+
+      return sanitized;
+    }
+
+    async function recoverEmptyCompletion(baseMessages: any[]): Promise<string> {
+      const recoveryMessages = [
+        ...sanitizeConversationMessages(baseMessages),
+        {
+          role: "system",
+          content: "The prior completion returned no visible answer. Answer the user directly now. If tools are useful, call them. Otherwise return a concise user-facing response with no preamble.",
+        },
+      ];
+
+      const providers: Array<"claude" | "openai"> = ["claude", "openai"];
+
+      for (const provider of providers) {
+        console.log("EMPTY COMPLETION RECOVERY ATTEMPT", { provider, messageCount: recoveryMessages.length });
+
+        const recoveryResponse = await fetchAIWithRetry({
+          messages: recoveryMessages,
+          stream: true,
+          tools,
+          force_provider: provider,
+        });
+
+        if (!recoveryResponse.ok) {
+          console.error("Empty completion recovery failed before streaming", {
+            provider,
+            status: recoveryResponse.status,
+          });
+          continue;
+        }
+
+        const recoveryResult = await consumeSSEStream(recoveryResponse);
+        console.log("EMPTY COMPLETION RECOVERY RESULT", {
+          provider,
+          fullContentLength: recoveryResult.fullContent.length,
+          toolCallsLength: recoveryResult.toolCalls.length,
+          finishReason: recoveryResult.finishReason,
+          sawAnyDelta: recoveryResult.sawAnyDelta,
+        });
+
+        if (recoveryResult.fullContent.trim().length > 0) {
+          return recoveryResult.fullContent;
+        }
+      }
+
+      return "I couldn’t complete the synthesis for this request. Please retry.";
+    }
+
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
