@@ -705,7 +705,11 @@ Deno.serve(async (req) => {
             messages_scanned: 0,
             signals: emptySignals(),
             status: r.status,
-            status_reason: r.status,
+            status_reason: r.status === "join_failed"
+              ? `join_failed: ${r.error_code || "unknown"}`
+              : r.status === "history_failed_after_join"
+                ? `history_failed_after_join: ${r.error_code || "unknown"}`
+                : r.status,
             error_code: r.error_code,
             error_message: r.error_message,
           };
@@ -751,6 +755,7 @@ Deno.serve(async (req) => {
     const allRisks: any[] = [];
     const silentChannels: Array<{ channel: string; reason: string }> = [];
     const channelsWithErrors: Array<{ channel: string; reason: string }> = [];
+    const joinFailureCodes: string[] = [];
     let totalMessages = 0;
     let historyFailures = 0;
     let joinedChannels = 0;
@@ -768,12 +773,13 @@ Deno.serve(async (req) => {
         historyFailures += 1;
         const unresolvedMembership = r.status === "join_failed" || (r.status === "history_failed_after_join" && r.error_code && ["bot_not_invited", "not_in_channel"].includes(r.error_code));
         if (unresolvedMembership) inaccessibleAfterJoin += 1;
+        if (r.status === "join_failed" && r.error_code) joinFailureCodes.push(r.error_code);
         channelsWithErrors.push({
           channel: r.channel_name,
           reason: r.status === "join_failed"
-            ? "Auto-join failed"
+            ? `join_failed: ${r.error_code || "unknown"}`
             : r.status === "history_failed_after_join"
-              ? "History fetch failed after join"
+              ? `history_failed_after_join: ${r.error_code || "unknown"}`
               : "History fetch failed",
         });
         continue;
@@ -799,16 +805,22 @@ Deno.serve(async (req) => {
     if (notMember.length > 0) degraded_codes.push("bot_not_invited");
     if (inaccessiblePrivateChannelsCount > 0) degraded_codes.push("private_channels_inaccessible");
     if (historyFailures > 0) degraded_codes.push("history_partial_failure");
+    if (missingJoinScopeReason) degraded_codes.push("missing_scope");
     const uniqueCodes = Array.from(new Set(degraded_codes));
     const isDegraded = degraded || uniqueCodes.length > 0;
     if (isDegraded && visibility_scope === "full_public") visibility_scope = "partial";
 
+    const uniqueJoinFailureCodes = Array.from(new Set(joinFailureCodes));
     const degradedSummaryParts: string[] = [];
     if (joinedChannels > 0) degradedSummaryParts.push(`${joinedChannels} public channels auto-joined`);
     degradedSummaryParts.push(`${effectiveAccessibleChannels}/${eligible.length} public channels scanned`);
     if (inaccessibleAfterJoin > 0) degradedSummaryParts.push(`${inaccessibleAfterJoin} still inaccessible after join attempt`);
     if (inaccessiblePrivateChannelsCount > 0) degradedSummaryParts.push(`${inaccessiblePrivateChannelsCount} private channels remain gated`);
-    const computedDegradedReason = degradedSummaryParts.join("; ");
+    const computedDegradedReason = missingJoinScopeReason
+      ? missingJoinScopeReason
+      : uniqueJoinFailureCodes.length === 1 && joinFailureCodes.length > 0
+        ? `join_failed: ${uniqueJoinFailureCodes[0]}`
+        : degradedSummaryParts.join("; ");
 
     return json({
       ok: true,
