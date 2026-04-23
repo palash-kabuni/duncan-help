@@ -15,9 +15,20 @@ export interface ChatAttachment {
   extractedText?: string;
 }
 
-const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/norman-chat`;
-const EXTRACT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/extract-chat-file`;
-const FASTAPI_CHAT_URL = `${import.meta.env.VITE_API_BASE_URL}/norman-chat`;
+const rawSupabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const normalizedSupabaseUrl =
+  rawSupabaseUrl && rawSupabaseUrl !== "undefined" && rawSupabaseUrl !== "null"
+    ? rawSupabaseUrl
+    : null;
+const FUNCTION_BASE_URL = normalizedSupabaseUrl
+  ? `${normalizedSupabaseUrl}/functions/v1`
+  : `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1`;
+const CHAT_URL = `${FUNCTION_BASE_URL}/norman-chat`;
+const EXTRACT_URL = `${FUNCTION_BASE_URL}/extract-chat-file`;
+const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+const FASTAPI_CHAT_URL = rawApiBaseUrl && rawApiBaseUrl !== "undefined" && rawApiBaseUrl !== "null"
+  ? `${rawApiBaseUrl}/norman-chat`
+  : null;
 const CHAT_REQUEST_TIMEOUT_MS = 90_000;
 
 function getChatErrorMessage(error: unknown) {
@@ -249,20 +260,22 @@ export function useNormanChat() {
         };
 
         try {
-          fetch(FASTAPI_CHAT_URL, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-              "ngrok-skip-browser-warning": "true",
-            },
-            body: JSON.stringify({
-              messages: apiMessages,
-              mode,
-              userProfile: profile ?? undefined,
-              stream: false,
-            }),
-          }).catch(() => {});
+          if (FASTAPI_CHAT_URL) {
+            fetch(FASTAPI_CHAT_URL, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+                "ngrok-skip-browser-warning": "true",
+              },
+              body: JSON.stringify({
+                messages: apiMessages,
+                mode,
+                userProfile: profile ?? undefined,
+                stream: false,
+              }),
+            }).catch(() => {});
+          }
 
           let resp = await fetchChat();
           if (resp.status === 429) {
