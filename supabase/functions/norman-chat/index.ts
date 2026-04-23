@@ -3774,6 +3774,11 @@ Format as a natural, readable summary with clear sections. If a section has no d
     }
 
     const response = await fetchAIWithRetry(requestBody);
+    console.log("LLM RESPONSE OBJECT", {
+      round: 0,
+      responseType: typeof response,
+      hasBody: response.body !== null,
+    });
 
     if (!response.ok) {
       if (response.status === 429) {
@@ -4182,6 +4187,12 @@ Format as a natural, readable summary with clear sections. If a section has no d
           while (true) {
             const { fullContent, toolCalls } = await consumeSSEStream(currentResponse, enqueue);
             aggregatedContent += fullContent;
+            console.log("ROUND RESULT", {
+              round,
+              fullContentLength: fullContent.length,
+              fullContentPreview: fullContent.slice(0, 200),
+              toolCallsLength: toolCalls.length,
+            });
 
             const elapsedMs = Date.now() - executionStart;
 
@@ -4230,13 +4241,20 @@ Format as a natural, readable summary with clear sections. If a section has no d
               console.log(`Stopping before follow-up LLM call due to hard execution limit`);
               break;
             }
-            console.log("FINAL CONVERSATION SENT TO LLM:");
-            console.log(JSON.stringify(conversationMessages, null, 2));
+            console.log("NEXT LLM INPUT", {
+              round,
+              last3Messages: JSON.stringify(conversationMessages.slice(-3), null, 2),
+            });
             currentResponse = await fetchAIWithRetry({
               model: "gpt-4.1",
               messages: conversationMessages,
               stream: true,
               ...(isLastRound ? {} : { tools }),
+            });
+            console.log("LLM RESPONSE OBJECT", {
+              round,
+              responseType: typeof currentResponse,
+              hasBody: currentResponse.body !== null,
             });
 
             if (!currentResponse.ok) {
