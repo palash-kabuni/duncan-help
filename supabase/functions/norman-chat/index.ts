@@ -3773,10 +3773,6 @@ Format as a natural, readable summary with clear sections. If a section has no d
       }
     }
 
-    console.log("LLM CONFIG:", {
-      round: 0,
-      max_tokens: requestBody.max_tokens,
-    });
     const response = await fetchAIWithRetry(requestBody);
 
     if (!response.ok) {
@@ -3805,7 +3801,6 @@ Format as a natural, readable summary with clear sections. If a section has no d
     // immediately. We suppress upstream [DONE] so norman-chat emits it only once after the final round.
     async function consumeSSEStream(
       streamResponse: Response,
-      round: number,
       onChunk?: (chunk: string) => void,
     ): Promise<{ fullContent: string; toolCalls: any[] }> {
       const reader = streamResponse.body!.getReader();
@@ -3818,12 +3813,9 @@ Format as a natural, readable summary with clear sections. If a section has no d
       let fullContent = "";
       const toolCalls: any[] = [];
       let buffer = "";
-      let chunkCount = 0;
-      let firstChunkLogged = false;
       const startTime = Date.now();
       let lastChunkTime = startTime;
       let hasToolCallStarted = false;
-      let streamFinished = false;
 
       const hasToolName = (toolCall: any) => {
         const name = toolCall?.function?.name;
@@ -3860,8 +3852,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
           }
 
           const { done, value } = readResult;
-          if (done && streamFinished) break;
-          if (done) continue;
+          if (done) break;
 
           lastChunkTime = Date.now();
           buffer += decoder.decode(value, { stream: true });
@@ -3876,10 +3867,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
             if (!line.startsWith("data: ")) continue;
 
             const jsonStr = line.slice(6).trim();
-            if (jsonStr === "[DONE]") {
-              streamFinished = true;
-              continue;
-            }
+            if (jsonStr === "[DONE]") continue;
 
             try {
               const parsed = JSON.parse(jsonStr);
@@ -3887,47 +3875,28 @@ Format as a natural, readable summary with clear sections. If a section has no d
 
               if (delta?.content) {
                 fullContent += delta.content;
-                if (!firstChunkLogged) {
-                  console.log("ROUND FIRST CHUNK:", {
-                    round,
-                    preview: delta.content.slice(0, 100),
-                  });
-                  firstChunkLogged = true;
-                }
               }
 
               if (delta?.tool_calls) {
                 hasToolCallStarted = true;
                 for (const tc of delta.tool_calls) {
                   const index = tc.index;
-
                   if (!toolCalls[index]) {
-                    toolCalls[index] = {
-                      id: tc.id,
-                      type: "function",
-                      function: { name: "", arguments: "" },
-                    };
+                    toolCalls[index] = { id: tc.id, type: "function", function: { name: "", arguments: "" } };
                   }
-
                   if (tc.id) {
                     toolCalls[index].id = tc.id;
                   }
-
                   if (tc.function?.name) {
-                    toolCalls[index].function.name =
-                      (toolCalls[index].function.name || "") + tc.function.name;
+                    toolCalls[index].function.name = tc.function.name;
                   }
-
                   if (tc.function?.arguments) {
-                    toolCalls[index].function.arguments =
-                      (toolCalls[index].function.arguments || "") +
-                      tc.function.arguments;
+                    toolCalls[index].function.arguments += tc.function.arguments;
                   }
                 }
               }
 
               if (onChunk) {
-                chunkCount++;
                 onChunk(`data: ${JSON.stringify(parsed)}\n\n`);
               }
             } catch {
@@ -3945,58 +3914,50 @@ Format as a natural, readable summary with clear sections. If a section has no d
       }
 
        const capturedToolCalls = hasToolCallStarted
-         ? toolCalls.map((toolCall) => ({
-             id: typeof toolCall?.id === "string" && toolCall.id.trim().length > 0
-               ? toolCall.id
-               : `streamed_tool_${Math.random().toString(36).slice(2, 10)}`,
-             type: "function",
-             function: {
-               name: toolCall?.function?.name || "",
-               arguments: typeof toolCall?.function?.arguments === "string"
+         ? toolCalls
+             .filter(hasToolName)
+             .map((toolCall) => {
+               const rawArguments = typeof toolCall?.function?.arguments === "string"
                  ? toolCall.function.arguments
-                 : "",
-             },
-           }))
+                 : "";
+
+               let argumentsParseable = false;
+               if (rawArguments.trim().length > 0) {
+                 try {
+                   JSON.parse(rawArguments);
+                   argumentsParseable = true;
+                 } catch {
+                   argumentsParseable = false;
+                 }
+               }
+
+               return {
+                 id: typeof toolCall?.id === "string" && toolCall.id.trim().length > 0
+                   ? toolCall.id
+                   : `streamed_tool_${Math.random().toString(36).slice(2, 10)}`,
+                 type: "function",
+                 function: {
+                   name: toolCall.function.name,
+                   arguments: rawArguments,
+                 },
+                 _debug: {
+                   rawArgumentsLength: rawArguments.length,
+                   argumentsParseable,
+                 },
+               };
+             })
          : toolCalls;
 
-        const finalizedToolCalls = capturedToolCalls.filter((tc) => {
-          const name = tc?.function?.name || "";
-
-          if (!name || name.trim().length === 0) {
-            console.warn("DROPPING TOOL CALL WITH EMPTY NAME:", tc);
-            return false;
-          }
-
-          return true;
-        });
-
-       console.log("ROUND HAS CONTENT:", {
-         round,
-         hasContent: !!fullContent && fullContent.length > 0,
-         contentLength: fullContent?.length || 0,
-       });
-       console.log("STREAM DEBUG:", {
-         round,
-         chunkCount,
-       });
-       console.log("FINAL OUTPUT DEBUG:", {
-         round,
-         fullContentLength: fullContent?.length || 0,
-         preview: fullContent?.slice(0, 200),
-         endsWithSentence: /[.!?]\s*$/.test(fullContent || ""),
-       });
        console.log("SSE tool stream state", {
          hasToolCallStarted,
-          toolCallsLength: finalizedToolCalls.length,
-          rawArgumentsLengths: finalizedToolCalls.map((toolCall: any) =>
-            typeof toolCall?.function?.arguments === "string" ? toolCall.function.arguments.length : 0
-          ),
+         toolCallsLength: capturedToolCalls.length,
+         rawArgumentsLengths: capturedToolCalls.map((toolCall: any) => toolCall?._debug?.rawArgumentsLength ?? 0),
          streamDurationMs: Date.now() - startTime,
        });
 
        return {
          fullContent,
-          toolCalls: finalizedToolCalls,
+         toolCalls: capturedToolCalls.map(({ _debug, ...toolCall }: any) => toolCall),
        };
     }
 
@@ -4052,39 +4013,17 @@ Format as a natural, readable summary with clear sections. If a section has no d
       for (const tc of toolCalls) {
         try {
           const rawArguments = tc?.function?.arguments;
-          let args: any;
-          let isValidArgs = false;
-
-          console.log("RAW TOOL CALL:", tc);
+          let args: any = {};
 
           if (typeof rawArguments === "string" && rawArguments.trim().length > 0) {
             try {
               args = JSON.parse(rawArguments);
-              isValidArgs = true;
             } catch {
-              isValidArgs = false;
+              args = {};
             }
+          } else {
+            args = {};
           }
-
-          if (!isValidArgs) {
-            console.warn("INVALID TOOL ARGUMENTS — SKIPPING TOOL:", {
-              tool: tc.function.name,
-              rawArguments,
-            });
-
-            toolResults.push({
-              role: "assistant",
-              content: `⚠️ Tool "${tc.function.name}" failed due to invalid arguments. Retrying...`,
-            });
-
-            continue;
-          }
-
-          console.log("PARSED ARGS:", args);
-          console.log("EXECUTING TOOL:", {
-            name: tc.function.name,
-            args,
-          });
 
           console.log("Executing tool call", {
             toolName: tc?.function?.name,
@@ -4146,14 +4085,9 @@ Format as a natural, readable summary with clear sections. If a section has no d
           } else {
               result = { error: `Unknown tool: ${tc.function.name}` };
           }
-
-          console.log("TOOL EXECUTION RESULT:", result);
           
           console.log("TOOL RESULT RAW:", result);
           console.log("TOOL RESULT TYPE:", typeof result);
-          console.log("TOOL INPUT SIZE:", {
-            length: JSON.stringify(result)?.length || 0,
-          });
 
           const toolName = tc?.function?.name ?? "unknown_tool";
           const finalContent = (() => {
@@ -4194,7 +4128,6 @@ Format as a natural, readable summary with clear sections. If a section has no d
             });
           }
         } catch (error) {
-          console.log("TOOL EXECUTION ERROR:", error);
           const toolError = error instanceof Error ? error : new Error(String(error));
           console.error(`Tool ${tc.function.name} threw error:`, toolError.message, toolError.stack);
           const errorResult = { error: toolError.message };
@@ -4256,15 +4189,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
           const executionStart = Date.now();
 
           while (true) {
-            const { fullContent, toolCalls } = await consumeSSEStream(currentResponse, round, enqueue);
+            const { fullContent, toolCalls } = await consumeSSEStream(currentResponse, enqueue);
             aggregatedContent += fullContent;
-
-            console.log("PARSED TOOL CALLS:", JSON.stringify(toolCalls, null, 2));
-
-            if (!toolCalls || toolCalls.length === 0) {
-              console.warn("NO VALID TOOL CALLS — SKIPPING TOOL EXECUTION");
-              break;
-            }
 
             const elapsedMs = Date.now() - executionStart;
 
@@ -4299,10 +4225,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
               tool_id: toolCalls[0]?.id,
               detected: provider,
             });
-            let toolResults = [];
-            if (toolCalls.length > 0) {
-              toolResults = await executeToolCalls(toolCalls, provider);
-            }
+            const toolResults = await executeToolCalls(toolCalls, provider);
 
             const assistantMsg: any = { role: "assistant", tool_calls: toolCalls };
             if (fullContent) {
@@ -4311,33 +4234,22 @@ Format as a natural, readable summary with clear sections. If a section has no d
 
             conversationMessages.push(assistantMsg, ...toolResults);
 
-            console.log("TOOL RESULTS BEING SENT:");
-            console.log(JSON.stringify(toolResults, null, 2));
-
             const isLastRound = round >= MAX_TOOL_ROUNDS;
             if (Date.now() - executionStart >= MAX_EXECUTION_TIME_MS) {
               console.log(`Stopping before follow-up LLM call due to hard execution limit`);
               break;
             }
-            console.log("FINAL CONVERSATION BEFORE LLM:");
+            console.log("FINAL CONVERSATION SENT TO LLM:");
             console.log(JSON.stringify(conversationMessages, null, 2));
-            const followupRequestBody = {
+            currentResponse = await fetchAIWithRetry({
               model: "gpt-4.1",
               messages: conversationMessages,
               stream: true,
               ...(isLastRound ? {} : { tools }),
-            };
-            console.log("LLM CONFIG:", {
-              round,
-              max_tokens: followupRequestBody.max_tokens,
             });
-            currentResponse = await fetchAIWithRetry(followupRequestBody);
-
-            console.log("SECOND LLM RESPONSE STATUS:", currentResponse.status);
 
             if (!currentResponse.ok) {
               const text = await currentResponse.text();
-              console.error("LLM ERROR RESPONSE:", text);
               console.error(`Follow-up AI error (round ${round}):`, text);
               throw new Error("Failed to process tool results");
             }
