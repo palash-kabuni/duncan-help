@@ -3914,7 +3914,8 @@ Format as a natural, readable summary with clear sections. If a section has no d
                   }
 
                   if (tc.function?.name) {
-                    toolCalls[index].function.name = tc.function.name;
+                    toolCalls[index].function.name =
+                      (toolCalls[index].function.name || "") + tc.function.name;
                   }
 
                   if (tc.function?.arguments) {
@@ -3942,16 +3943,6 @@ Format as a natural, readable summary with clear sections. If a section has no d
           // best-effort cleanup only
         }
       }
-
-       toolCalls.forEach((tc) => {
-         if (typeof tc?.function?.arguments === "string") {
-           try {
-             JSON.parse(tc.function.arguments);
-           } catch {
-             console.warn("FINAL TOOL ARGUMENTS STILL INVALID:", tc.function.arguments);
-           }
-         }
-       });
 
        const capturedToolCalls = hasToolCallStarted
          ? toolCalls.map((toolCall) => ({
