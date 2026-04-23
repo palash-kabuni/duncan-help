@@ -494,6 +494,21 @@ export function useProjectMembers(projectId: string | null) {
       return false;
     }
 
+    try {
+      const { error: emailError } = await supabase.functions.invoke("project-member-added-email", {
+        body: {
+          projectId,
+          collaboratorUserId: userId,
+        },
+      });
+
+      if (emailError) {
+        console.error("Collaborator notification email failed:", emailError.message);
+      }
+    } catch (emailErr) {
+      console.error("Collaborator notification email failed:", emailErr);
+    }
+
     await fetchMembers();
     toast({ title: "Member added", description: "Project access has been shared." });
     return true;
