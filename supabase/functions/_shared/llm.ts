@@ -127,6 +127,90 @@ export interface NormalisedResponse {
   _model: string;
 }
 
+function extractJsonCandidate(raw: string): string {
+  const withoutFences = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "");
+
+  const objectStart = withoutFences.indexOf("{");
+  const arrayStart = withoutFences.indexOf("[");
+  const starts = [objectStart, arrayStart].filter((index) => index >= 0);
+
+  if (starts.length === 0) return withoutFences;
+  return withoutFences.slice(Math.min(...starts));
+}
+
+function repairJsonCandidate(raw: string): string {
+  const input = extractJsonCandidate(raw)
+    .replace(/[“”]/g, '"')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
+
+  let output = "";
+  const closers: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (const ch of input) {
+    if (inString) {
+      output += ch;
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      output += ch;
+      continue;
+    }
+
+    if (ch === "{") closers.push("}");
+    if (ch === "[") closers.push("]");
+
+    if (ch === "}" || ch === "]") {
+      const expected = closers[closers.length - 1];
+      if (!expected) continue;
+      while (closers.length > 0 && closers[closers.length - 1] !== ch) {
+        output += closers.pop();
+      }
+      if (closers[closers.length - 1] === ch) {
+        closers.pop();
+      }
+    }
+
+    output += ch;
+  }
+
+  if (inString) output += '"';
+  output = output.replace(/,\s*([}\]])/g, "$1");
+  while (closers.length > 0) output += closers.pop();
+  return output.trim();
+}
+
+function parseToolArgumentsLoosely(raw: unknown): any {
+  if (raw == null) return {};
+  if (typeof raw !== "string") return raw;
+
+  const trimmed = raw.trim();
+  if (!trimmed) return {};
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return JSON.parse(repairJsonCandidate(trimmed));
+  }
+}
+
 function log(workflow: string, provider: Provider, attempt: number, status: string, latencyMs: number, extra?: string) {
   const tail = extra ? ` ${extra}` : "";
   console.log(`[llm] workflow=${workflow} provider=${provider} attempt=${attempt} status=${status} latency_ms=${latencyMs}${tail}`);
@@ -220,7 +304,7 @@ function toAnthropicMessages(messages: LLMMessage[]): { system?: string; message
       }
       for (const tc of m.tool_calls) {
         let input: any = {};
-        try { input = typeof tc.function.arguments === "string" ? JSON.parse(tc.function.arguments) : tc.function.arguments; }
+        try { input = parseToolArgumentsLoosely(tc.function.arguments); }
         catch { input = {}; }
         blocks.push({ type: "tool_use", id: tc.id, name: tc.function.name, input });
       }
@@ -416,6 +500,8 @@ export async function callLLMWithFallback(opts: CallLLMOptions): Promise<Normali
   const t2 = Date.now();
   try {
     const res = await callProvider(fallback, opts);
+    const empty = !res.choices?.[0]?.message?.content && !res.choices?.[0]?.message?.tool_calls?.length;
+    if (empty) throw Object.assign(new Error("empty response"), { status: 500 });
     log(opts.workflow, fallback, 2, "ok", Date.now() - t2);
     return res;
   } catch (err: any) {

@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.49.8";
 import { streamLLM } from "../_shared/llm.ts";
 
 const corsHeaders = {
@@ -3775,6 +3775,138 @@ Format as a natural, readable summary with clear sections. If a section has no d
       }
     }
 
+    function getToolSchema(toolName: string): any | undefined {
+      return tools.find((tool) => tool?.function?.name === toolName)?.function?.parameters;
+    }
+
+    function extractJsonCandidate(raw: string): string {
+      const withoutFences = raw
+        .trim()
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/i, "");
+
+      const objectStart = withoutFences.indexOf("{");
+      const arrayStart = withoutFences.indexOf("[");
+      const starts = [objectStart, arrayStart].filter((index) => index >= 0);
+
+      if (starts.length === 0) return withoutFences;
+      return withoutFences.slice(Math.min(...starts));
+    }
+
+    function repairJsonCandidate(raw: string): string {
+      const input = extractJsonCandidate(raw)
+        .replace(/[“”]/g, '"')
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
+
+      let output = "";
+      const closers: string[] = [];
+      let inString = false;
+      let escaped = false;
+
+      for (const ch of input) {
+        if (inString) {
+          output += ch;
+          if (escaped) {
+            escaped = false;
+            continue;
+          }
+          if (ch === "\\") {
+            escaped = true;
+            continue;
+          }
+          if (ch === '"') {
+            inString = false;
+          }
+          continue;
+        }
+
+        if (ch === '"') {
+          inString = true;
+          output += ch;
+          continue;
+        }
+
+        if (ch === "{") closers.push("}");
+        if (ch === "[") closers.push("]");
+
+        if (ch === "}" || ch === "]") {
+          const expected = closers[closers.length - 1];
+          if (!expected) continue;
+          while (closers.length > 0 && closers[closers.length - 1] !== ch) {
+            output += closers.pop();
+          }
+          if (closers[closers.length - 1] === ch) {
+            closers.pop();
+          }
+        }
+
+        output += ch;
+      }
+
+      if (inString) output += '"';
+      output = output.replace(/,\s*([}\]])/g, "$1");
+      while (closers.length > 0) output += closers.pop();
+      return output.trim();
+    }
+
+    function parseToolArguments(toolCall: any): {
+      args: Record<string, any>;
+      valid: boolean;
+      normalizedArguments: string;
+      rawArguments: string;
+      missingRequired: string[];
+      parseError?: string;
+      repaired: boolean;
+    } {
+      const toolName = typeof toolCall?.function?.name === "string" ? toolCall.function.name : "unknown_tool";
+      const schema = getToolSchema(toolName);
+      const required = Array.isArray(schema?.required) ? schema.required : [];
+      const rawValue = toolCall?.function?.arguments;
+      const rawArguments = typeof rawValue === "string"
+        ? rawValue
+        : rawValue == null
+          ? ""
+          : JSON.stringify(rawValue);
+
+      let parsed: any = {};
+      let parseError: string | undefined;
+      let repaired = false;
+
+      if (typeof rawValue === "object" && rawValue !== null) {
+        parsed = rawValue;
+      } else if (rawArguments.trim().length > 0) {
+        try {
+          parsed = JSON.parse(rawArguments);
+        } catch {
+          try {
+            parsed = JSON.parse(repairJsonCandidate(rawArguments));
+            repaired = true;
+          } catch (repairError) {
+            parseError = repairError instanceof Error ? repairError.message : String(repairError);
+          }
+        }
+      }
+
+      const objectArgs = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed
+        : {};
+
+      const missingRequired = required.filter((key) => {
+        const value = objectArgs[key];
+        return value === undefined || value === null || (typeof value === "string" && value.trim().length === 0);
+      });
+
+      return {
+        args: objectArgs,
+        valid: !parseError && missingRequired.length === 0,
+        normalizedArguments: JSON.stringify(objectArgs),
+        rawArguments,
+        missingRequired,
+        parseError,
+        repaired,
+      };
+    }
+
     const response = await fetchAIWithRetry(requestBody);
     console.log("LLM RESPONSE OBJECT", {
       round: 0,
@@ -3809,7 +3941,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
     async function consumeSSEStream(
       streamResponse: Response,
       onChunk?: (chunk: string) => void,
-    ): Promise<{ fullContent: string; toolCalls: any[]; finishReason: string | null; sawAnyDelta: boolean; sawContentDelta: boolean; sawToolDelta: boolean }> {
+    ): Promise<{ fullContent: string; toolCalls: any[]; finishReason: string | null; sawAnyDelta: boolean; sawContentDelta: boolean; sawToolDelta: boolean; hadIncompleteToolCall: boolean }> {
       const reader = streamResponse.body!.getReader();
       const decoder = new TextDecoder();
       const TEXT_INACTIVITY_TIMEOUT_MS = Number.POSITIVE_INFINITY;
@@ -3931,19 +4063,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
          ? toolCalls
              .filter(hasToolName)
              .map((toolCall) => {
-               const rawArguments = typeof toolCall?.function?.arguments === "string"
-                 ? toolCall.function.arguments
-                 : "";
-
-               let argumentsParseable = false;
-               if (rawArguments.trim().length > 0) {
-                 try {
-                   JSON.parse(rawArguments);
-                   argumentsParseable = true;
-                 } catch {
-                   argumentsParseable = false;
-                 }
-               }
+                const parsedArguments = parseToolArguments(toolCall);
 
                return {
                  id: typeof toolCall?.id === "string" && toolCall.id.trim().length > 0
@@ -3952,15 +4072,21 @@ Format as a natural, readable summary with clear sections. If a section has no d
                  type: "function",
                  function: {
                    name: toolCall.function.name,
-                   arguments: rawArguments,
+                    arguments: parsedArguments.valid ? parsedArguments.normalizedArguments : parsedArguments.rawArguments,
                  },
                  _debug: {
-                   rawArgumentsLength: rawArguments.length,
-                   argumentsParseable,
+                    rawArgumentsLength: parsedArguments.rawArguments.length,
+                    argumentsParseable: parsedArguments.valid,
+                    repaired: parsedArguments.repaired,
+                    missingRequired: parsedArguments.missingRequired,
+                    parseError: parsedArguments.parseError,
                  },
                };
              })
          : toolCalls;
+
+       const hadIncompleteToolCall = hasIncompleteToolCall()
+         || (finishReason === "tool_calls" && capturedToolCalls.length === 0);
 
        console.log("STREAM RESULT:");
        console.log({
@@ -3980,6 +4106,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
           sawAnyDelta,
           sawContentDelta,
           sawToolDelta,
+           hadIncompleteToolCall,
        };
     }
 
@@ -4034,24 +4161,25 @@ Format as a natural, readable summary with clear sections. If a section has no d
 
       for (const tc of toolCalls) {
         try {
-          const rawArguments = tc?.function?.arguments;
-          let args: any = {};
-
-          if (typeof rawArguments === "string" && rawArguments.trim().length > 0) {
-            try {
-              args = JSON.parse(rawArguments);
-            } catch {
-              args = {};
-            }
-          } else {
-            args = {};
-          }
+          const parsedArguments = parseToolArguments(tc);
+          const rawArguments = parsedArguments.rawArguments;
+          const args = parsedArguments.args;
 
           console.log("Executing tool call", {
             toolName: tc?.function?.name,
             rawArguments,
             parsedArgs: args,
+            repairedArguments: parsedArguments.repaired,
+            missingRequired: parsedArguments.missingRequired,
+            parseError: parsedArguments.parseError,
           });
+
+          if (!parsedArguments.valid) {
+            const invalidReason = parsedArguments.parseError
+              ? `Malformed tool arguments: ${parsedArguments.parseError}`
+              : `Missing required arguments: ${parsedArguments.missingRequired.join(", ")}`;
+            throw new Error(invalidReason);
+          }
 
           let result: any;
           
@@ -4228,7 +4356,11 @@ Format as a natural, readable summary with clear sections. If a section has no d
       return sanitized;
     }
 
-    async function recoverEmptyCompletion(baseMessages: any[]): Promise<string> {
+    async function recoverEmptyCompletion(baseMessages: any[]): Promise<{
+      fullContent: string;
+      toolCalls: any[];
+      hadIncompleteToolCall: boolean;
+    }> {
       const recoveryMessages = [
         ...sanitizeConversationMessages(baseMessages),
         {
@@ -4266,12 +4398,28 @@ Format as a natural, readable summary with clear sections. If a section has no d
           sawAnyDelta: recoveryResult.sawAnyDelta,
         });
 
+        if (recoveryResult.toolCalls.length > 0 && !recoveryResult.hadIncompleteToolCall) {
+          return {
+            fullContent: recoveryResult.fullContent,
+            toolCalls: recoveryResult.toolCalls,
+            hadIncompleteToolCall: false,
+          };
+        }
+
         if (recoveryResult.fullContent.trim().length > 0) {
-          return recoveryResult.fullContent;
+          return {
+            fullContent: recoveryResult.fullContent,
+            toolCalls: [],
+            hadIncompleteToolCall: recoveryResult.hadIncompleteToolCall,
+          };
         }
       }
 
-      return "I couldn’t complete the synthesis for this request. Please retry.";
+      return {
+        fullContent: "I couldn’t complete the synthesis for this request. Please retry.",
+        toolCalls: [],
+        hadIncompleteToolCall: false,
+      };
     }
 
     const encoder = new TextEncoder();
@@ -4296,7 +4444,7 @@ Format as a natural, readable summary with clear sections. If a section has no d
           let forcedRecoveryContent = "";
 
           while (true) {
-            const { fullContent, toolCalls, finishReason, sawAnyDelta, sawContentDelta, sawToolDelta } = await consumeSSEStream(currentResponse, enqueue);
+            const { fullContent, toolCalls, finishReason, sawAnyDelta, sawContentDelta, sawToolDelta, hadIncompleteToolCall } = await consumeSSEStream(currentResponse, enqueue);
             lastFullContent = fullContent;
             aggregatedContent += fullContent;
             console.log("ROUND RESULT", {
@@ -4308,20 +4456,40 @@ Format as a natural, readable summary with clear sections. If a section has no d
               sawAnyDelta,
               sawContentDelta,
               sawToolDelta,
+              hadIncompleteToolCall,
             });
 
-            if (!fullContent.trim() && toolCalls.length === 0) {
+            if ((!fullContent.trim() && toolCalls.length === 0) || hadIncompleteToolCall) {
               console.warn("EMPTY MODEL ROUND DETECTED", {
                 round,
                 finishReason,
                 sawAnyDelta,
                 sawContentDelta,
                 sawToolDelta,
+                hadIncompleteToolCall,
               });
-              forcedRecoveryContent = await recoverEmptyCompletion(conversationMessages);
-              lastFullContent = forcedRecoveryContent;
-              aggregatedContent += forcedRecoveryContent;
-              enqueue(`data: ${JSON.stringify({ choices: [{ delta: { content: forcedRecoveryContent } }] })}\n\n`);
+              const recovery = await recoverEmptyCompletion(conversationMessages);
+
+              if (recovery.toolCalls.length > 0) {
+                console.log("RECOVERY PRODUCED TOOL CALLS", recovery.toolCalls.map((tc) => tc?.function?.name));
+                const provider = detectToolResultProvider(recovery.toolCalls);
+                const toolResults = await executeToolCalls(recovery.toolCalls, provider);
+                const assistantMsg: any = { role: "assistant", tool_calls: recovery.toolCalls };
+                if (recovery.fullContent) assistantMsg.content = recovery.fullContent;
+                conversationMessages.push(assistantMsg, ...toolResults);
+                round++;
+                currentResponse = await fetchAIWithRetry({
+                  messages: sanitizeConversationMessages(conversationMessages),
+                  stream: true,
+                  tools,
+                });
+                continue;
+              }
+
+              forcedRecoveryContent = recovery.fullContent;
+              lastFullContent = recovery.fullContent;
+              aggregatedContent += recovery.fullContent;
+              enqueue(`data: ${JSON.stringify({ choices: [{ delta: { content: recovery.fullContent } }] })}\n\n`);
               break;
             }
 
@@ -4478,16 +4646,17 @@ Format as a natural, readable summary with clear sections. If a section has no d
             const finalResult = await consumeSSEStream(finalResponse, enqueue);
             lastFullContent = finalResult.fullContent;
 
-            if (!lastFullContent.trim() && finalResult.toolCalls.length === 0) {
+            if ((!lastFullContent.trim() && finalResult.toolCalls.length === 0) || finalResult.hadIncompleteToolCall) {
               console.warn("FINAL SYNTHESIS RETURNED EMPTY CONTENT", {
                 finishReason: finalResult.finishReason,
                 sawAnyDelta: finalResult.sawAnyDelta,
                 sawContentDelta: finalResult.sawContentDelta,
                 sawToolDelta: finalResult.sawToolDelta,
+                hadIncompleteToolCall: finalResult.hadIncompleteToolCall,
               });
-              const fallbackContent = await recoverEmptyCompletion(finalMessages);
-              lastFullContent = fallbackContent;
-              enqueue(`data: ${JSON.stringify({ choices: [{ delta: { content: fallbackContent } }] })}\n\n`);
+              const recovery = await recoverEmptyCompletion(finalMessages);
+              lastFullContent = recovery.fullContent;
+              enqueue(`data: ${JSON.stringify({ choices: [{ delta: { content: recovery.fullContent } }] })}\n\n`);
             }
           }
 
